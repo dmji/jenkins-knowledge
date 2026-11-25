@@ -197,8 +197,8 @@ mod tests {
         let r = runtime();
         assert_eq!(r.get("deployApp").unwrap()["name"], "deployApp");
         assert_eq!(
-            r.get("platform-lib:vars:deployApp").unwrap()["id"],
-            "platform-lib:vars:deployApp"
+            r.get("platform-lib:deployApp").unwrap()["id"],
+            "platform-lib:deployApp"
         );
     }
 
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn ambiguous_names_are_reported() {
         let mut r = runtime();
-        let mut duplicate = r.catalog["symbols"][0].clone();
+        let mut duplicate = r.catalog["symbols"][2].clone();
         duplicate["id"] = Value::String("second-deploy".into());
         r.catalog["symbols"].as_array_mut().unwrap().push(duplicate);
         assert!(r
