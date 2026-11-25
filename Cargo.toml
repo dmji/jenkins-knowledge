@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/catalog-validator",
+    "crates/jenkins-gdsl-collector",
+    "crates/shared-library-scanner",
+]
