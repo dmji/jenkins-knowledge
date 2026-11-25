@@ -53,7 +53,7 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
         }
         if let Some(url) = source["url"].as_str() {
             if url_has_credentials(url) {
-                errors.push(format!("/sources/{index}/url: URLs must not contain credentials or query parameters"));
+                errors.push(format!("/sources/{index}/url: URLs must not contain embedded credentials or secret query parameters"));
             }
         }
         reject_secret_fields(source, &format!("/sources/{index}"), errors);
@@ -99,14 +99,24 @@ fn url_has_credentials(value: &str) -> bool {
         return false;
     };
     let authority = remainder.split('/').next().unwrap_or_default();
-    authority.contains('@') || value.split_once('?').is_some()
+    if authority.contains('@') {
+        return true;
+    }
+    value.split_once('?').is_some_and(|(_, query)| {
+        query.split('&').any(|part| {
+            let key = part.split('=').next().unwrap_or_default().to_ascii_lowercase();
+            ["token", "api_key", "apikey", "password", "secret", "authorization", "access_token"]
+                .iter()
+                .any(|sensitive| key.contains(sensitive))
+        })
+    })
 }
 
 fn reject_secret_fields(value: &Value, path: &str, errors: &mut Vec<String>) {
     match value {
         Value::Object(fields) => {
             for (key, child) in fields {
-                let normalized = key.to_ascii_lowercase().replace(['_', '-'], "");
+                let normalized = key.to_ascii_lowercase().replace('_', "").replace('-', "");
                 if ["password", "token", "apitoken", "authorization", "secret", "credentials", "clientsecret"]
                     .contains(&normalized.as_str())
                 {
