@@ -304,14 +304,30 @@ fn matching_delimiter(input: &str, open: usize, left: char, right: char) -> Opti
 
 fn documentation(source: &str, declaration_line: usize) -> (Option<String>, Vec<String>) {
     let lines: Vec<&str> = source.lines().collect();
-    if declaration_line >= lines.len() { return (None, Vec::new()); }
+    if declaration_line == 0 || declaration_line >= lines.len() { return (None, Vec::new()); }
+    let previous = lines[declaration_line - 1].trim();
+    if previous.starts_with("/**") && previous.ends_with("*/") {
+        let text = previous.trim_start_matches("/**").trim_end_matches("*/").trim();
+        return documentation_fields(vec![text.to_owned()]);
+    }
     let mut start = declaration_line;
-    while start > 0 && (lines[start-1].trim().starts_with('*') || lines[start-1].trim().starts_with("*/")) { start -= 1; }
-    if start == declaration_line || !lines[start-1].trim().starts_with("/**") { return (None, Vec::new()); }
-    let block = lines[start-1..declaration_line].join("\n");
-    let cleaned = block.lines().map(|line| line.trim().trim_start_matches("/**").trim_start_matches("*/").trim_start_matches('*').trim()).collect::<Vec<_>>();
-    let description = cleaned.iter().filter(|line| !line.starts_with('@') && !line.is_empty()).cloned().collect::<Vec<_>>().join(" ");
-    let examples = cleaned.iter().filter_map(|line| line.strip_prefix("@example ").map(str::to_owned)).collect();
+    while start > 0 && (lines[start - 1].trim().starts_with('*') || lines[start - 1].trim().starts_with("*/")) {
+        start -= 1;
+    }
+    if start == declaration_line || !lines[start - 1].trim().starts_with("/**") {
+        return (None, Vec::new());
+    }
+    let block = lines[start - 1..declaration_line].join("\n");
+    let cleaned = block.lines().map(|line| {
+        line.trim().trim_start_matches("/**").trim_start_matches("*/").trim_start_matches('*').trim().to_owned()
+    }).collect();
+    documentation_fields(cleaned)
+}
+
+fn documentation_fields(lines: Vec<String>) -> (Option<String>, Vec<String>) {
+    let description = lines.iter().filter(|line| !line.starts_with('@') && !line.is_empty())
+        .cloned().collect::<Vec<_>>().join(" ");
+    let examples = lines.iter().filter_map(|line| line.strip_prefix("@example ").map(str::to_owned)).collect();
     (if description.is_empty() { None } else { Some(description) }, examples)
 }
 
@@ -384,6 +400,9 @@ mod tests {
         let symbols = result.catalog["symbols"].as_array().unwrap();
         assert!(symbols.iter().any(|s| s["name"] == "deployApp" && s["kind"] == "global-variable"));
         assert!(symbols.iter().any(|s| s["kind"] == "global-variable" && s["description"] == "Deploy an application to an environment."));
+        assert!(symbols.iter().any(|s| s["kind"] == "global-variable" && s["examples"][0] == "deployApp([environment: 'staging'])"));
+        assert!(symbols.iter().any(|s| s["kind"] == "class" && s["name"] == "Deployment"));
+        assert!(symbols.iter().any(|s| s["kind"] == "method" && s["name"] == "deploy" && s["description"] == "Deploy using the supplied name."));
         assert!(symbols.iter().any(|s| s["name"] == "call" && s["kind"] == "method"));
         assert!(symbols.iter().any(|s| s["name"] == "call" && s["parameters"].as_array().unwrap().len() == 2));
         assert!(result.catalog["sources"][0]["revision"] == "0123456789abcdef0123456789abcdef01234567");
