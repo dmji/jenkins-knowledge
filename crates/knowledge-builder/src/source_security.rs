@@ -76,6 +76,8 @@ pub fn validate_git_reference(value: &str) -> Result<(), String> {
         || value.chars().any(char::is_whitespace)
         || value.chars().any(char::is_control)
         || value == "@"
+        || value.starts_with('/')
+        || value.starts_with('.')
         || value.contains("..")
         || value.contains("@{")
         || value.contains("//")
@@ -84,6 +86,7 @@ pub fn validate_git_reference(value: &str) -> Result<(), String> {
         || value.ends_with('/')
         || value.ends_with('.')
         || value.ends_with(".lock")
+        || value.split('/').any(|component| component.starts_with('.') || component.ends_with('.') || component.ends_with(".lock"))
         || value.chars().any(|character| matches!(character, '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
     {
         return Err("must be a valid branch, tag, or full commit reference".into());
@@ -151,7 +154,7 @@ mod tests {
     fn git_references_reject_option_injection_and_malformed_names() {
         assert!(validate_git_reference("release/2.x").is_ok());
         assert!(validate_git_reference("0123456789abcdef0123456789abcdef01234567").is_ok());
-        for value in ["", "-c", "main branch", "bad..ref", "topic@{1}", "trailing/"] {
+        for value in ["", "-c", "main branch", "bad..ref", "topic@{1}", "trailing/", ".hidden/main", "main/.hidden", "main.lock/sub"] {
             assert!(validate_git_reference(value).is_err(), "accepted {value}");
         }
     }
