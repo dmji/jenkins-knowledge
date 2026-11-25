@@ -193,3 +193,38 @@ fn checkout_pinned_library(url: &str, commit: &str, name: &str) -> Result<Checko
     run(&["init","--quiet"])?; run(&["remote","add","origin",url])?; run(&["fetch","--quiet","--depth","1","origin",commit])?; run(&["checkout","--quiet","--detach","FETCH_HEAD"])?;
     Ok(Checkout(dir))
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    #[test]
+    fn rejects_conflicting_source_revisions_in_fixture_merge() {
+        let directory = tempfile::tempdir().unwrap();
+        let fixture = include_str!("../../../tests/fixtures/catalog-valid.json");
+        let first: Value = serde_json::from_str(fixture).unwrap();
+        let mut second = first.clone();
+        second["catalogId"] = json!("second-fixture");
+        second["sources"][0]["revision"] = json!("2.480.0");
+
+        fs::write(directory.path().join("first.json"), serde_json::to_vec(&first).unwrap()).unwrap();
+        fs::write(directory.path().join("second.json"), serde_json::to_vec(&second).unwrap()).unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            "profile: conflict-test\nfixtures:\n  - first.json\n  - second.json\n",
+        ).unwrap();
+
+        let error = build_package(
+            &directory.path().join("profile.yml"),
+            &directory.path().join("package"),
+        ).unwrap_err();
+
+        let message = error.to_string();
+        assert!(message.contains("source id 'controller' is declared by both"), "{message}");
+        assert!(message.contains("2.479.1"), "{message}");
+        assert!(message.contains("2.480.0"), "{message}");
+        assert!(!directory.path().join("package").exists());
+    }
+}
