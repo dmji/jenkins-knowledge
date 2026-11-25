@@ -1,7 +1,7 @@
 use catalog_validator::validate_catalog;
 use jsonschema::validator_for;
 use serde_json::Value;
-use std::{collections::HashSet, fs, path::{Path, PathBuf}};
+use std::{fs, path::Path};
 
 #[derive(Debug)]
 pub struct RuntimeError(pub String);
