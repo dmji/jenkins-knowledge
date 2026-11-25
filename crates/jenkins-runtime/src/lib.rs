@@ -391,6 +391,27 @@ mod tests {
     }
 
     #[test]
+    fn rejects_malformed_manifest_json() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("manifest.json"), "{").unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("invalid JSON in"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symbolic_links_for_checksummed_files() {
+        let directory = tempfile::tempdir().unwrap();
+        write_package(directory.path());
+        let catalog = directory.path().join("catalog.json");
+        let target = directory.path().join("catalog-copy.json");
+        fs::rename(&catalog, &target).unwrap();
+        std::os::unix::fs::symlink(&target, &catalog).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("symbolic links are not allowed"));
+    }
+
+    #[test]
     fn opens_a_valid_checksummed_package() {
         let directory = tempfile::tempdir().unwrap();
         write_package(directory.path());
