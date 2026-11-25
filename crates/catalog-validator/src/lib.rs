@@ -66,13 +66,22 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
     }
 
     if let Some(coverage) = catalog["coverage"].as_array() {
+        let mut coverage_keys = HashSet::new();
         for (index, entry) in coverage.iter().enumerate() {
             let source_id = entry["sourceId"]
                 .as_str()
                 .expect("schema validated coverage source id");
+            let surface = entry["surface"]
+                .as_str()
+                .expect("schema validated coverage surface");
             if !source_ids.contains(source_id) {
                 errors.push(format!(
                     "/coverage/{index}/sourceId: unknown source id '{source_id}'"
+                ));
+            }
+            if !coverage_keys.insert((source_id, surface)) {
+                errors.push(format!(
+                    "/coverage/{index}: duplicate coverage entry for source '{source_id}' and surface '{surface}'"
                 ));
             }
         }
@@ -271,6 +280,19 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("/coverage/0/sourceId"));
+    }
+
+    #[test]
+    fn rejects_duplicate_coverage_for_the_same_source_surface() {
+        let mut invalid = valid_catalog();
+        invalid["coverage"] = json!([
+            {"sourceId":"controller","surface":"pipeline-steps","status":"inspected"},
+            {"sourceId":"controller","surface":"pipeline-steps","status":"unavailable"}
+        ]);
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate coverage entry"));
     }
 
     #[test]
