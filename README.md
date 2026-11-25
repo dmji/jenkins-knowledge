@@ -46,3 +46,12 @@ Rust is the primary implementation language. Builder, Runtime, MCP server, CLI, 
 - Groovy is limited to Jenkins/Groovy compatibility, generated Groovy stubs, and test fixtures. It is not a core implementation language.
 - Cargo is the standard build and test system. Do not introduce Gradle/JVM as the project build system.
 - Prefer established Rust crates and the standard library. Document and justify dependencies and any technically necessary language exceptions.
+
+## Catalog contract and validation
+
+The canonical catalog contract is documented in [docs/catalog-contract.md](docs/catalog-contract.md). Validate catalog JSON and semantic source references with the Rust validator:
+
+```sh
+cargo test --manifest-path crates/catalog-validator/Cargo.toml
+cargo run --manifest-path crates/catalog-validator/Cargo.toml -- examples/catalog/catalog.json schemas/catalog.schema.json
+```
