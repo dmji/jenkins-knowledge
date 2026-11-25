@@ -209,20 +209,33 @@ mod tests {
         second["catalogId"] = json!("second-fixture");
         second["sources"][0]["revision"] = json!("2.480.0");
 
-        fs::write(directory.path().join("first.json"), serde_json::to_vec(&first).unwrap()).unwrap();
-        fs::write(directory.path().join("second.json"), serde_json::to_vec(&second).unwrap()).unwrap();
+        fs::write(
+            directory.path().join("first.json"),
+            serde_json::to_vec(&first).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("second.json"),
+            serde_json::to_vec(&second).unwrap(),
+        )
+        .unwrap();
         fs::write(
             directory.path().join("profile.yml"),
             "profile: conflict-test\nfixtures:\n  - first.json\n  - second.json\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let error = build_package(
             &directory.path().join("profile.yml"),
             &directory.path().join("package"),
-        ).unwrap_err();
+        )
+        .unwrap_err();
 
         let message = error.to_string();
-        assert!(message.contains("source id 'controller' is declared by both"), "{message}");
+        assert!(
+            message.contains("source id 'controller' is declared by both"),
+            "{message}"
+        );
         assert!(message.contains("2.479.1"), "{message}");
         assert!(message.contains("2.480.0"), "{message}");
         assert!(!directory.path().join("package").exists());
