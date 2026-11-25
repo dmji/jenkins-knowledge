@@ -217,9 +217,11 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     }
     fs::write(staging_path.join("manifest.json"), format!("{}\n", serde_json::to_string_pretty(&manifest).map_err(|e| BuildError::Io(e.to_string()))?))
         .map_err(|e| BuildError::Io(e.to_string()))?;
-    staging.persist_noclobber(output).map_err(|error| {
-        BuildError::Io(format!("cannot publish package {}: {}", output.display(), error.error))
-    })?;
+    if output.exists() {
+        return Err(BuildError::OutputExists(output.display().to_string()));
+    }
+    fs::rename(staging.path(), output)
+        .map_err(|error| BuildError::Io(format!("cannot publish package {}: {error}", output.display())))?;
     Ok(())
 }
 
