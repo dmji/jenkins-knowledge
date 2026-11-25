@@ -39,8 +39,9 @@ pub fn validate_git_url(value: &str) -> Result<(), String> {
     // Git SCP syntax: [user@]host:path. Restrict the host to DNS/IPv4 characters
     // to avoid interpreting local paths or command-line options as remotes.
     let (authority, path) = value.split_once(':').ok_or_else(|| "expected an HTTPS/SSH URL or [user@]host:path Git remote".to_owned())?;
-    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
-    if host.is_empty()
+    let (user, host) = authority.rsplit_once('@').map_or((None, authority), |(user, host)| (Some(user), host));
+    if user.is_some_and(|user| user.is_empty() || user.contains(':') || !user.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')))
+        || host.is_empty()
         || path.is_empty()
         || host.starts_with('-')
         || !host.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
@@ -114,6 +115,8 @@ mod tests {
             "file:///tmp/library",
             "/tmp/library",
             "https://user:secret@github.example.test/team/library.git",
+            "ssh://git:secret@github.example.test/team/library.git",
+            "git:secret@github.example.test:team/library.git",
             "https://github.example.test/team/library.git?token=secret",
             "-upload-pack=evil",
         ] {
