@@ -24,8 +24,8 @@ fn open_runtime(settings: &Value) -> Result<Runtime, Box<dyn Error>> {
 }
 
 fn settings(params: &Value) -> &Value {
-    params.get("settings").and_then(|value| value.get("jenkinsKnowledge"))
-        .or_else(|| params.get("jenkinsKnowledge")).unwrap_or(params)
+    let settings = params.get("settings").unwrap_or(params);
+    settings.get("jenkinsKnowledge").unwrap_or(settings)
 }
 
 fn word_at(text: &str, line_number: usize, utf16_column: usize) -> Option<String> {
