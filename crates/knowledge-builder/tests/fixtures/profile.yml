@@ -1,0 +1,5 @@
+profile: fixture-profile
+fixtures:
+  - catalog.json
+package:
+  id: fixture-package
