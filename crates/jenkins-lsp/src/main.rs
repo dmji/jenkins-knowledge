@@ -1,4 +1,4 @@
-use jenkins_runtime::Runtime;
+use jenkins_runtime::{Runtime, SearchOptions, MAX_SEARCH_RESULTS};
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use serde_json::{json, Value};
 use std::{collections::HashMap, error::Error, process};
@@ -60,7 +60,8 @@ fn supported_symbol(symbol: &Value) -> bool {
 
 fn completion(runtime: Option<&Runtime>) -> Value {
     let Some(runtime) = runtime else { return json!([]); };
-    let mut items: Vec<Value> = runtime.search("", None, None).iter()
+    let options = SearchOptions { limit: MAX_SEARCH_RESULTS, ..SearchOptions::default() };
+    let mut items: Vec<Value> = runtime.search_with_options(&options).iter()
         .filter(|symbol| supported_symbol(symbol)).map(|symbol| {
         let name = symbol["name"].as_str().unwrap_or_default();
         let kind = symbol["kind"].as_str().unwrap_or_default();
@@ -94,7 +95,8 @@ fn completion(runtime: Option<&Runtime>) -> Value {
 
 fn hover(runtime: Option<&Runtime>, word: Option<String>) -> Value {
     let (Some(runtime), Some(word)) = (runtime, word) else { return Value::Null; };
-    let symbols: Vec<_> = runtime.search(&word, None, None).into_iter()
+    let options = SearchOptions { query: word.clone(), limit: MAX_SEARCH_RESULTS, ..SearchOptions::default() };
+    let symbols: Vec<_> = runtime.search_with_options(&options).into_iter()
         .filter(|symbol| supported_symbol(symbol) && symbol["name"].as_str() == Some(word.as_str())).collect();
     if symbols.is_empty() { return Value::Null; }
     let sections = symbols.iter().map(|symbol| {
@@ -160,6 +162,10 @@ fn handle_request(connection: &Connection, request: Request, runtime: Option<&Ru
     let result = match request.method.as_str() {
         "shutdown" => Value::Null,
         "textDocument/completion" => completion(runtime),
+        "jenkinsKnowledge/coverage" => json!({
+            "profile": runtime.map(Runtime::profile),
+            "coverage": runtime.map(Runtime::coverage).unwrap_or(&[])
+        }),
         "textDocument/hover" => {
             let uri = request.params.pointer("/textDocument/uri").and_then(Value::as_str).unwrap_or_default();
             let line = request.params.pointer("/position/line").and_then(Value::as_u64).unwrap_or(0) as usize;
