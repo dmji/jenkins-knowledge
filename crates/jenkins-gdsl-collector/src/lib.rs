@@ -230,7 +230,7 @@ fn parse_methods(input: &str) -> Result<Vec<Method>, CollectorError> {
     let mut last_offset = 0;
     let mut current_line = 1;
     for found in marker.find_iter(input) {
-        current_line += input[last_offset..found.start()].bytes().filter(|byte| *byte == b'\\n').count();
+        current_line += input[last_offset..found.start()].bytes().filter(|byte| *byte == b'\n').count();
         last_offset = found.start();
         if methods.len() >= MAX_GDSL_SYMBOLS {
             return Err(CollectorError::TooManySymbols {
