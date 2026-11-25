@@ -148,11 +148,11 @@ A package directory contains `manifest.json` and the catalog file named by its `
 
 ```sh
 cargo test --manifest-path crates/jenkins-runtime/Cargo.toml --all-targets
-cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- --package path/to/package search deploy
-cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- --package path/to/package --profile production list --kind step
-cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- --package path/to/package get deployApp
-cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- --package path/to/package examples deployApp
-cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- --package path/to/package step sh
+cargo run --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime -- --package path/to/package search deploy
+cargo run --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime -- --package path/to/package --profile production list --kind step
+cargo run --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime -- --package path/to/package get deployApp
+cargo run --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime -- --package path/to/package examples deployApp
+cargo run --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime -- --package path/to/package step sh
 ```
 
 The optional `--profile` must match the package manifest; selecting another profile requires selecting its package explicitly. Results include the source snapshot, profile, and confidence. The Runtime performs no Jenkins/Git/network access and exposes no write operations.
