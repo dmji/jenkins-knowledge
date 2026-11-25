@@ -56,6 +56,17 @@ cargo test --manifest-path crates/catalog-validator/Cargo.toml
 cargo run --manifest-path crates/catalog-validator/Cargo.toml -- examples/catalog/catalog.json schemas/catalog.schema.json
 ```
 
+## Jenkins Shared Library scanning
+
+Scan configured Shared Library Git revisions and emit schema-validated catalogs with exact resolved commit provenance:
+
+```sh
+cargo test --manifest-path crates/shared-library-scanner/Cargo.toml
+cargo run --manifest-path crates/shared-library-scanner/Cargo.toml -- libraries.json catalog.json
+```
+
+See [scanner usage and extraction limitations](crates/shared-library-scanner/README.md).
+
 ## Jenkins controller GDSL extraction
 
 The Rust collector fetches the Pipeline DSL exposed by a configured controller and emits a schema-validated catalog. See [collector usage and compatibility notes](crates/jenkins-gdsl-collector/README.md).
