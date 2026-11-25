@@ -59,9 +59,12 @@ pub fn redact_url(value: &str) -> String {
     if let Ok(mut parsed) = Url::parse(value) {
         let _ = parsed.set_username("");
         let _ = parsed.set_password(None);
+        parsed.set_query(None);
+        parsed.set_fragment(None);
         return parsed.to_string();
     }
-    value.rsplit_once('@').map_or_else(|| value.to_owned(), |(_, rest)| rest.to_owned())
+    let without_suffix = value.split(|character| character == '?' || character == '#').next().unwrap_or(value);
+    without_suffix.rsplit_once('@').map_or_else(|| without_suffix.to_owned(), |(_, rest)| rest.to_owned())
 }
 
 pub fn validate_git_reference(value: &str) -> Result<(), String> {
