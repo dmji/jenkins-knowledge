@@ -2,12 +2,6 @@ use crate::Runtime;
 use serde_json::Value;
 use std::fmt::Write;
 
-const SAFE_TYPES: &[&str] = &[
-    "Object", "String", "Boolean", "Byte", "Short", "Integer", "Long", "Float", "Double",
-    "Character", "Number", "Void", "void", "def", "Map", "List", "Set", "Collection",
-    "Iterable", "Iterator", "File", "URL", "URI", "Closure", "GString",
-];
-
 fn groovy_type(value: Option<&str>) -> &'static str {
     match value.map(str::trim) {
         Some("boolean" | "Boolean") => "Boolean",
@@ -18,9 +12,23 @@ fn groovy_type(value: Option<&str>) -> &'static str {
         Some("float" | "Float") => "Float",
         Some("double" | "Double") => "Double",
         Some("char" | "Character") => "Character",
-        Some("String" | "Object" | "Number" | "Void" | "void" | "def" | "Map" | "List"
-            | "Set" | "Collection" | "Iterable" | "Iterator" | "File" | "URL" | "URI"
-            | "Closure" | "GString") => value.unwrap().trim(),
+        Some("String") => "String",
+        Some("Object") => "Object",
+        Some("Number") => "Number",
+        Some("Void") => "Void",
+        Some("void") => "void",
+        Some("def") => "def",
+        Some("Map") => "Map",
+        Some("List") => "List",
+        Some("Set") => "Set",
+        Some("Collection") => "Collection",
+        Some("Iterable") => "Iterable",
+        Some("Iterator") => "Iterator",
+        Some("File") => "File",
+        Some("URL") => "URL",
+        Some("URI") => "URI",
+        Some("Closure") => "Closure",
+        Some("GString") => "GString",
         _ => "Object",
     }
 }
@@ -175,7 +183,7 @@ mod tests {
     #[test]
     fn golden_stub_output_preserves_signatures_docs_and_profile() {
         let actual = render_groovy_stubs(&fixture_runtime());
-        assert_eq!(actual, include_str!("../../../tests/golden/groovy-stubs.groovy"));
+        assert_eq!(actual, include_str!("../../../tests/fixtures/groovy-stubs.groovy"));
     }
 
     #[test]
