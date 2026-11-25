@@ -277,7 +277,7 @@ fn split_arguments(input: &str) -> Vec<&str> {
             continue;
         }
         match byte {
-            b'\'' | b'"' -> quote = Some(byte),
+            b'\'' | b'"' => quote = Some(byte),
             b'(' | b'[' | b'{' => depth += 1,
             b')' | b']' | b'}' => depth -= 1,
             b',' if depth == 0 => { parts.push(&input[start..i]); start = i + 1; },
