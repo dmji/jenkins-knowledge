@@ -104,3 +104,13 @@ cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- --package path/to
 ```
 
 The optional `--profile` must match the package manifest; selecting another profile requires selecting its package explicitly. Results include the source snapshot, profile, and confidence. The Runtime performs no Jenkins/Git/network access and exposes no write operations.
+
+## Read-only MCP server
+
+Build and launch the MCP stdio server against one explicit Knowledge Package:
+
+```sh
+cargo run --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp -- --package ./target/fixture-package
+```
+
+The server exposes search_api, get_api_details, list_api, get_usage_examples, and get_pipeline_step, plus the jenkins://catalog/manifest, jenkins://catalog/libraries, jenkins://catalog/pipeline-steps, and selected-profile resources. It is read-only and never connects to Jenkins or executes Pipeline steps. See [MCP server documentation](runtime/mcp.md) for client configuration and protocol details.
