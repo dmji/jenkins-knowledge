@@ -9,6 +9,7 @@ The catalog is the canonical API representation shared by Builder, Runtime, IDE 
 - `generatedAt`: RFC 3339 timestamp.
 - `sources`: source snapshots from which symbols were extracted.
 - `symbols`: API symbols associated with exactly one source.
+- `coverage` (optional): per-source collection status for an inspected API surface.
 
 ## Sources
 
@@ -16,7 +17,7 @@ Each source has a unique `id`, a `kind`, a human-readable `name`, and a `revisio
 
 ## Symbols
 
-Each symbol has a unique `id`, a non-empty `name`, a `kind`, a `sourceId` referencing a catalog source, and a `confidence`. Optional fields describe namespace, signature, description, parameters, return type, overloads, examples, constraints, contexts, documentation URL, and provenance.
+Each symbol has a unique `id`, a non-empty `name`, a `kind`, a `sourceId` referencing a catalog source, and a `confidence`. Optional fields describe namespace, signature, description, parameters, return type, overloads, examples, constraints, contexts, documentation URL, provenance, and per-field `fieldEvidence`.
 
 Symbol kinds:
 
