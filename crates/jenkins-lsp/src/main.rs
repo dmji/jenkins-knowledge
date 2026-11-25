@@ -182,7 +182,8 @@ fn main() {
 
 fn serve() -> Result<(), Box<dyn Error>> {
     let (connection, io_threads) = Connection::stdio();
-    let initialization = connection.initialize(json!({
+    let (initialize_id, initialization) = connection.initialize_start()?;
+    connection.initialize_finish(initialize_id, json!({
         "capabilities": {
             "textDocumentSync": {"openClose": true, "change": 1},
             "completionProvider": {"resolveProvider": false, "triggerCharacters": ["."]},
