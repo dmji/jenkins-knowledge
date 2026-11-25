@@ -207,7 +207,7 @@ fn scan_global(
         "description": description.unwrap_or_else(|| format!("Shared Library global defined by {path}")),
         "contexts": ["pipeline"],
         "confidence": confidence,
-        "provenance": [format!("{path}:1 (global script)")]
+        "provenance": [format!("{path}:{} (global script)", declaration_line + 1)]
     });
     if !examples.is_empty() {
         symbol["examples"] = json!(examples);
@@ -216,7 +216,7 @@ fn scan_global(
 
     let methods = parse_methods(source);
     for method in methods {
-        symbols.push(method_symbol(path, source_id, confidence, method, "method"));
+        symbols.push(method_symbol(path, source_id, confidence, method, "method", Some(name)));
     }
     if source.contains("metaClass") || source.contains("methodMissing") || source.contains("invokeMethod") {
         push_diagnostic(
@@ -264,72 +264,180 @@ fn push_diagnostic(
 
 fn scan_classes_and_methods(path: &str, source: &str, source_id: &str, confidence: &str,
     symbols: &mut Vec<Value>, diagnostics: &mut Vec<Diagnostic>) {
-    let mut offset = 0;
-    for line in source.lines() {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut depth = 0i32;
+    let mut signature_depth = 0i32;
+    let mut owner: Option<String> = None;
+    for (index, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("class ").or_else(|| trimmed.strip_prefix("public class "))
-            .or_else(|| trimmed.strip_prefix("abstract class ")) {
-            let name = rest.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).next().unwrap_or("");
-            if !name.is_empty() {
-                let line_no = line_number(source, offset);
-                symbols.push(json!({
-                    "id": format!("{source_id}:{path}:class:{name}:{line_no}"),
-                    "name": name,
-                    "kind": "class",
-                    "sourceId": source_id,
-                    "confidence": confidence,
-                    "provenance": [format!("{path}:{line_no}")]
-                }));
+        if let Some((name, signature)) = parse_class_declaration(trimmed) {
+            let line_no = index + 1;
+            let mut symbol = json!({
+                "id": format!("{source_id}:{path}:class:{name}:{line_no}"),
+                "name": name, "kind": "class", "sourceId": source_id,
+                "confidence": confidence, "provenance": [format!("{path}:{line_no}")]
+            });
+            if !signature.is_empty() { symbol["signature"] = json!(signature); }
+            symbols.push(symbol);
+            owner = Some(name);
+            depth = brace_delta(line);
+        } else if owner.is_some() {
+            depth += brace_delta(line);
+            if depth <= 0 { owner = None; depth = 0; }
+            else if path.starts_with("src/") && depth == 1 && signature_depth == 0
+                && !trimmed.is_empty() && !trimmed.starts_with('@') {
+                if let Some((name, ty)) = parse_property_declaration(trimmed) {
+                    let class_name = owner.as_deref().unwrap_or_default();
+                    symbols.push(json!({
+                        "id": format!("{source_id}:{path}:property:{class_name}:{name}:{}", index + 1),
+                        "name": name, "kind": "property", "sourceId": source_id,
+                        "namespace": class_name, "signature": ty, "confidence": confidence,
+                        "provenance": [format!("{path}:{}", index + 1)]
+                    }));
+                }
             }
         }
-        offset += line.len() + 1;
+        if owner.is_some() {
+            signature_depth = (signature_depth + paren_delta(line)).max(0);
+        } else {
+            signature_depth = 0;
+        }
     }
     if path.starts_with("src/") {
         for method in parse_methods(source) {
-            symbols.push(method_symbol(path, source_id, confidence, method, "method"));
+            let owner = method.owner.clone();
+            symbols.push(method_symbol(path, source_id, confidence, method, "method", owner.as_deref()));
         }
     }
+    diagnose_unsupported_syntax(path, source, source_id, diagnostics);
     if source.contains("methodMissing") || source.contains("invokeMethod") || source.contains("metaClass") {
-        push_diagnostic(
-            diagnostics,
-            source_id,
-            path,
-            "dynamic-method-dispatch",
-            "Dynamic method dispatch cannot be fully enumerated.",
-        );
+        push_diagnostic(diagnostics, source_id, path, "dynamic-method-dispatch",
+            "Dynamic method dispatch cannot be fully enumerated.");
+    }
+}
+
+fn parse_class_declaration(line: &str) -> Option<(String, String)> {
+    let clean = line.trim_start_matches("public ").trim_start_matches("abstract ")
+        .trim_start_matches("final ").trim_start_matches("static ");
+    let rest = clean.strip_prefix("class ")?;
+    let name = rest.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).next()?;
+    if !valid_identifier(name) { return None; }
+    Some((name.to_owned(), rest.trim().trim_end_matches('{').trim().to_owned()))
+}
+
+fn parse_property_declaration(line: &str) -> Option<(String, String)> {
+    if line.contains('(') || line.starts_with("//") || line.starts_with("/*") || line.starts_with('*')
+        || line.starts_with("return ") || line.starts_with("throw ") || line.contains("->") { return None; }
+    let declaration = line.trim_end_matches(';').split('=').next()?.trim();
+    let mut words: Vec<&str> = declaration.split_whitespace().collect();
+    while words.first().is_some_and(|w| matches!(*w,
+        "public" | "protected" | "private" | "static" | "final" | "transient" | "volatile")) {
+        words.remove(0);
+    }
+    if words.len() < 2 { return None; }
+    let name = words[words.len()-1].trim_end_matches('?');
+    if !valid_identifier(name) { return None; }
+    let ty = words[..words.len()-1].join(" ");
+    if ty.is_empty() || ["return","new","if","else","while","for","switch"].contains(&ty.as_str()) { return None; }
+    Some((name.to_owned(), ty))
+}
+
+fn brace_delta(line: &str) -> i32 {
+    line.chars().fold(0, |n, c| match c { '{' => n+1, '}' => n-1, _ => n })
+}
+
+fn paren_delta(line: &str) -> i32 {
+    line.chars().fold(0, |n, c| match c { '(' => n+1, ')' => n-1, _ => n })
+}
+
+fn diagnose_unsupported_syntax(path: &str, source: &str, source_id: &str, diagnostics: &mut Vec<Diagnostic>) {
+    let lines: Vec<&str> = source.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if ["trait ", "enum ", "record ", "@interface", "sealed class ", "def (", "def ["]
+            .iter().any(|needle| trimmed.starts_with(needle)) {
+            push_diagnostic(diagnostics, source_id, path, "unsupported-groovy-syntax",
+                &format!("Unsupported declaration form at line {}; no symbol was inferred from it.", index + 1));
+        }
+        if is_method_declaration_start(trimmed) {
+            let mut declaration = trimmed.to_owned();
+            let mut next = index + 1;
+            while !has_balanced_parentheses(&declaration) && next < lines.len() {
+                declaration.push(' ');
+                declaration.push_str(lines[next].trim());
+                next += 1;
+            }
+            if !has_balanced_parentheses(&declaration) {
+                push_diagnostic(diagnostics, source_id, path, "unsupported-groovy-syntax",
+                    &format!("Incomplete method signature at line {}; no symbol was inferred from it.", index + 1));
+            }
+        }
     }
 }
 
 #[derive(Debug)]
 struct Method {
-    name: String,
-    parameters: Vec<Value>,
-    signature: String,
-    line: usize,
-    description: Option<String>,
-    examples: Vec<String>,
+    name: String, parameters: Vec<Value>, signature: String, line: usize,
+    description: Option<String>, examples: Vec<String>, owner: Option<String>,
 }
 
 fn parse_methods(source: &str) -> Vec<Method> {
     let lines: Vec<&str> = source.lines().collect();
-    let mut methods = Vec::new();
-    for (index, line) in lines.iter().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("//") || trimmed.starts_with('*') || trimmed.starts_with("/*") { continue; }
-        let Some(open) = trimmed.find('(') else { continue };
-        let prefix = trimmed[..open].trim();
-        if !(prefix.starts_with("def ") || prefix.starts_with("public ") || prefix.starts_with("protected ")
-            || prefix.starts_with("private ") || prefix.starts_with("static ")) { continue; }
-        let Some(close) = matching_delimiter(trimmed, open, '(', ')') else { continue };
-        let before = prefix.split_whitespace().last().unwrap_or("");
-        if before.is_empty() || !valid_identifier(before) || ["if", "for", "while", "switch", "catch"].contains(&before) { continue; }
-        let args = &trimmed[open + 1..close];
-        let parameters = parse_parameters(args);
-        let signature = format!("{}({})", before, parameters.iter().map(|p| p["name"].as_str().unwrap_or("?")).collect::<Vec<_>>().join(", "));
-        let (description, examples) = documentation(source, index);
-        methods.push(Method { name: before.to_owned(), parameters, signature, line: index + 1, description, examples });
+    let mut result = Vec::new();
+    let mut index = 0;
+    while index < lines.len() {
+        let trimmed = lines[index].trim();
+        if is_method_declaration_start(trimmed) {
+            let start = index;
+            let mut declaration = trimmed.to_owned();
+            while !has_balanced_parentheses(&declaration) && index + 1 < lines.len() {
+                index += 1;
+                declaration.push(' ');
+                declaration.push_str(lines[index].trim());
+            }
+            let owner = lines[..=start].iter().rev()
+                .find_map(|line| parse_class_declaration(line.trim()).map(|(name, _)| name));
+            if let Some(mut method) = parse_method_declaration(&declaration, start + 1, owner) {
+                let (description, examples) = documentation(source, start);
+                method.description = description;
+                method.examples = examples;
+                result.push(method);
+            }
+        }
+        index += 1;
     }
-    methods
+    result
+}
+
+fn is_method_declaration_start(line: &str) -> bool {
+    if line.starts_with('@') || line.starts_with("//") || line.starts_with('*') || line.starts_with("/*") { return false; }
+    let Some(open) = line.find('(') else { return false };
+    let prefix = line[..open].trim();
+    let name = prefix.split_whitespace().last().unwrap_or("");
+    let first = prefix.split_whitespace().next().unwrap_or("");
+    !["return", "throw", "new", "assert", "yield"].contains(&first)
+        && !prefix.contains('=')
+        && valid_identifier(name)
+        && !["if","for","while","switch","catch","synchronized","assert"].contains(&name)
+        && (prefix.starts_with("def ") || prefix.split_whitespace().count() >= 2)
+}
+
+fn has_balanced_parentheses(text: &str) -> bool {
+    let Some(open) = text.find('(') else { return true };
+    matching_delimiter(text, open, '(', ')').is_some()
+}
+
+fn parse_method_declaration(text: &str, line: usize, owner: Option<String>) -> Option<Method> {
+    let open = text.find('(')?;
+    let close = matching_delimiter(text, open, '(', ')')?;
+    let prefix = text[..open].trim();
+    let name = prefix.split_whitespace().last()?;
+    if !valid_identifier(name) || ["if","for","while","switch","catch"].contains(&name) { return None; }
+    let parameters = parse_parameters(&text[open+1..close]);
+    let signature = format!("{}({})", name, parameters.iter()
+        .map(|p| p["name"].as_str().unwrap_or("?")).collect::<Vec<_>>().join(", "));
+    Some(Method { name: name.to_owned(), parameters, signature, line, description: None,
+        examples: Vec::new(), owner })
 }
 
 fn parse_parameters(args: &str) -> Vec<Value> {
@@ -361,8 +469,8 @@ fn split_arguments(input: &str) -> Vec<&str> {
         }
         match byte {
             b'\'' | b'"' => quote = Some(byte),
-            b'(' | b'[' | b'{' => depth += 1,
-            b')' | b']' | b'}' => depth -= 1,
+            b'(' | b'[' | b'{' | b'<' => depth += 1,
+            b')' | b']' | b'}' | b'>' => depth -= 1,
             b',' if depth == 0 => { parts.push(&input[start..i]); start = i + 1; },
             _ => {}
         }
@@ -423,7 +531,7 @@ fn valid_identifier(value: &str) -> bool {
     chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
-fn method_symbol(path: &str, source_id: &str, confidence: &str, method: Method, kind: &str) -> Value {
+fn method_symbol(path: &str, source_id: &str, confidence: &str, method: Method, kind: &str, owner: Option<&str>) -> Value {
     let mut symbol = json!({
         "id": format!("{source_id}:{path}:{}:{}:{}", method.name, method.line, slug(&method.signature)),
         "name": method.name,
@@ -435,6 +543,7 @@ fn method_symbol(path: &str, source_id: &str, confidence: &str, method: Method, 
         "confidence": confidence,
         "provenance": [format!("{path}:{}", method.line)]
     });
+    if let Some(owner) = owner { symbol["namespace"] = json!(owner); }
     if let Some(description) = method.description { symbol["description"] = json!(description); }
     if !method.examples.is_empty() { symbol["examples"] = json!(method.examples); }
     symbol
@@ -447,7 +556,6 @@ fn slug(value: &str) -> String {
     }
     output.trim_matches('-').to_owned()
 }
-fn line_number(source: &str, offset: usize) -> usize { source[..offset].bytes().filter(|b| *b == b'\n').count() + 1 }
 fn timestamp() -> String {
     let seconds = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     let days = (seconds / 86400) as i64;
@@ -481,7 +589,8 @@ mod tests {
     fn scans_vars_global_documentation_and_methods() {
         let result = scan_checkout(&config("main"), &fixture(), "0123456789abcdef0123456789abcdef01234567").unwrap();
         let symbols = result.catalog["symbols"].as_array().unwrap();
-        assert!(symbols.iter().any(|s| s["name"] == "deployApp" && s["kind"] == "global-variable"));
+        assert!(symbols.iter().any(|s| s["name"] == "deployApp" && s["kind"] == "global-variable"
+            && s["provenance"][0] == "vars/deployApp.groovy:5 (global script)"));
         assert!(symbols.iter().any(|s| s["kind"] == "global-variable" && s["description"] == "Deploy an application to an environment."));
         assert!(symbols.iter().any(|s| s["kind"] == "global-variable" && s["examples"][0] == "deployApp([environment: 'staging'])"));
         assert!(symbols.iter().any(|s| s["kind"] == "class" && s["name"] == "Deployment"));
@@ -597,6 +706,60 @@ mod tests {
             reference: "main".into(),
         };
         assert!(matches!(scan_checkout(&config, &fixture(), "0123456789abcdef0123456789abcdef01234567"), Err(ScanError::InvalidConfig(_))));
+    }
+
+    #[test]
+    fn parses_multiline_annotated_generic_methods_and_class_members() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("src/example");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("Service.groovy"), r#"
+package example
+class Service<T> extends BaseService implements Runnable, Closeable {
+    @Deprecated
+    private Map<String, List<Integer>> cache
+    @Override
+    public List<Result> deploy(
+        Map<String, List<Integer>> options,
+        Closure<Result> callback
+    ) { null }
+    protected String overloaded(String name) { name }
+    protected String overloaded(String name, int retries) { name }
+}
+"#).unwrap();
+        let result = scan_checkout(&config("main"), temp.path(), "0123456789abcdef0123456789abcdef01234567").unwrap();
+        let symbols = result.catalog["symbols"].as_array().unwrap();
+        let class = symbols.iter().find(|s| s["kind"] == "class").unwrap();
+        assert!(class["signature"].as_str().unwrap().contains("extends BaseService"));
+        assert!(class["signature"].as_str().unwrap().contains("implements Runnable, Closeable"));
+        let property = symbols.iter().find(|s| s["kind"] == "property").unwrap();
+        assert_eq!(property["name"], "cache");
+        assert_eq!(property["namespace"], "Service");
+        assert!(property["signature"].as_str().unwrap().contains("Map<String, List<Integer>>"));
+        let deploy = symbols.iter().find(|s| s["name"] == "deploy").unwrap();
+        assert_eq!(deploy["namespace"], "Service");
+        assert_eq!(deploy["provenance"][0], "src/example/Service.groovy:7");
+        assert_eq!(deploy["parameters"].as_array().unwrap().len(), 2);
+        assert!(deploy["parameters"][0]["type"].as_str().unwrap().contains("Map<String, List<Integer>>"));
+        assert_eq!(symbols.iter().filter(|s| s["name"] == "overloaded").count(), 2);
+    }
+
+    #[test]
+    fn reports_unsupported_declarations_without_fabricating_symbols() {
+        let temp = tempfile::tempdir().unwrap();
+        let vars = temp.path().join("vars");
+        fs::create_dir_all(&vars).unwrap();
+        fs::write(vars.join("example.groovy"), "trait DynamicThing { }\nenum State { READY }\ndef broken(\n").unwrap();
+        let result = scan_checkout(&config("main"), temp.path(), "0123456789abcdef0123456789abcdef01234567").unwrap();
+        assert!(result.diagnostics.iter().filter(|d| d.code == "unsupported-groovy-syntax").count() >= 3);
+        assert!(!result.catalog["symbols"].as_array().unwrap().iter().any(|s| s["kind"] == "class"));
+    }
+
+    #[test]
+    fn records_global_method_ownership() {
+        let result = scan_checkout(&config("main"), &fixture(), "0123456789abcdef0123456789abcdef01234567").unwrap();
+        let helper = result.catalog["symbols"].as_array().unwrap().iter().find(|s| s["name"] == "helper").unwrap();
+        assert_eq!(helper["namespace"], "deployApp");
     }
 
     #[test]

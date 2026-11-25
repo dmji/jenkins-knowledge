@@ -38,6 +38,13 @@ The optional `--diagnostics <path>` argument writes a versioned JSON object with
 - Classes declared under `src/` are emitted as `class` symbols.
 - Symbols include file and line provenance. Explicit declarations are marked `verified`; files containing dynamic dispatch/evaluation constructs are marked `inferred`.
 - Dynamic dispatch, metaprogramming, generated methods, runtime inheritance and arbitrary Groovy expressions cannot be resolved without executing code. Such cases are reported in diagnostics rather than guessed. The scanner intentionally does not evaluate Groovy. Current diagnostic codes include `dynamic-groovy-constructs`, `dynamic-global-methods`, and `dynamic-method-dispatch`.
-- The parser is a conservative source heuristic, not a complete Groovy grammar. Unsupported syntax should be treated as a diagnostic, not proof that an API does not exist.
+- The parser is a conservative source heuristic, not a complete Groovy grammar. Its supported declaration subset is:
+  - class declarations with a simple identifier and same-line generic, `extends`, and `implements` clauses;
+  - methods with explicit `def` or a typed/modifier-prefixed name, including annotations on preceding lines and parameter lists split across lines;
+  - nested generic parameter types, nested collection/closure parameter types, default-valued parameters, and overloads;
+  - simple class properties with an explicit type or `def`, including visibility and `static`/ `final` modifiers.
+- Class members use the catalog `namespace` field for their declaring class; methods extracted from `vars/<name>.groovy` use the global name as their namespace. Every extracted declaration retains its repository-relative file and line in `provenance`.
+- Unsupported declaration forms currently include traits, enums, records, annotation declarations, sealed classes, closure-parameter declarations, and incomplete method signatures. They produce `unsupported-groovy-syntax` diagnostics and do not create guessed symbols.
+- This is intentionally not a complete Groovy parser: multiline class headers, nested/local classes, complex field initializers, script-generated members, extension methods, AST transforms, and dynamic metaprogramming may not be represented. An absent symbol is not evidence that a member does not exist. Treat diagnostics as coverage warnings, not compiler errors.
 
 The scanner validates each generated catalog against `schemas/catalog.schema.json` and the semantic source-reference checks from `catalog-validator`.
