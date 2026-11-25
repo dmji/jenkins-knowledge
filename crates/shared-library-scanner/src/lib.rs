@@ -750,19 +750,9 @@ mod tests {
     }
 
     #[test]
-    fn scan_library_records_resolved_git_commit() {
-        let temp = tempfile::tempdir().unwrap();
-        let repo = temp.path().join("repo");
-        std::fs::create_dir(&repo).unwrap();
-        Command::new("git").args(["init", "--quiet"]).current_dir(&repo).status().unwrap();
-        std::fs::create_dir(repo.join("vars")).unwrap();
-        std::fs::write(repo.join("vars/deploy.groovy"), "def call() { }\n").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(&repo).status().unwrap();
-        Command::new("git").args(["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "fixture"]).current_dir(&repo).status().unwrap();
-        let result = scan_library(&LibraryConfig { name: "local".into(), repository: repo.to_string_lossy().into_owned(), reference: "HEAD".into() }).unwrap();
-        let sha = result.catalog["sources"][0]["revision"].as_str().unwrap();
-        assert_eq!(sha.len(), 40);
-        assert!(sha.bytes().all(|b| b.is_ascii_hexdigit()));
+    fn rejects_local_repository_paths() {
+        let config = LibraryConfig { name: "local".into(), repository: "/tmp/library".into(), reference: "main".into() };
+        assert!(matches!(scan_library(&config), Err(ScanError::InvalidConfig(_))));
     }
 
     #[test]
@@ -833,4 +823,44 @@ class Service<T> extends BaseService implements Runnable, Closeable {
     fn rejects_short_commit_sha() {
         assert!(matches!(scan_checkout(&config("main"), &fixture(), "abc"), Err(ScanError::InvalidConfig(_))));
     }
+    #[cfg(unix)]
+    #[test]
+    fn ignores_symlinked_files_and_directories() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("vars")).unwrap();
+        fs::create_dir_all(outside.path().join("vars")).unwrap();
+        fs::write(outside.path().join("vars/escaped.groovy"), "def escaped() {}").unwrap();
+        symlink(outside.path().join("vars/escaped.groovy"), temp.path().join("vars/linked.groovy")).unwrap();
+        symlink(outside.path().join("vars"), temp.path().join("vars/linked-dir")).unwrap();
+        let result = scan_checkout(&config("main"), temp.path(), "0123456789abcdef0123456789abcdef01234567").unwrap();
+        assert!(!result.catalog["symbols"].as_array().unwrap().iter().any(|s| s["name"] == "escaped"));
+    }
+
+    #[test]
+    fn enforces_file_size_count_depth_and_aggregate_limits() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("vars");
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("a.groovy"), "12345").unwrap();
+        fs::write(root.join("nested/b.groovy"), "12345").unwrap();
+        let checkout = temp.path().canonicalize().unwrap();
+        let limits = ScanLimits { depth: 1, files: 2, file_bytes: 5, total_bytes: 10 };
+        let mut files = Vec::new();
+        let mut total = 0;
+        collect_groovy_files(&root, &checkout, 0, &mut files, &mut total, &limits).unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(total, 10);
+
+        let too_small = ScanLimits { file_bytes: 4, ..limits };
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_small).is_err());
+        let too_few = ScanLimits { files: 1, ..limits };
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_few).is_err());
+        let too_deep = ScanLimits { depth: 0, ..limits };
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_deep).is_err());
+        let too_much = ScanLimits { total_bytes: 9, ..limits };
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_much).is_err());
+    }
+
 }
