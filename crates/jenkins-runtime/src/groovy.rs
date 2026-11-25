@@ -90,10 +90,10 @@ fn params_from_signature(signature: &str) -> Option<Vec<(String, String)>> {
     parts.push(raw[start..].trim());
     Some(parts.iter().enumerate().map(|(index, part)| {
         let words: Vec<_> = part.split_whitespace().collect();
-        match words.as_slice() {
-            [ty, name] => (groovy_type(Some(ty)).into(), identifier(name, &format!("arg{index}"))),
-            [name] => ("Object".into(), identifier(name, &format!("arg{index}"))),
-            _ => ("Object".into(), format!("arg{index}")),
+        if let Some((ty, name)) = part.rsplit_once(' ') {
+            (groovy_type(Some(ty)).into(), identifier(name, &format!("arg{index}")))
+        } else {
+            ("Object".into(), format!("arg{index}"))
         }
     }).collect())
 }
@@ -175,7 +175,31 @@ mod tests {
     use serde_json::json;
 
     fn fixture_runtime() -> Runtime {
-        let catalog: Value = serde_json::from_str(include_str!("../../../tests/fixtures/catalog-valid.json")).unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!("../../../tests/fixtures/catalog-valid.json")).unwrap();
+        catalog["symbols"][0]["overloads"] = json!(["sh(String script)"]);
+        catalog["symbols"].as_array_mut().unwrap().push(json!({
+            "id":"platform-lib:publish",
+            "name":"publish",
+            "kind":"method",
+            "sourceId":"platform-lib",
+            "namespace":"DeployUtils",
+            "signature":"publish(String target)",
+            "description":"Publishes a deployment.",
+            "parameters":[{"name":"target","type":"String"}],
+            "returnType":"String",
+            "overloads":["publish(Map config)"],
+            "confidence":"verified",
+            "provenance":["src/DeployUtils.groovy"]
+        }));
+        catalog["symbols"].as_array_mut().unwrap().push(json!({
+            "id":"platform-lib:DeploymentOptions",
+            "name":"DeploymentOptions",
+            "kind":"class",
+            "sourceId":"platform-lib",
+            "description":"Deployment configuration type.",
+            "confidence":"verified",
+            "provenance":["src/DeploymentOptions.groovy"]
+        }));
         let manifest = json!({"packageVersion":"1.2.3","profile":"fixture","catalog":"catalog.json"});
         Runtime::from_validated_parts(manifest, catalog)
     }
