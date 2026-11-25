@@ -216,6 +216,7 @@ fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collec
 
 // A pinned commit is checked out into a temporary directory before scan_checkout is called.
 #[derive(Debug)]
+#[derive(Debug)]
 struct Checkout(tempfile::TempDir);
 fn checkout_pinned_library(url: &str, commit: &str, name: &str) -> Result<Checkout, BuildError> {
     let dir = tempfile::Builder::new()
@@ -321,7 +322,14 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         fs::write(
             directory.path().join("profile.yml"),
-            "profile: unsafe\njenkins:\\n  controllers:\\n    - id: ci\\n      url: https://user:secret@jenkins.example.test/\\nfixtures:\\n  - unused.json\\n",
+            r#"profile: unsafe
+jenkins:
+  controllers:
+    - id: ci
+      url: https://user:secret@jenkins.example.test/
+fixtures:
+  - unused.json
+"#,
         )
         .unwrap();
         let error = build_package(
@@ -348,7 +356,10 @@ mod tests {
         .unwrap();
         fs::write(
             directory.path().join("profile.yml"),
-            "profile: redaction-test\\nfixtures:\\n  - fixture.json\\n",
+            r#"profile: redaction-test
+fixtures:
+  - fixture.json
+"#,
         )
         .unwrap();
 
