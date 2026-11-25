@@ -217,12 +217,14 @@ impl Runtime {
             let source_id = symbol["sourceId"].as_str().unwrap_or_default();
             let source = self.sources().iter().find(|item| item["id"].as_str() == Some(source_id));
             let source_kind = source.and_then(|item| item["kind"].as_str()).unwrap_or_default();
-            let plugin_ids = symbol["executionConstraints"]["pluginDependencies"].as_array()
-                .or_else(|| symbol["availability"]["pluginSourceIds"].as_array());
             let matches_plugin = options.plugin.as_deref().is_none_or(|plugin| {
-                source_kind == "plugin" && (source_id == plugin
-                    || source.is_some_and(|item| item["name"].as_str() == Some(plugin)))
-                    || plugin_ids.is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(plugin)))
+                let declared_dependency = symbol["executionConstraints"]["pluginDependencies"]
+                    .as_array().is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(plugin)))
+                    || symbol["availability"]["pluginSourceIds"].as_array()
+                        .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(plugin)));
+                (source_kind == "plugin" && (source_id == plugin
+                    || source.is_some_and(|item| item["name"].as_str() == Some(plugin))))
+                    || declared_dependency
             });
             let matches_owner = options.owner.as_deref().is_none_or(|owner| {
                 ["owner", "namespace", "class", "type"].iter()
