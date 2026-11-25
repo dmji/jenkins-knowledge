@@ -120,6 +120,12 @@ fn validate_config(config: &LibraryConfig) -> Result<(), ScanError> {
     if config.repository.chars().any(|c| c.is_control()) || config.reference.chars().any(|c| c.is_control()) {
         return Err(ScanError::InvalidConfig("repository and reference must not contain control characters".into()));
     }
+    if config.repository.starts_with("http://") || config.repository.starts_with("https://") {
+        let authority = config.repository.split_once("://").map(|(_, rest)| rest.split('/').next().unwrap_or("")).unwrap_or("");
+        if authority.contains('@') || config.repository.chars().any(|c| c == '?' || c == '#') {
+            return Err(ScanError::InvalidConfig("HTTP repository URLs must not contain credentials, query parameters, or fragments".into()));
+        }
+    }
     Ok(())
 }
 
@@ -127,14 +133,14 @@ fn run_git(directory: &Path, args: &[&str]) -> Result<(), ScanError> {
     let output = Command::new("git").args(args).current_dir(directory).output()
         .map_err(|e| ScanError::Git(e.to_string()))?;
     if output.status.success() { Ok(()) } else {
-        Err(ScanError::Git(String::from_utf8_lossy(&output.stderr).trim().to_owned()))
+        Err(ScanError::Git("git command failed; remote details are redacted".into()))
     }
 }
 fn git_output(directory: &Path, args: &[&str]) -> Result<String, ScanError> {
     let output = Command::new("git").args(args).current_dir(directory).output()
         .map_err(|e| ScanError::Git(e.to_string()))?;
     if output.status.success() { Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned()) }
-    else { Err(ScanError::Git(String::from_utf8_lossy(&output.stderr).trim().to_owned())) }
+    else { Err(ScanError::Git("git command failed; remote details are redacted".into())) }
 }
 
 fn collect_groovy_files(root: &Path, output: &mut Vec<PathBuf>) -> Result<(), ScanError> {
@@ -151,7 +157,12 @@ fn scan_global(path: &str, source: &str, source_id: &str, confidence: &str,
     symbols: &mut Vec<Value>, diagnostics: &mut Vec<String>) {
     let name = Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or_default();
     if name.is_empty() { return; }
-    let (description, examples) = documentation(source, 0);
+    let declaration_line = source.lines().position(|line| {
+        let line = line.trim();
+        line.starts_with("def ") || line.starts_with("public ") || line.starts_with("protected ")
+            || line.starts_with("private ") || line.starts_with("static ")
+    }).unwrap_or(0);
+    let (description, examples) = documentation(source, declaration_line);
     let mut symbol = json!({
         "id": format!("{source_id}:{path}:global"),
         "name": name,
@@ -372,6 +383,7 @@ mod tests {
         let result = scan_checkout(&config("main"), &fixture(), "0123456789abcdef0123456789abcdef01234567").unwrap();
         let symbols = result.catalog["symbols"].as_array().unwrap();
         assert!(symbols.iter().any(|s| s["name"] == "deployApp" && s["kind"] == "global-variable"));
+        assert!(symbols.iter().any(|s| s["kind"] == "global-variable" && s["description"] == "Deploy an application to an environment."));
         assert!(symbols.iter().any(|s| s["name"] == "call" && s["kind"] == "method"));
         assert!(symbols.iter().any(|s| s["name"] == "call" && s["parameters"].as_array().unwrap().len() == 2));
         assert!(result.catalog["sources"][0]["revision"] == "0123456789abcdef0123456789abcdef01234567");
@@ -416,6 +428,16 @@ mod tests {
         let sha = result.catalog["sources"][0]["revision"].as_str().unwrap();
         assert_eq!(sha.len(), 40);
         assert!(sha.bytes().all(|b| b.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn rejects_repository_urls_that_could_leak_credentials() {
+        let config = LibraryConfig {
+            name: "unsafe".into(),
+            repository: "https://user:token@example.test/library.git".into(),
+            reference: "main".into(),
+        };
+        assert!(matches!(scan_checkout(&config, &fixture(), "0123456789abcdef0123456789abcdef01234567"), Err(ScanError::InvalidConfig(_))));
     }
 
     #[test]
