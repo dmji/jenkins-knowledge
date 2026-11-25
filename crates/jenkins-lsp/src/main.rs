@@ -166,6 +166,34 @@ fn handle_request(connection: &Connection, request: Request, runtime: Option<&Ru
             "profile": runtime.map(Runtime::profile),
             "coverage": runtime.map(Runtime::coverage).unwrap_or(&[])
         }),
+        "jenkinsKnowledge/search" => {
+            let Some(runtime) = runtime else {
+                connection.sender.send(Message::Response(Response::new_err(
+                    request.id, lsp_server::ErrorCode::InvalidRequest as i32,
+                    "No Knowledge Package is loaded"
+                )))?;
+                return Ok(());
+            };
+            let limit = request.params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+            if !(1..=MAX_SEARCH_RESULTS).contains(&limit) {
+                connection.sender.send(Message::Response(Response::new_err(
+                    request.id, lsp_server::ErrorCode::InvalidParams as i32,
+                    format!("limit must be between 1 and {MAX_SEARCH_RESULTS}")
+                )))?;
+                return Ok(());
+            }
+            let options = SearchOptions {
+                query: request.params.get("query").and_then(Value::as_str).unwrap_or("").to_owned(),
+                kind: request.params.get("kind").and_then(Value::as_str).map(str::to_owned),
+                source: request.params.get("source").and_then(Value::as_str).map(str::to_owned),
+                plugin: request.params.get("plugin").and_then(Value::as_str).map(str::to_owned),
+                owner: request.params.get("owner").and_then(Value::as_str).map(str::to_owned),
+                type_name: request.params.get("type").and_then(Value::as_str).map(str::to_owned),
+                confidence: request.params.get("confidence").and_then(Value::as_str).map(str::to_owned),
+                limit,
+            };
+            json!({"profile": runtime.profile(), "limit": limit, "results": runtime.search_with_options(&options)})
+        },
         "textDocument/hover" => {
             let uri = request.params.pointer("/textDocument/uri").and_then(Value::as_str).unwrap_or_default();
             let line = request.params.pointer("/position/line").and_then(Value::as_u64).unwrap_or(0) as usize;
