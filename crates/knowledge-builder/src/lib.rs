@@ -2,7 +2,7 @@ use catalog_validator::validate_catalog;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, env, fs, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
+use std::{collections::BTreeMap, env, fs, path::{Path, PathBuf}, time::SystemTime};
 
 #[derive(Debug, Deserialize)]
 pub struct Profile {
@@ -142,19 +142,21 @@ fn staging_path(output: &Path) -> PathBuf {
     output.with_file_name(format!(".{name}.staging-{}", std::process::id()))
 }
 fn build_timestamp() -> String {
-    env::var("SOURCE_DATE_EPOCH").ok().and_then(|v| v.parse::<u64>().ok())
-        .map(|seconds| if seconds == 0 { "1970-01-01T00:00:00Z".to_owned() } else { unix_iso8601(seconds) })
-        .unwrap_or_else(|| SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs().to_string())
-}
-fn unix_iso8601(seconds: u64) -> String {
-    // A stable timestamp string; the epoch is retained in UTC seconds for auditability.
-    format!("{} seconds since 1970-01-01T00:00:00Z", seconds)
+    if let Ok(epoch) = env::var("SOURCE_DATE_EPOCH") {
+        if let Ok(seconds) = epoch.parse::<i64>() {
+            if let Some(timestamp) = chrono::DateTime::from_timestamp(seconds, 0) {
+                return timestamp.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            }
+        }
+    }
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() }
 
 // A pinned commit is checked out into a temporary directory before scan_checkout is called.
 struct Checkout(PathBuf);
 impl std::ops::Deref for Checkout { type Target = PathBuf; fn deref(&self) -> &Self::Target { &self.0 } }
+impl Drop for Checkout { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
 fn checkout_pinned_library(url: &str, commit: &str, name: &str) -> Result<Checkout, BuildError> {
     if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(BuildError::Source(format!("Shared Library '{name}': commit must be a full 40-character SHA")));
