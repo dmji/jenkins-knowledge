@@ -12,6 +12,36 @@ use std::{
 
 pub mod groovy;
 
+pub const DEFAULT_SEARCH_LIMIT: usize = 50;
+pub const MAX_SEARCH_RESULTS: usize = 100;
+
+#[derive(Debug, Clone)]
+pub struct SearchOptions {
+    pub query: String,
+    pub kind: Option<String>,
+    pub source: Option<String>,
+    pub plugin: Option<String>,
+    pub owner: Option<String>,
+    pub type_name: Option<String>,
+    pub confidence: Option<String>,
+    pub limit: usize,
+}
+
+impl Default for SearchOptions {
+    fn default() -> Self {
+        Self {
+            query: String::new(),
+            kind: None,
+            source: None,
+            plugin: None,
+            owner: None,
+            type_name: None,
+            confidence: None,
+            limit: DEFAULT_SEARCH_LIMIT,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct RuntimeError(pub String);
 impl std::fmt::Display for RuntimeError {
