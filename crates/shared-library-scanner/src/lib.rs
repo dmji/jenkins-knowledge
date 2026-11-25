@@ -384,19 +384,9 @@ struct Method {
 fn parse_methods(source: &str) -> Vec<Method> {
     let lines: Vec<&str> = source.lines().collect();
     let mut result = Vec::new();
-    let mut owner: Option<String> = None;
-    let mut depth = 0i32;
     let mut index = 0;
     while index < lines.len() {
-        let line = lines[index];
-        let trimmed = line.trim();
-        if let Some((name, _)) = parse_class_declaration(trimmed) {
-            owner = Some(name);
-            depth = brace_delta(line);
-        } else if owner.is_some() {
-            depth += brace_delta(line);
-            if depth <= 0 { owner = None; depth = 0; }
-        }
+        let trimmed = lines[index].trim();
         if is_method_declaration_start(trimmed) {
             let start = index;
             let mut declaration = trimmed.to_owned();
@@ -405,7 +395,9 @@ fn parse_methods(source: &str) -> Vec<Method> {
                 declaration.push(' ');
                 declaration.push_str(lines[index].trim());
             }
-            if let Some(mut method) = parse_method_declaration(&declaration, start + 1, owner.clone()) {
+            let owner = lines[..=start].iter().rev()
+                .find_map(|line| parse_class_declaration(line.trim()).map(|(name, _)| name));
+            if let Some(mut method) = parse_method_declaration(&declaration, start + 1, owner) {
                 let (description, examples) = documentation(source, start);
                 method.description = description;
                 method.examples = examples;
@@ -424,6 +416,7 @@ fn is_method_declaration_start(line: &str) -> bool {
     let name = prefix.split_whitespace().last().unwrap_or("");
     let first = prefix.split_whitespace().next().unwrap_or("");
     !["return", "throw", "new", "assert", "yield"].contains(&first)
+        && !prefix.contains('=')
         && valid_identifier(name)
         && !["if","for","while","switch","catch","synchronized","assert"].contains(&name)
         && (prefix.starts_with("def ") || prefix.split_whitespace().count() >= 2)
