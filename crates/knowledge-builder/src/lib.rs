@@ -118,6 +118,12 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     }
     sources.sort_by_key(|v| v["id"].as_str().unwrap_or("").to_owned());
     symbols.sort_by_key(|v| v["id"].as_str().unwrap_or("").to_owned());
+    coverage.sort_by_key(|v| {
+        (
+            v["sourceId"].as_str().unwrap_or("").to_owned(),
+            v["surface"].as_str().unwrap_or("").to_owned(),
+        )
+    });
     let catalog = json!({
         "schemaVersion":"1.0.0",
         "catalogId":profile.package.id.unwrap_or_else(|| profile.profile.clone()),
