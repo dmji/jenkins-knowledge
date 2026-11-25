@@ -194,11 +194,11 @@ fn checkout_pinned_library(url: &str, commit: &str, name: &str) -> Result<Checko
     Ok(Checkout(dir))
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use serde_json::Value;
+    use super::build_package;
+    use serde_json::{json, Value};
+    use std::fs;
 
     #[test]
     fn rejects_conflicting_source_revisions_in_fixture_merge() {
