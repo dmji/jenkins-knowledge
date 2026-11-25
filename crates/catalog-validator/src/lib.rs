@@ -347,6 +347,21 @@ mod tests {
     }
 
     #[test]
+    fn accepts_legacy_catalog_without_runtime_snapshot() {
+        let legacy: Value = serde_json::from_str(include_str!(
+            "../../../crates/knowledge-builder/tests/fixtures/catalog.json"
+        )).unwrap();
+        assert!(validate_catalog(&legacy, &schema()).is_ok());
+    }
+
+    #[test]
+    fn rejects_unknown_execution_constraint_values() {
+        let mut invalid = valid_catalog();
+        invalid["symbols"][0]["executionConstraints"]["sandbox"] = json!("maybe");
+        assert!(validate_catalog(&invalid, &schema()).is_err());
+    }
+
+    #[test]
     fn rejects_controller_plugin_referencing_non_plugin_source() {
         let mut invalid = valid_catalog();
         invalid["controller"]["plugins"][0]["sourceId"] = json!("controller");
