@@ -46,5 +46,14 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --manifest-path crates/catalog-validator/Cargo.toml --all-targets -- -D warnings
 
+      - name: Check collector formatting
+        run: cargo fmt --manifest-path crates/jenkins-gdsl-collector/Cargo.toml -- --check
+
+      - name: Test collector
+        run: cargo test --manifest-path crates/jenkins-gdsl-collector/Cargo.toml --all-targets
+
+      - name: Lint collector
+        run: cargo clippy --manifest-path crates/jenkins-gdsl-collector/Cargo.toml --all-targets -- -D warnings
+
       - name: Validate example catalog
         run: cargo run --manifest-path crates/catalog-validator/Cargo.toml -- examples/catalog/catalog.json schemas/catalog.schema.json
