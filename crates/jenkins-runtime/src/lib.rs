@@ -12,6 +12,36 @@ use std::{
 
 pub mod groovy;
 
+pub const DEFAULT_SEARCH_LIMIT: usize = 50;
+pub const MAX_SEARCH_RESULTS: usize = 100;
+
+#[derive(Debug, Clone)]
+pub struct SearchOptions {
+    pub query: String,
+    pub kind: Option<String>,
+    pub source: Option<String>,
+    pub plugin: Option<String>,
+    pub owner: Option<String>,
+    pub type_name: Option<String>,
+    pub confidence: Option<String>,
+    pub limit: usize,
+}
+
+impl Default for SearchOptions {
+    fn default() -> Self {
+        Self {
+            query: String::new(),
+            kind: None,
+            source: None,
+            plugin: None,
+            owner: None,
+            type_name: None,
+            confidence: None,
+            limit: DEFAULT_SEARCH_LIMIT,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct RuntimeError(pub String);
 impl std::fmt::Display for RuntimeError {
@@ -203,20 +233,57 @@ impl Runtime {
     }
 
     pub fn search(&self, query: &str, kind: Option<&str>, source: Option<&str>) -> Vec<Value> {
-        let q = query.to_lowercase();
-        self.symbols()
-            .iter()
-            .filter(|s| {
-                (q.is_empty()
-                    || ["name", "description", "signature", "namespace"]
-                        .iter()
-                        .filter_map(|k| s.get(k).and_then(Value::as_str))
-                        .any(|v| v.to_lowercase().contains(&q)))
-                    && kind.is_none_or(|v| s["kind"].as_str() == Some(v))
-                    && source.is_none_or(|v| s["sourceId"].as_str() == Some(v))
-            })
-            .map(|s| self.enrich(s))
-            .collect()
+        self.search_with_options(&SearchOptions {
+            query: query.to_owned(),
+            kind: kind.map(str::to_owned),
+            source: source.map(str::to_owned),
+            ..SearchOptions::default()
+        })
+    }
+
+    pub fn search_with_options(&self, options: &SearchOptions) -> Vec<Value> {
+        let query = options.query.to_lowercase();
+        let mut results: Vec<_> = self.symbols().iter().filter(|symbol| {
+            let source_id = symbol["sourceId"].as_str().unwrap_or_default();
+            let source = self.sources().iter().find(|item| item["id"].as_str() == Some(source_id));
+            let source_kind = source.and_then(|item| item["kind"].as_str()).unwrap_or_default();
+            let matches_plugin = options.plugin.as_deref().is_none_or(|plugin| {
+                let declared_dependency = symbol["executionConstraints"]["pluginDependencies"]
+                    .as_array().is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(plugin)))
+                    || symbol["availability"]["pluginSourceIds"].as_array()
+                        .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(plugin)));
+                (source_kind == "plugin" && (source_id == plugin
+                    || source.is_some_and(|item| item["name"].as_str() == Some(plugin))))
+                    || declared_dependency
+            });
+            let matches_owner = options.owner.as_deref().is_none_or(|owner| {
+                ["owner", "namespace", "class", "type"].iter()
+                    .filter_map(|key| symbol.get(key).and_then(Value::as_str))
+                    .any(|value| value == owner || value.starts_with(&format!("{owner}.")))
+            });
+            let matches_type = options.type_name.as_deref().is_none_or(|type_name| {
+                ["type", "returnType", "namespace", "class"].iter()
+                    .filter_map(|key| symbol.get(key).and_then(Value::as_str))
+                    .any(|value| value == type_name || value.contains(type_name))
+            });
+            (query.is_empty() || ["name", "description", "signature", "namespace", "returnType"]
+                .iter().filter_map(|key| symbol.get(key).and_then(Value::as_str))
+                .any(|value| value.to_lowercase().contains(&query)))
+                && options.kind.as_deref().is_none_or(|value| symbol["kind"].as_str() == Some(value))
+                && options.source.as_deref().is_none_or(|value| source_id == value)
+                && matches_plugin
+                && matches_owner
+                && matches_type
+                && options.confidence.as_deref().is_none_or(|value| symbol["confidence"].as_str() == Some(value))
+        }).collect();
+        results.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str())
+            .then_with(|| left["id"].as_str().cmp(&right["id"].as_str())));
+        results.into_iter().take(options.limit.clamp(1, MAX_SEARCH_RESULTS))
+            .map(|symbol| self.enrich(symbol)).collect()
+    }
+
+    pub fn coverage(&self) -> &[Value] {
+        self.catalog["coverage"].as_array().map(Vec::as_slice).unwrap_or(&[])
     }
 
     pub fn get(&self, name_or_id: &str) -> Result<Value, RuntimeError> {
@@ -544,6 +611,68 @@ mod tests {
             1
         );
         assert!(runtime().search("deploy", Some("step"), None).is_empty());
+    }
+
+    #[test]
+    fn search_is_bounded_and_has_stable_order() {
+        let mut runtime = runtime();
+        let symbols = runtime.catalog["symbols"].as_array_mut().unwrap();
+        for index in 0..150 {
+            symbols.push(serde_json::json!({
+                "id": format!("generated:{index:03}"),
+                "name": format!("generated{index:03}"),
+                "kind": "method",
+                "sourceId": "workflow-basic-steps",
+                "confidence": "unknown",
+                "provenance": ["test"]
+            }));
+        }
+        let options = SearchOptions { limit: 10, ..SearchOptions::default() };
+        let first = runtime.search_with_options(&options);
+        let second = runtime.search_with_options(&options);
+        assert_eq!(first.len(), 10);
+        assert_eq!(first, second);
+        assert_eq!(first[0]["name"], "ShellStep");
+    }
+
+    #[test]
+    fn search_filters_by_plugin_and_confidence() {
+        let runtime = runtime();
+        let plugin = SearchOptions {
+            plugin: Some("workflow-basic-steps".into()),
+            ..SearchOptions::default()
+        };
+        let results = runtime.search_with_options(&plugin);
+        assert!(results.iter().any(|symbol| symbol["name"] == "sh"));
+        assert!(results.iter().all(|symbol| {
+            symbol["sourceId"] == "workflow-basic-steps"
+                || symbol["executionConstraints"]["pluginDependencies"].as_array()
+                    .is_some_and(|items| items.iter().any(|item| item == "workflow-basic-steps"))
+        }));
+
+        let inferred = SearchOptions {
+            confidence: Some("inferred".into()),
+            ..SearchOptions::default()
+        };
+        let results = runtime.search_with_options(&inferred);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["name"], "deployApp");
+    }
+
+    #[test]
+    fn search_filters_by_owner_and_type_metadata() {
+        let mut runtime = runtime();
+        let symbol = &mut runtime.catalog["symbols"][3];
+        symbol["namespace"] = Value::String("org.jenkinsci.plugins.workflow".into());
+        symbol["returnType"] = Value::String("java.lang.String".into());
+        let options = SearchOptions {
+            owner: Some("org.jenkinsci.plugins.workflow".into()),
+            type_name: Some("String".into()),
+            ..SearchOptions::default()
+        };
+        let results = runtime.search_with_options(&options);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["name"], "ShellStep");
     }
 
     #[test]

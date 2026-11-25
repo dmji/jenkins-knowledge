@@ -1,4 +1,4 @@
-use jenkins_runtime::Runtime;
+use jenkins_runtime::{Runtime, SearchOptions, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_RESULTS};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 
@@ -12,17 +12,39 @@ fn content(value: Value) -> Value {
 }
 fn tools() -> Value {
     json!([
-      {"name":"search_api","description":"Search catalog symbols. Results include profile, confidence, and source provenance.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"kind":{"type":"string"},"source":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}}},"required":["profile","results"]}},
+      {"name":"search_api","description":"Search catalog symbols with shared filters and a bounded result limit. Results include profile, confidence, and source provenance.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"kind":{"type":"string"},"source":{"type":"string"},"plugin":{"type":"string"},"owner":{"type":"string"},"type":{"type":"string"},"confidence":{"enum":["verified","inferred","unknown"]},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}},"limit":{"type":"integer"}},"required":["profile","results","limit"]}},
       {"name":"get_api_details","description":"Get one symbol by exact name or ID, including signature, parameters, provenance, profile, and confidence.","inputSchema":{"type":"object","properties":{"name_or_id":{"type":"string"}},"required":["name_or_id"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"}},"required":["id","name","profile","source","confidence"],"additionalProperties":true}},
-      {"name":"list_api","description":"List catalog symbols, optionally filtered by kind and source.","inputSchema":{"type":"object","properties":{"kind":{"type":"string"},"source":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}}},"required":["profile","results"]}},
+      {"name":"list_api","description":"List catalog symbols with shared filters and a bounded result limit.","inputSchema":{"type":"object","properties":{"kind":{"type":"string"},"source":{"type":"string"},"plugin":{"type":"string"},"owner":{"type":"string"},"type":{"type":"string"},"confidence":{"enum":["verified","inferred","unknown"]},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}},"limit":{"type":"integer"}},"required":["profile","results","limit"]}},
       {"name":"get_usage_examples","description":"Get catalog-backed usage examples for one exact symbol name or ID.","inputSchema":{"type":"object","properties":{"name_or_id":{"type":"string"}},"required":["name_or_id"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"},"examples":{"type":"array","items":{"type":"string"}}},"required":["id","name","profile","source","confidence","examples"],"additionalProperties":true}},
       {"name":"get_pipeline_step","description":"Get Jenkins Pipeline step metadata by exact name or symbol ID.","inputSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"}},"required":["id","name","profile","source","confidence"],"additionalProperties":true}}
     ])
 }
+fn query_options(args: &Value, include_query: bool) -> Result<SearchOptions, String> {
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(DEFAULT_SEARCH_LIMIT as u64) as usize;
+    if limit == 0 || limit > MAX_SEARCH_RESULTS {
+        return Err(format!("'limit' must be between 1 and {MAX_SEARCH_RESULTS}"));
+    }
+    Ok(SearchOptions {
+        query: if include_query { optional(args,"query").unwrap_or("").to_owned() } else { String::new() },
+        kind: optional(args,"kind").map(str::to_owned),
+        source: optional(args,"source").map(str::to_owned),
+        plugin: optional(args,"plugin").map(str::to_owned),
+        owner: optional(args,"owner").map(str::to_owned),
+        type_name: optional(args,"type").map(str::to_owned),
+        confidence: optional(args,"confidence").map(str::to_owned),
+        limit,
+    })
+}
 fn call_tool(rt: &Runtime, name: &str, args: &Value) -> Result<Value,String> {
     match name {
-        "search_api" => Ok(content(json!({"profile":rt.profile(),"results":rt.search(optional(args,"query").unwrap_or(""),optional(args,"kind"),optional(args,"source"))}))),
-        "list_api" => Ok(content(json!({"profile":rt.profile(),"results":rt.search("",optional(args,"kind"),optional(args,"source"))}))),
+        "search_api" => {
+            let options = query_options(args, true)?;
+            Ok(content(json!({"profile":rt.profile(),"limit":options.limit,"results":rt.search_with_options(&options)})))
+        },
+        "list_api" => {
+            let options = query_options(args, false)?;
+            Ok(content(json!({"profile":rt.profile(),"limit":options.limit,"results":rt.search_with_options(&options)})))
+        },
         "get_api_details" => rt.get(required(args,"name_or_id")?).map(content).map_err(|e|e.to_string()),
         "get_usage_examples" => rt.examples(required(args,"name_or_id")?).map(content).map_err(|e|e.to_string()),
         "get_pipeline_step" => rt.pipeline_step(required(args,"name")?).map(content).map_err(|e|e.to_string()),
@@ -32,6 +54,7 @@ fn call_tool(rt: &Runtime, name: &str, args: &Value) -> Result<Value,String> {
 fn read_resource(rt: &Runtime, uri: &str) -> Result<Value,String> {
     match uri {
         "jenkins://catalog/manifest" => Ok(rt.manifest().clone()),
+        "jenkins://catalog/coverage" => Ok(json!({"profile":rt.profile(),"coverage":rt.coverage()})),
         "jenkins://catalog/libraries" => Ok(json!({"profile":rt.profile(),"sources":rt.sources().iter().filter(|s|s["kind"]=="shared-library").collect::<Vec<_>>()})),
         "jenkins://catalog/pipeline-steps" => Ok(json!({"profile":rt.profile(),"steps":rt.search("",Some("step"),None)})),
         _ if uri.starts_with("jenkins://catalog/profiles/") => {
@@ -58,6 +81,7 @@ fn handle(rt: &Runtime, req: Value) -> Option<Value> {
         }
         "resources/list" => Ok(json!({"resources":[
             {"uri":"jenkins://catalog/manifest","name":"Knowledge package manifest","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/coverage","name":"Catalog collection coverage","mimeType":"application/json"},
             {"uri":"jenkins://catalog/libraries","name":"Shared Library sources","mimeType":"application/json"},
             {"uri":"jenkins://catalog/pipeline-steps","name":"Jenkins Pipeline steps","mimeType":"application/json"},
             {"uri":format!("jenkins://catalog/profiles/{}",rt.profile()),"name":"Selected profile","mimeType":"application/json"}
@@ -101,6 +125,10 @@ mod tests {
         let definitions = definitions.as_array().unwrap();
         let names: Vec<_> = definitions.iter().filter_map(|tool| tool["name"].as_str()).collect();
         assert_eq!(names, ["search_api", "get_api_details", "list_api", "get_usage_examples", "get_pipeline_step"]);
+        let search = definitions.iter().find(|tool| tool["name"] == "search_api").unwrap();
+        for filter in ["plugin", "owner", "type", "confidence", "limit"] {
+            assert!(search["inputSchema"]["properties"].get(filter).is_some());
+        }
         for tool in definitions {
             assert_eq!(tool["inputSchema"]["type"], "object");
             assert!(tool["inputSchema"]["properties"].is_object());
