@@ -135,6 +135,10 @@ mod tests {
             redact_url("git@github.example.test:team/library.git"),
             "github.example.test:team/library.git"
         );
+        assert_eq!(
+            redact_url("https://github.example.test/team/library.git?token=secret#fragment"),
+            "https://github.example.test/team/library.git"
+        );
     }
 
     #[test]
