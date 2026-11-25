@@ -8,15 +8,15 @@ fn required<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
 }
 fn optional<'a>(args: &'a Value, key: &str) -> Option<&'a str> { args.get(key).and_then(Value::as_str) }
 fn content(value: Value) -> Value {
-    json!({"content":[{"type":"text","text":serde_json::to_string_pretty(&value).unwrap_or_else(|e|e.to_string())}]})
+    json!({"structuredContent":value.clone(),"content":[{"type":"text","text":serde_json::to_string_pretty(&value).unwrap_or_else(|e|e.to_string())}]})
 }
 fn tools() -> Value {
     json!([
-      {"name":"search_api","description":"Search catalog symbols. Results include profile, confidence, and source provenance.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"kind":{"type":"string"},"source":{"type":"string"}},"additionalProperties":false}},
-      {"name":"get_api_details","description":"Get one symbol by exact name or ID, including signature, parameters, provenance, profile, and confidence.","inputSchema":{"type":"object","properties":{"name_or_id":{"type":"string"}},"required":["name_or_id"],"additionalProperties":false}},
-      {"name":"list_api","description":"List catalog symbols, optionally filtered by kind and source.","inputSchema":{"type":"object","properties":{"kind":{"type":"string"},"source":{"type":"string"}},"additionalProperties":false}},
-      {"name":"get_usage_examples","description":"Get catalog-backed usage examples for one exact symbol name or ID.","inputSchema":{"type":"object","properties":{"name_or_id":{"type":"string"}},"required":["name_or_id"],"additionalProperties":false}},
-      {"name":"get_pipeline_step","description":"Get Jenkins Pipeline step metadata by exact name or symbol ID.","inputSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}}
+      {"name":"search_api","description":"Search catalog symbols. Results include profile, confidence, and source provenance.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"kind":{"type":"string"},"source":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}}},"required":["profile","results"]}},
+      {"name":"get_api_details","description":"Get one symbol by exact name or ID, including signature, parameters, provenance, profile, and confidence.","inputSchema":{"type":"object","properties":{"name_or_id":{"type":"string"}},"required":["name_or_id"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"}},"required":["id","name","profile","source","confidence"],"additionalProperties":true}},
+      {"name":"list_api","description":"List catalog symbols, optionally filtered by kind and source.","inputSchema":{"type":"object","properties":{"kind":{"type":"string"},"source":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}}},"required":["profile","results"]}},
+      {"name":"get_usage_examples","description":"Get catalog-backed usage examples for one exact symbol name or ID.","inputSchema":{"type":"object","properties":{"name_or_id":{"type":"string"}},"required":["name_or_id"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"},"examples":{"type":"array","items":{"type":"string"}}},"required":["id","name","profile","source","confidence","examples"],"additionalProperties":true}},
+      {"name":"get_pipeline_step","description":"Get Jenkins Pipeline step metadata by exact name or symbol ID.","inputSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"}},"required":["id","name","profile","source","confidence"],"additionalProperties":true}}
     ])
 }
 fn call_tool(rt: &Runtime, name: &str, args: &Value) -> Result<Value,String> {
@@ -48,7 +48,7 @@ fn handle(rt: &Runtime, req: Value) -> Option<Value> {
     let method=req.get("method").and_then(Value::as_str).unwrap_or("");
     let params=req.get("params").cloned().unwrap_or_else(||json!({}));
     let result: Result<Value,Value> = match method {
-        "initialize" => Ok(json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{},"resources":{"subscribe":false,"listChanged":false}},"serverInfo":{"name":"jenkins-knowledge","version":env!("CARGO_PKG_VERSION")}})),
+        "initialize" => Ok(json!({"protocolVersion":"2025-06-18","capabilities":{"tools":{},"resources":{"subscribe":false,"listChanged":false}},"serverInfo":{"name":"jenkins-knowledge","version":env!("CARGO_PKG_VERSION")}})),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({"tools":tools()})),
         "tools/call" => {
@@ -104,6 +104,8 @@ mod tests {
         for tool in definitions {
             assert_eq!(tool["inputSchema"]["type"], "object");
             assert!(tool["inputSchema"]["properties"].is_object());
+            assert_eq!(tool["outputSchema"]["type"], "object");
+            assert!(tool["outputSchema"]["properties"].is_object());
         }
     }
 
