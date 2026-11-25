@@ -196,6 +196,28 @@ mod tests {
     }
 
     #[test]
+    fn rejects_coverage_for_unknown_source() {
+        let mut invalid = valid_catalog();
+        invalid["coverage"] = json!([{
+            "sourceId":"missing-source",
+            "surface":"pipeline-steps",
+            "status":"not-collected"
+        }]);
+        assert!(validate_catalog(&invalid, &schema()).unwrap_err().to_string().contains("/coverage/0/sourceId"));
+    }
+
+    #[test]
+    fn accepts_field_level_evidence_without_changing_symbol_confidence() {
+        let mut catalog = valid_catalog();
+        catalog["symbols"][0]["fieldEvidence"] = json!({
+            "name":"verified",
+            "parameters":"unknown",
+            "description":"inferred"
+        });
+        assert!(validate_catalog(&catalog, &schema()).is_ok());
+    }
+
+    #[test]
     fn allows_same_name_symbols_from_distinct_sources() {
         let mut catalog = valid_catalog();
         let mut source = catalog["sources"][0].clone();
