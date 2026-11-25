@@ -239,8 +239,7 @@ mod tests {
     #[test]
     fn rejects_duplicate_parameter_names() {
         let mut invalid = valid_catalog();
-        invalid["symbols"][0]["parameters"] =
-            json!([{"name":"script"},{"name":"script"}]);
+        invalid["symbols"][0]["parameters"] = json!([{"name":"script"},{"name":"script"}]);
         assert!(validate_catalog(&invalid, &schema())
             .unwrap_err()
             .to_string()
