@@ -1,3 +1,6 @@
+pub mod discovery;
+pub use discovery::{discover, DiscoveryError};
+
 use catalog_validator::validate_catalog;
 use regex::Regex;
 use reqwest::blocking::Client;
