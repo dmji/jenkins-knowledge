@@ -59,3 +59,15 @@ cargo run --manifest-path crates/catalog-validator/Cargo.toml -- examples/catalo
 ## Jenkins controller GDSL extraction
 
 The Rust collector fetches the Pipeline DSL exposed by a configured controller and emits a schema-validated catalog. See [collector usage and compatibility notes](crates/jenkins-gdsl-collector/README.md).
+
+## Shared Library scanning
+
+Scan configured Shared Library Git refs into catalog symbols with the Rust scanner. See [scanner documentation](crates/shared-library-scanner/README.md) for configuration, credentials, limitations, and output details.
+
+```sh
+cargo test --manifest-path crates/shared-library-scanner/Cargo.toml
+cargo run --manifest-path crates/shared-library-scanner/Cargo.toml -- config.json catalog.json diagnostics.json
+cargo run --manifest-path crates/catalog-validator/Cargo.toml -- catalog.json schemas/catalog.schema.json
+```
+
+Each configured ref is a separate catalog source. The scanner records the resolved commit SHA and emits heuristic declarations with `inferred` confidence; dynamic Groovy dispatch is reported in a separate diagnostics file.
