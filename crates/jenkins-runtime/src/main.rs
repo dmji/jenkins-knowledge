@@ -5,7 +5,7 @@ use std::{env, process};
 fn usage() {
     eprintln!("Usage: jenkins-runtime --package <dir|manifest.json> [--profile <name>] <search|list|get|examples|step> [arguments] [--kind <kind>] [--source <source-id>] [--plugin <id>] [--owner <name>] [--type <type>] [--confidence <level>] [--limit <1..100>]");
     eprintln!(
-        "Commands: search <query>, list, get <name-or-id>, examples <name-or-id>, step <step-name>"
+        "Commands: search <query>, list, get <name-or-id>, examples <name-or-id>, step <step-name>, coverage"
     );
 }
 
@@ -72,6 +72,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "limit": search_options.limit,
             "results": runtime.search_with_options(&search_options)
         }),
+        "coverage" => json!({"profile": runtime.profile(), "coverage": runtime.coverage()}),
         "get" => runtime.get(query)?,
         "examples" => runtime.examples(query)?,
         "step" => runtime.pipeline_step(query)?,
