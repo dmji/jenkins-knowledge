@@ -349,7 +349,7 @@ mod tests {
                 thread::sleep(delay);
             }
             let header = format!(
-                "HTTP/1.1 {status}\\r\\nContent-Length: {}\\r\\nConnection: close\\r\\n\\r\\n",
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
             );
             let _ = stream.write_all(header.as_bytes());
@@ -412,6 +412,13 @@ mod tests {
     }
 
     #[test]
+    fn reports_authentication_http_status() {
+        let endpoint = mock_jenkins("401 Unauthorized", b"denied".to_vec(), Duration::ZERO);
+        let error = collect_with_client("http://localhost", &endpoint, None, None, &test_client(Duration::from_secs(1))).unwrap_err();
+        assert_eq!(error, CollectorError::AuthenticationFailed);
+    }
+
+    #[test]
     fn reports_non_success_http_status() {
         let endpoint = mock_jenkins("503 Service Unavailable", b"unavailable".to_vec(), Duration::ZERO);
         let error = collect_with_client("http://localhost", &endpoint, None, None, &test_client(Duration::from_secs(1))).unwrap_err();
@@ -455,7 +462,7 @@ mod tests {
 
     #[test]
     fn rejects_excessive_symbol_count() {
-        let input = "method(name: 'x')\\n".repeat(MAX_GDSL_SYMBOLS + 1);
+        let input = "method(name: 'x')\n".repeat(MAX_GDSL_SYMBOLS + 1);
         let error = parse_methods(&input).unwrap_err();
         assert_eq!(error, CollectorError::TooManySymbols { limit: MAX_GDSL_SYMBOLS });
     }
