@@ -227,7 +227,11 @@ fn parse_methods(input: &str) -> Result<Vec<Method>, CollectorError> {
     let params_re = Regex::new(r"\bparams\s*:\s*\[([^\]]*)\]").expect("constant regex");
     let param_re = Regex::new(r#"([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)")"#).expect("constant regex");
     let mut methods = Vec::new();
+    let mut last_offset = 0;
+    let mut current_line = 1;
     for found in marker.find_iter(input) {
+        current_line += input[last_offset..found.start()].bytes().filter(|byte| *byte == b'\\n').count();
+        last_offset = found.start();
         if methods.len() >= MAX_GDSL_SYMBOLS {
             return Err(CollectorError::TooManySymbols {
                 limit: MAX_GDSL_SYMBOLS,
@@ -256,7 +260,7 @@ fn parse_methods(input: &str) -> Result<Vec<Method>, CollectorError> {
         }
         let parameter_names = parameters.iter().filter_map(|p| p["name"].as_str()).collect::<Vec<_>>();
         let signature = format!("{}({}) -> {}", name, parameter_names.join(", "), return_type);
-        methods.push(Method { name, signature, description, documentation_url, parameters, line: line_number(input, found.start()) });
+        methods.push(Method { name, signature, description, documentation_url, parameters, line: current_line });
     }
     Ok(methods)
 }
