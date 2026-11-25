@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/jenkins-knowledge/catalog.schema.json",
+  "title": "Jenkins Knowledge Catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "catalogId", "generatedAt", "sources", "symbols"],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "catalogId": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "symbols": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/symbol" }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "name", "revision"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "enum": ["jenkins-controller", "plugin", "shared-library", "jenkins-core"] },
+        "name": { "type": "string" },
+        "version": { "type": ["string", "null"] },
+        "revision": { "type": "string" },
+        "url": { "type": "string", "format": "uri" },
+        "metadata": { "type": "object" }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "required": { "type": "boolean", "default": false },
+        "description": { "type": "string" },
+        "default": {}
+      }
+    },
+    "symbol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "kind", "sourceId", "confidence"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "kind": { "enum": ["step", "global-variable", "method", "class", "property", "declarative-directive"] },
+        "sourceId": { "type": "string" },
+        "namespace": { "type": "string" },
+        "signature": { "type": "string" },
+        "description": { "type": "string" },
+        "parameters": { "type": "array", "items": { "$ref": "#/$defs/parameter" } },
+        "returnType": { "type": "string" },
+        "overloads": { "type": "array", "items": { "type": "string" } },
+        "examples": { "type": "array", "items": { "type": "string" } },
+        "constraints": { "type": "array", "items": { "type": "string" } },
+        "contexts": { "type": "array", "items": { "type": "string" } },
+        "documentationUrl": { "type": "string", "format": "uri" },
+        "confidence": { "enum": ["verified", "inferred", "unknown"] },
+        "provenance": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}
