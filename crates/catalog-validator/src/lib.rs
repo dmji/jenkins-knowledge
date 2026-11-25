@@ -89,6 +89,14 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
     }
 
     if let Some(controller) = catalog.get("controller").filter(|value| !value.is_null()) {
+        if let Some(base_url) = controller["identity"]["baseUrl"].as_str() {
+            if url_has_credentials(base_url) {
+                errors.push(
+                    "/controller/identity/baseUrl: URLs must not contain embedded credentials or secret query parameters"
+                        .to_owned(),
+                );
+            }
+        }
         let mut plugin_names = HashSet::new();
         for (index, plugin) in controller["plugins"]
             .as_array()
@@ -158,6 +166,13 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
                     if !source_ids.contains(plugin_id) {
                         errors.push(format!(
                             "/symbols/{index}/availability/pluginSourceIds/{plugin_index}: unknown source id '{plugin_id}'"
+                        ));
+                    } else if !sources
+                        .iter()
+                        .any(|source| source["id"] == plugin_id && source["kind"] == "plugin")
+                    {
+                        errors.push(format!(
+                            "/symbols/{index}/availability/pluginSourceIds/{plugin_index}: source '{plugin_id}' is not a plugin source"
                         ));
                     }
                 }
