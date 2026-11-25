@@ -239,7 +239,7 @@ fn checkout_pinned_library(url: &str, commit: &str, name: &str) -> Result<Checko
 
 #[cfg(test)]
 mod tests {
-    use super::build_package;
+    use super::{build_package, checkout_pinned_library};
     use serde_json::{json, Value};
     use std::fs;
 
@@ -314,4 +314,74 @@ mod tests {
         assert!(message.contains("2.480.0"), "{message}");
         assert!(!directory.path().join("package").exists());
     }
+
+    #[test]
+    fn rejects_credential_bearing_controller_urls_before_collection() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            "profile: unsafe\\njenkins:\\n  controllers:\\n    - id: ci\\n      url: https://user:secret@jenkins.example.test/\\nfixtures:\\n  - unused.json\\n",
+        )
+        .unwrap();
+        let error = build_package(
+            &directory.path().join("profile.yml"),
+            &directory.path().join("package"),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("credentials must be supplied through the runtime environment"));
+        assert!(!directory.path().join("package").exists());
+    }
+
+    #[test]
+    fn strips_user_information_from_catalog_and_manifest_urls() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        ))
+        .unwrap();
+        catalog["sources"][1]["url"] = json!("ssh://git:secret@github.example.test/team/library.git");
+        fs::write(
+            directory.path().join("fixture.json"),
+            serde_json::to_vec(&catalog).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            "profile: redaction-test\\nfixtures:\\n  - fixture.json\\n",
+        )
+        .unwrap();
+
+        let output = directory.path().join("package");
+        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        let catalog = fs::read_to_string(output.join("catalog.json")).unwrap();
+        let manifest = fs::read_to_string(output.join("manifest.json")).unwrap();
+        let package = format!("{catalog}{manifest}");
+        assert!(!package.contains("secret"));
+        assert!(package.contains("ssh://github.example.test/team/library.git"));
+    }
+
+    #[test]
+    fn failed_pinned_checkout_removes_its_temporary_directory() {
+        use std::collections::BTreeSet;
+
+        let checkout_dirs = || -> BTreeSet<_> {
+            fs::read_dir(std::env::temp_dir())
+                .unwrap()
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("jenkins-knowledge-checkout-")))
+                .collect()
+        };
+
+        let before = checkout_dirs();
+        let error = checkout_pinned_library(
+            "ssh://git@127.0.0.1:1/nonexistent/repository.git",
+            "0123456789abcdef0123456789abcdef01234567",
+            "test-library",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("git operation failed"));
+        assert_eq!(checkout_dirs(), before);
+    }
+
 }
