@@ -582,6 +582,68 @@ mod tests {
     }
 
     #[test]
+    fn search_is_bounded_and_has_stable_order() {
+        let mut runtime = runtime();
+        let symbols = runtime.catalog["symbols"].as_array_mut().unwrap();
+        for index in 0..150 {
+            symbols.push(serde_json::json!({
+                "id": format!("generated:{index:03}"),
+                "name": format!("generated{index:03}"),
+                "kind": "method",
+                "sourceId": "workflow-basic-steps",
+                "confidence": "unknown",
+                "provenance": ["test"]
+            }));
+        }
+        let options = SearchOptions { limit: 10, ..SearchOptions::default() };
+        let first = runtime.search_with_options(&options);
+        let second = runtime.search_with_options(&options);
+        assert_eq!(first.len(), 10);
+        assert_eq!(first, second);
+        assert_eq!(first[0]["name"], "ShellStep");
+    }
+
+    #[test]
+    fn search_filters_by_plugin_and_confidence() {
+        let runtime = runtime();
+        let plugin = SearchOptions {
+            plugin: Some("workflow-basic-steps".into()),
+            ..SearchOptions::default()
+        };
+        let results = runtime.search_with_options(&plugin);
+        assert!(results.iter().any(|symbol| symbol["name"] == "sh"));
+        assert!(results.iter().all(|symbol| {
+            symbol["sourceId"] == "workflow-basic-steps"
+                || symbol["executionConstraints"]["pluginDependencies"].as_array()
+                    .is_some_and(|items| items.iter().any(|item| item == "workflow-basic-steps"))
+        }));
+
+        let inferred = SearchOptions {
+            confidence: Some("inferred".into()),
+            ..SearchOptions::default()
+        };
+        let results = runtime.search_with_options(&inferred);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["name"], "deployApp");
+    }
+
+    #[test]
+    fn search_filters_by_owner_and_type_metadata() {
+        let mut runtime = runtime();
+        let symbol = &mut runtime.catalog["symbols"][3];
+        symbol["namespace"] = Value::String("org.jenkinsci.plugins.workflow".into());
+        symbol["returnType"] = Value::String("java.lang.String".into());
+        let options = SearchOptions {
+            owner: Some("org.jenkinsci.plugins.workflow".into()),
+            type_name: Some("String".into()),
+            ..SearchOptions::default()
+        };
+        let results = runtime.search_with_options(&options);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["name"], "ShellStep");
+    }
+
+    #[test]
     fn ambiguous_names_are_reported() {
         let mut r = runtime();
         let mut duplicate = r.catalog["symbols"][2].clone();
