@@ -26,7 +26,18 @@ fn main() {
         Ok(value) => value,
         Err(error) => { eprintln!("{error}"); process::exit(1); }
     };
-    if let Err(error) = fs::write(&output, format!("{}\n", serde_json::to_string_pretty(&catalog).unwrap())) {
+    let serialized = match serde_json::to_vec_pretty(&catalog) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("could not serialize catalog: {error}");
+            process::exit(2);
+        }
+    };
+    let temporary = format!("{output}.tmp-{}", process::id());
+    let write_result = fs::write(&temporary, serialized)
+        .and_then(|()| fs::rename(&temporary, &output));
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&temporary);
         eprintln!("could not write catalog: {error}");
         process::exit(2);
     }
