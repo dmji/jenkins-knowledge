@@ -93,27 +93,44 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
 
     let mut sources = Vec::new();
     let mut symbols = Vec::new();
+    let mut coverage = Vec::new();
     let mut source_revisions = BTreeMap::new();
+    let mut source_origins = BTreeMap::new();
     let mut provenance = BTreeMap::new();
     for (label, catalog) in catalogs {
         let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
         validate_catalog(&catalog, &schema).map_err(|e| BuildError::Source(format!("{label}: {e}")))?;
         for source in catalog["sources"].as_array().into_iter().flatten() {
             let id = source["id"].as_str().ok_or_else(|| BuildError::Source(format!("{label}: source has no id")))?;
-            source_revisions.insert(id.to_owned(), source["revision"].as_str().unwrap_or("unknown").to_owned());
+            let revision = source["revision"].as_str().unwrap_or("unknown");
+            if let Some(previous) = source_origins.insert(id.to_owned(), (label.clone(), revision.to_owned())) {
+                return Err(BuildError::Source(format!(
+                    "source id '{id}' is declared by both '{}' (revision '{}') and '{}' (revision '{}'); source identities and revisions must not be overwritten during merge",
+                    previous.0, previous.1, label, revision
+                )));
+            }
+            source_revisions.insert(id.to_owned(), revision.to_owned());
             provenance.insert(id.to_owned(), json!({"name":source["name"],"kind":source["kind"],"revision":source["revision"],"url":source.get("url")}));
             sources.push(source.clone());
         }
         symbols.extend(catalog["symbols"].as_array().into_iter().flatten().cloned());
+        coverage.extend(catalog["coverage"].as_array().into_iter().flatten().cloned());
     }
     sources.sort_by_key(|v| v["id"].as_str().unwrap_or("").to_owned());
     symbols.sort_by_key(|v| v["id"].as_str().unwrap_or("").to_owned());
+    coverage.sort_by_key(|v| {
+        (
+            v["sourceId"].as_str().unwrap_or("").to_owned(),
+            v["surface"].as_str().unwrap_or("").to_owned(),
+        )
+    });
     let catalog = json!({
         "schemaVersion":"1.0.0",
         "catalogId":profile.package.id.unwrap_or_else(|| profile.profile.clone()),
         "generatedAt":build_timestamp(),
         "sources":sources,
-        "symbols":symbols
+        "symbols":symbols,
+        "coverage":coverage
     });
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
     validate_catalog(&catalog, &schema).map_err(|e| BuildError::InvalidCatalog(e.to_string()))?;
@@ -184,4 +201,83 @@ fn checkout_pinned_library(url: &str, commit: &str, name: &str) -> Result<Checko
     };
     run(&["init","--quiet"])?; run(&["remote","add","origin",url])?; run(&["fetch","--quiet","--depth","1","origin",commit])?; run(&["checkout","--quiet","--detach","FETCH_HEAD"])?;
     Ok(Checkout(dir))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_package;
+    use serde_json::{json, Value};
+    use std::fs;
+
+    #[test]
+    fn preserves_collection_coverage_in_merged_catalog() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        ))
+        .unwrap();
+        catalog["coverage"] = json!([{
+            "sourceId":"controller",
+            "surface":"pipeline-steps",
+            "status":"inspected"
+        }]);
+        fs::write(
+            directory.path().join("fixture.json"),
+            serde_json::to_vec(&catalog).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            "profile: coverage-test\nfixtures:\n  - fixture.json\n",
+        )
+        .unwrap();
+
+        let output = directory.path().join("package");
+        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        let merged: Value =
+            serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
+        assert_eq!(merged["coverage"][0]["surface"], "pipeline-steps");
+        assert_eq!(merged["coverage"][0]["status"], "inspected");
+    }
+
+    #[test]
+    fn rejects_conflicting_source_revisions_in_fixture_merge() {
+        let directory = tempfile::tempdir().unwrap();
+        let fixture = include_str!("../../../tests/fixtures/catalog-valid.json");
+        let first: Value = serde_json::from_str(fixture).unwrap();
+        let mut second = first.clone();
+        second["catalogId"] = json!("second-fixture");
+        second["sources"][0]["revision"] = json!("2.480.0");
+
+        fs::write(
+            directory.path().join("first.json"),
+            serde_json::to_vec(&first).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("second.json"),
+            serde_json::to_vec(&second).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            "profile: conflict-test\nfixtures:\n  - first.json\n  - second.json\n",
+        )
+        .unwrap();
+
+        let error = build_package(
+            &directory.path().join("profile.yml"),
+            &directory.path().join("package"),
+        )
+        .unwrap_err();
+
+        let message = error.to_string();
+        assert!(
+            message.contains("source id 'controller' is declared by both"),
+            "{message}"
+        );
+        assert!(message.contains("2.479.1"), "{message}");
+        assert!(message.contains("2.480.0"), "{message}");
+        assert!(!directory.path().join("package").exists());
+    }
 }

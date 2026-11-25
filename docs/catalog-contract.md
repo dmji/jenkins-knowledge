@@ -9,6 +9,7 @@ The catalog is the canonical API representation shared by Builder, Runtime, IDE 
 - `generatedAt`: RFC 3339 timestamp.
 - `sources`: source snapshots from which symbols were extracted.
 - `symbols`: API symbols associated with exactly one source.
+- `coverage` (optional): per-source collection status for an inspected API surface.
 
 ## Sources
 
@@ -16,7 +17,7 @@ Each source has a unique `id`, a `kind`, a human-readable `name`, and a `revisio
 
 ## Symbols
 
-Each symbol has a unique `id`, a non-empty `name`, a `kind`, a `sourceId` referencing a catalog source, and a `confidence`. Optional fields describe namespace, signature, description, parameters, return type, overloads, examples, constraints, contexts, documentation URL, and provenance.
+Each symbol has a unique `id`, a non-empty `name`, a `kind`, a `sourceId` referencing a catalog source, and a `confidence`. Optional fields describe namespace, signature, description, parameters, return type, overloads, examples, constraints, contexts, documentation URL, provenance, and per-field `fieldEvidence`.
 
 Symbol kinds:
 
@@ -41,6 +42,18 @@ Confidence applies to the symbol as a whole. Missing facts should remain absent 
 
 The `provenance` array records human-readable evidence locations or extraction notes. Source identity and revision are carried by `sourceId` and the referenced source object. A symbol whose source cannot be established must not be emitted as a normal catalog symbol.
 
+## Evidence quality and collection coverage
+
+Three independent dimensions must not be conflated:
+
+- **Confidence** describes the overall strength of the symbol claim (`verified`, `inferred`, or `unknown`).
+- **Provenance** describes where the symbol evidence came from. The source ID and revision identify the source snapshot; the optional `provenance` strings record evidence locations or extraction notes.
+- **Coverage** describes what collection actually inspected. The optional top-level `coverage` array records a `sourceId`, a `surface`, and one status: `inspected`, `unavailable`, `unsupported`, or `not-collected`. Coverage entries must reference an existing source. Absence of a coverage entry is not evidence that a surface was inspected.
+
+The optional symbol `fieldEvidence` object records evidence quality independently for individual fields, using the same `verified`, `inferred`, and `unknown` values. A missing field-evidence entry means unknown; symbol-level `confidence: verified` must not be interpreted as proof that every optional attribute is verified. Producers should only mark a field verified when its value was directly observed or declared by the referenced source.
+
 ## Validation and compatibility
 
-Validate JSON Schema constraints and semantic references (unique source IDs, unique symbol IDs, and valid `sourceId` references). Unknown properties are rejected. Schema changes that add optional fields may be compatible; changes to required fields, enum values, or field meaning require an explicit schema version decision and migration notes. The current schema rejects unsupported schema versions rather than guessing.
+Validation applies JSON Schema constraints and semantic rules: unique source IDs and symbol IDs, valid symbol and coverage source references, one coverage record per source/surface pair, unique parameter names within a symbol, and rejection of credential-bearing source URLs or secret-named fields. Duplicate source identities are rejected during package merge rather than overwritten. Same-name symbols from distinct sources remain distinct when their IDs and source references are distinct. Conflicts are reported with both contributing input labels and revisions.
+
+Unknown properties are rejected. The optional `coverage` and `fieldEvidence` fields are additive and do not invalidate existing 1.0.0 catalogs. Changes to required fields, enum values, or field meaning require an explicit schema version decision and migration notes. The current schema rejects unsupported schema versions rather than guessing.
