@@ -88,6 +88,49 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
         }
     }
 
+    if let Some(controller) = catalog.get("controller").filter(|value| !value.is_null()) {
+        if let Some(base_url) = controller["identity"]["baseUrl"].as_str() {
+            if url_has_credentials(base_url) {
+                errors.push(
+                    "/controller/identity/baseUrl: URLs must not contain embedded credentials or secret query parameters"
+                        .to_owned(),
+                );
+            }
+        }
+        let mut plugin_names = HashSet::new();
+        for (index, plugin) in controller["plugins"]
+            .as_array()
+            .expect("schema validated plugins")
+            .iter()
+            .enumerate()
+        {
+            let source_id = plugin["sourceId"]
+                .as_str()
+                .expect("schema validated plugin source id");
+            if !source_ids.contains(source_id) {
+                errors.push(format!(
+                    "/controller/plugins/{index}/sourceId: unknown source id '{source_id}'"
+                ));
+            } else if !sources
+                .iter()
+                .any(|source| source["id"] == source_id && source["kind"] == "plugin")
+            {
+                errors.push(format!(
+                    "/controller/plugins/{index}/sourceId: source '{source_id}' is not a plugin source"
+                ));
+            }
+            let short_name = plugin["shortName"]
+                .as_str()
+                .expect("schema validated plugin short name");
+            if !plugin_names.insert(short_name) {
+                errors.push(format!(
+                    "/controller/plugins/{index}/shortName: duplicate plugin short name '{short_name}'"
+                ));
+            }
+        }
+        reject_secret_fields(controller, "/controller", errors);
+    }
+
     for (index, symbol) in symbols.iter().enumerate() {
         let id = symbol["id"].as_str().expect("schema validated symbol id");
         if !symbol_ids.insert(id) {
@@ -111,6 +154,39 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
                             "/symbols/{index}/parameters/{parameter_index}/name: duplicate parameter name '{name}'"
                         ));
                     }
+                }
+            }
+        }
+        if let Some(availability) = symbol.get("availability") {
+            if let Some(plugin_ids) = availability["pluginSourceIds"].as_array() {
+                for (plugin_index, plugin_id) in plugin_ids.iter().enumerate() {
+                    let plugin_id = plugin_id
+                        .as_str()
+                        .expect("schema validated plugin source id");
+                    if !source_ids.contains(plugin_id) {
+                        errors.push(format!(
+                            "/symbols/{index}/availability/pluginSourceIds/{plugin_index}: unknown source id '{plugin_id}'"
+                        ));
+                    } else if !sources
+                        .iter()
+                        .any(|source| source["id"] == plugin_id && source["kind"] == "plugin")
+                    {
+                        errors.push(format!(
+                            "/symbols/{index}/availability/pluginSourceIds/{plugin_index}: source '{plugin_id}' is not a plugin source"
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some(evidence) = symbol["evidence"].as_array() {
+            for (evidence_index, item) in evidence.iter().enumerate() {
+                let source_id = item["sourceId"]
+                    .as_str()
+                    .expect("schema validated evidence source id");
+                if !source_ids.contains(source_id) {
+                    errors.push(format!(
+                        "/symbols/{index}/evidence/{evidence_index}/sourceId: unknown source id '{source_id}'"
+                    ));
                 }
             }
         }
@@ -304,6 +380,82 @@ mod tests {
             "description":"inferred"
         });
         assert!(validate_catalog(&catalog, &schema()).is_ok());
+    }
+
+    #[test]
+    fn accepts_controller_runtime_snapshot_fixture() {
+        assert!(validate_catalog(&valid_catalog(), &schema()).is_ok());
+    }
+
+    #[test]
+    fn accepts_legacy_catalog_without_runtime_snapshot() {
+        let legacy: Value = serde_json::from_str(include_str!(
+            "../../../crates/knowledge-builder/tests/fixtures/catalog.json"
+        ))
+        .unwrap();
+        assert!(validate_catalog(&legacy, &schema()).is_ok());
+    }
+
+    #[test]
+    fn rejects_unknown_execution_constraint_values() {
+        let mut invalid = valid_catalog();
+        invalid["symbols"][0]["executionConstraints"]["sandbox"] = json!("maybe");
+        assert!(validate_catalog(&invalid, &schema()).is_err());
+    }
+
+    #[test]
+    fn rejects_controller_plugin_referencing_non_plugin_source() {
+        let mut invalid = valid_catalog();
+        invalid["controller"]["plugins"][0]["sourceId"] = json!("controller");
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("is not a plugin source"));
+    }
+
+    #[test]
+    fn rejects_credentials_in_controller_base_url() {
+        let mut invalid = valid_catalog();
+        invalid["controller"]["identity"]["baseUrl"] =
+            json!("https://user:password@jenkins.example.invalid/");
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("controller/identity/baseUrl"));
+    }
+
+    #[test]
+    fn rejects_availability_reference_to_non_plugin_source() {
+        let mut invalid = valid_catalog();
+        invalid["symbols"][0]["availability"]["pluginSourceIds"] = json!(["controller"]);
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("is not a plugin source"));
+    }
+
+    #[test]
+    fn rejects_symbol_evidence_with_unknown_source() {
+        let mut invalid = valid_catalog();
+        invalid["symbols"][0]["evidence"][0]["sourceId"] = json!("missing-source");
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("unknown source id"));
+    }
+
+    #[test]
+    fn rejects_duplicate_controller_plugin_short_names() {
+        let mut invalid = valid_catalog();
+        let duplicate = invalid["controller"]["plugins"][0].clone();
+        invalid["controller"]["plugins"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicate);
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate plugin short name"));
     }
 
     #[test]
