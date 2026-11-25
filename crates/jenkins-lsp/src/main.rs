@@ -54,9 +54,14 @@ fn word_at(text: &str, line_number: usize, utf16_column: usize) -> Option<String
     (start < end).then(|| line[start..end].to_string())
 }
 
+fn supported_symbol(symbol: &Value) -> bool {
+    symbol["kind"] == "step" || symbol["source"]["kind"] == "shared-library"
+}
+
 fn completion(runtime: Option<&Runtime>) -> Value {
     let Some(runtime) = runtime else { return json!([]); };
-    let mut items: Vec<Value> = runtime.search("", None, None).iter().map(|symbol| {
+    let mut items: Vec<Value> = runtime.search("", None, None).iter()
+        .filter(|symbol| supported_symbol(symbol)).map(|symbol| {
         let name = symbol["name"].as_str().unwrap_or_default();
         let kind = symbol["kind"].as_str().unwrap_or_default();
         let lsp_kind = match kind {
@@ -90,7 +95,7 @@ fn completion(runtime: Option<&Runtime>) -> Value {
 fn hover(runtime: Option<&Runtime>, word: Option<String>) -> Value {
     let (Some(runtime), Some(word)) = (runtime, word) else { return Value::Null; };
     let symbols: Vec<_> = runtime.search(&word, None, None).into_iter()
-        .filter(|symbol| symbol["name"].as_str() == Some(word.as_str())).collect();
+        .filter(|symbol| supported_symbol(symbol) && symbol["name"].as_str() == Some(word.as_str())).collect();
     if symbols.is_empty() { return Value::Null; }
     let sections = symbols.iter().map(|symbol| {
         let name = symbol["name"].as_str().unwrap_or_default();
@@ -210,5 +215,12 @@ mod tests {
         assert_eq!(word_at("sh 'hello world'", 0, 2).as_deref(), Some("sh"));
         assert_eq!(word_at("sh 'hello world'", 0, 3), None);
         assert_eq!(word_at("first\nsecond", 1, 3).as_deref(), Some("second"));
+    }
+
+    #[test]
+    fn catalog_scope_includes_steps_and_shared_library_symbols_only() {
+        assert!(supported_symbol(&json!({"kind":"step"})));
+        assert!(supported_symbol(&json!({"kind":"method","source":{"kind":"shared-library"}})));
+        assert!(!supported_symbol(&json!({"kind":"directive","source":{"kind":"jenkins"}})));
     }
 }
