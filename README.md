@@ -19,6 +19,7 @@ runtime/       Read-only catalog access and MCP interface
 schemas/       JSON Schemas for catalogs and package manifests
 profiles/      Reproducible source selections
 examples/      Example profiles and catalog data
+crates/        Rust workspace crates
 ```
 
 ## Design principles
@@ -47,13 +48,22 @@ Rust is the primary implementation language. Builder, Runtime, MCP server, CLI, 
 - Cargo is the standard build and test system. Do not introduce Gradle/JVM as the project build system.
 - Prefer established Rust crates and the standard library. Document and justify dependencies and any technically necessary language exceptions.
 
+## Development workflow
+
+The repository is a Cargo workspace. Run the standard checks from its root:
+
+```sh
+cargo fmt --all -- --check
+cargo test --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
 ## Catalog contract and validation
 
 The canonical catalog contract is documented in [docs/catalog-contract.md](docs/catalog-contract.md). Validate catalog JSON and semantic source references with the Rust validator:
 
 ```sh
-cargo test --manifest-path crates/catalog-validator/Cargo.toml
-cargo run --manifest-path crates/catalog-validator/Cargo.toml -- examples/catalog/catalog.json schemas/catalog.schema.json
+cargo run -p catalog-validator -- examples/catalog/catalog.json schemas/catalog.schema.json
 ```
 
 ## Jenkins Shared Library scanning
@@ -61,8 +71,7 @@ cargo run --manifest-path crates/catalog-validator/Cargo.toml -- examples/catalo
 Scan configured Shared Library Git revisions and emit schema-validated catalogs with exact resolved commit provenance:
 
 ```sh
-cargo test --manifest-path crates/shared-library-scanner/Cargo.toml
-cargo run --manifest-path crates/shared-library-scanner/Cargo.toml -- libraries.json catalog.json
+cargo run -p shared-library-scanner -- libraries.json catalog.json
 ```
 
 See [scanner usage and extraction limitations](crates/shared-library-scanner/README.md).
