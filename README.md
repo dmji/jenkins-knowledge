@@ -37,3 +37,12 @@ Define and validate the catalog and package contracts first. Add scanners, runti
 ## Status
 
 Early scaffold. Extraction and runtime implementations are not yet complete.
+
+## Implementation language
+
+Rust is the primary implementation language. Builder, Runtime, MCP server, CLI, catalog validation, scanners, and package tooling must be implemented in Rust.
+
+- VS Code language/intelligence backend and LSP: Rust. A thin extension host may use TypeScript where required by the VS Code extension API; keep project logic in Rust.
+- Groovy is limited to Jenkins/Groovy compatibility, generated Groovy stubs, and test fixtures. It is not a core implementation language.
+- Cargo is the standard build and test system. Do not introduce Gradle/JVM as the project build system.
+- Prefer established Rust crates and the standard library. Document and justify dependencies and any technically necessary language exceptions.
