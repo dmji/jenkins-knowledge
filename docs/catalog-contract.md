@@ -15,6 +15,24 @@ The catalog is the canonical API representation shared by Builder, Runtime, IDE 
 
 Each source has a unique `id`, a `kind`, a human-readable `name`, and a `revision`. Shared Library revisions must identify the resolved Git commit SHA; the configured branch or tag belongs in `version` or source metadata. Controller revisions identify the Jenkins version/snapshot used for extraction. Optional URLs and metadata provide traceability but must not contain credentials.
 
+## Controller runtime snapshot
+
+The optional top-level `controller` object describes one concrete Jenkins controller. It is additive to schema 1.0.0: existing GDSL-only and Shared Library catalogs remain valid when it is absent.
+
+- `identity` contains a stable controller identifier and optional display name/base URL. URLs must be credential-free.
+- `coreVersion` records the observed Jenkins Core version.
+- `plugins` is a bounded inventory of installed plugins. Each entry references a `plugin` source and records the short name, observed version, enabled/active state (nullable when unknown), and declared dependencies. A missing plugin is not implied by an incomplete inventory.
+- `capabilities` records named probes as `available`, `unavailable`, or `unknown`; it does not infer capability from a Core version.
+- `collection` records the profile, retrieval timestamp, optional start/completion timestamps, and request count.
+
+A symbol may include `availability` and `executionConstraints`. Availability is explicitly `available`, `unavailable`, or `unknown`, with optional plugin source references. CPS and Script Security/Sandbox values distinguish positive/negative observations from `unknown` and `not-inspected`. These fields must only be populated from evidence; the presence of a method or step does not prove CPS compatibility or Sandbox approval.
+
+The optional `evidence` array attaches source identity, evidence class (`controller-observed`, `source-scanned`, `static-model`, or `inferred`), confidence, retrieval time, and an optional evidence location to an individual symbol. Evidence source IDs and plugin availability references must resolve to catalog sources. Existing `sourceId`, `provenance`, `confidence`, and `fieldEvidence` remain supported for older producers.
+
+## Evidence and unknown values
+
+Use `null`, `unknown`, or `not-inspected` according to the field's schema; do not replace missing observations with version-based guesses. Partial collection is valid: record the profile, retrieval time, known facts, and explicit capability/coverage status. A failed or forbidden probe is not proof that a feature is absent. Controller snapshots must not include credentials, tokens, authorization headers, or secret-bearing metadata.
+
 ## Symbols
 
 Each symbol has a unique `id`, a non-empty `name`, a `kind`, a `sourceId` referencing a catalog source, and a `confidence`. Optional fields describe namespace, signature, description, parameters, return type, overloads, examples, constraints, contexts, documentation URL, provenance, and per-field `fieldEvidence`.
