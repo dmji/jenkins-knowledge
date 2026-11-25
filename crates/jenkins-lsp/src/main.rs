@@ -204,6 +204,32 @@ fn serve() -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{fs, path::PathBuf};
+
+    fn fixture_runtime(profile: &str) -> Runtime {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let package = std::env::temp_dir().join(format!("jenkins-lsp-test-{}", process::id()));
+        let _ = fs::remove_dir_all(&package);
+        fs::create_dir_all(&package).unwrap();
+        fs::write(package.join("catalog.json"), include_str!("../../../tests/fixtures/catalog-valid.json")).unwrap();
+        fs::write(package.join("manifest.json"), json!({
+            "packageVersion": "1.0.0",
+            "catalogSchemaVersion": "1.0.0",
+            "profile": profile,
+            "createdAt": "2026-01-01T00:00:00Z",
+            "catalog": "catalog.json",
+            "sourceRevisions": {},
+            "provenance": {},
+            "checksums": {},
+            "toolVersions": {}
+        }).to_string()).unwrap();
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(root).unwrap();
+        let runtime = Runtime::open(&package).unwrap();
+        std::env::set_current_dir(previous).unwrap();
+        fs::remove_dir_all(package).unwrap();
+        runtime
+    }
 
     #[test]
     fn finds_identifier_at_cursor_using_utf16_columns() {
@@ -222,5 +248,24 @@ mod tests {
         assert!(supported_symbol(&json!({"kind":"step"})));
         assert!(supported_symbol(&json!({"kind":"method","source":{"kind":"shared-library"}})));
         assert!(!supported_symbol(&json!({"kind":"directive","source":{"kind":"jenkins"}})));
+    }
+
+    #[test]
+    fn completion_and_hover_use_the_selected_catalog() {
+        let runtime = fixture_runtime("fixture");
+        let items = completion(Some(&runtime));
+        let labels: Vec<_> = items.as_array().unwrap().iter()
+            .filter_map(|item| item["label"].as_str()).collect();
+        assert!(labels.contains(&"sh"));
+        assert!(labels.contains(&"deployApp"));
+        assert!(!labels.contains(&"agent"));
+
+        let details = hover(Some(&runtime), Some("sh".into()));
+        let value = details["contents"]["value"].as_str().unwrap();
+        assert!(value.contains("sh(Map args)"));
+        assert!(value.contains("Runs a shell command."));
+        assert!(value.contains("Jenkins fixture"));
+        assert!(value.contains("verified"));
+        assert!(value.contains("fixture"));
     }
 }
