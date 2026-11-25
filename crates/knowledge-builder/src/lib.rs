@@ -120,9 +120,27 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let mut source_revisions = BTreeMap::new();
     let mut source_origins = BTreeMap::new();
     let mut provenance = BTreeMap::new();
+    let mut controller_snapshot: Option<Value> = None;
+    let mut controller_metadata: Option<Value> = None;
     for (label, catalog) in catalogs {
         let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
         validate_catalog(&catalog, &schema).map_err(|e| BuildError::Source(format!("{label}: {e}")))?;
+        if let Some(controller) = catalog.get("controller") {
+            let mut safe_controller = controller.clone();
+            if let Some(base_url) = safe_controller["identity"]["baseUrl"].as_str() {
+                safe_controller["identity"]["baseUrl"] = json!(source_security::redact_url(base_url));
+            }
+            if let Some(previous) = &controller_snapshot {
+                if previous != &safe_controller {
+                    return Err(BuildError::Source(format!(
+                        "{label}: controller snapshot differs from the other configured source snapshots; refusing to mix controller identities or revisions"
+                    )));
+                }
+            } else {
+                controller_snapshot = Some(safe_controller.clone());
+                controller_metadata = Some(safe_controller);
+            }
+        }
         for source in catalog["sources"].as_array().into_iter().flatten() {
             let mut safe_source = source.clone();
             if let Some(url) = source["url"].as_str() {
@@ -156,7 +174,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             v["surface"].as_str().unwrap_or("").to_owned(),
         )
     });
-    let catalog = json!({
+    let mut catalog = json!({
         "schemaVersion":"1.0.0",
         "catalogId":profile.package.id.unwrap_or_else(|| profile.profile.clone()),
         "generatedAt":build_timestamp(),
@@ -164,6 +182,9 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         "symbols":symbols,
         "coverage":coverage
     });
+    if let Some(controller) = controller_metadata {
+        catalog["controller"] = controller;
+    }
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
     validate_catalog(&catalog, &schema).map_err(|e| BuildError::InvalidCatalog(e.to_string()))?;
 
@@ -215,7 +236,6 @@ fn build_timestamp() -> String {
 fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() }
 
 // A pinned commit is checked out into a temporary directory before scan_checkout is called.
-#[derive(Debug)]
 #[derive(Debug)]
 struct Checkout(tempfile::TempDir);
 fn checkout_pinned_library(url: &str, commit: &str, name: &str) -> Result<Checkout, BuildError> {
@@ -370,6 +390,47 @@ fixtures:
         let package = format!("{catalog}{manifest}");
         assert!(!package.contains("secret"));
         assert!(package.contains("ssh://github.example.test/team/library.git"));
+    }
+
+    #[test]
+    fn rejects_malformed_fixture_json_without_publishing_a_package() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("broken.json"), "{ not json").unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            "profile: malformed\\nfixtures:\\n  - broken.json\\n",
+        )
+        .unwrap();
+        let output = directory.path().join("package");
+        assert!(build_package(&directory.path().join("profile.yml"), &output).is_err());
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn rejects_mixed_controller_snapshots_before_merging_sources() {
+        let directory = tempfile::tempdir().unwrap();
+        let first: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        ))
+        .unwrap();
+        let mut second = first.clone();
+        second["catalogId"] = json!("second-snapshot");
+        second["controller"]["identity"]["id"] = json!("different-controller");
+        fs::write(directory.path().join("first.json"), serde_json::to_vec(&first).unwrap()).unwrap();
+        fs::write(directory.path().join("second.json"), serde_json::to_vec(&second).unwrap()).unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            "profile: snapshot-conflict\\nfixtures:\\n  - first.json\\n  - second.json\\n",
+        )
+        .unwrap();
+
+        let error = build_package(
+            &directory.path().join("profile.yml"),
+            &directory.path().join("package"),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("controller snapshot differs"));
+        assert!(!directory.path().join("package").exists());
     }
 
     #[test]
