@@ -55,11 +55,17 @@ impl std::error::Error for ScanError {}
 /// Git credentials must be provided through the normal Git credential helper/environment;
 /// they are never copied into catalog metadata or diagnostics.
 pub fn scan_library(config: &LibraryConfig) -> Result<ScanResult, ScanError> {
+    scan_library_at(config, &config.reference)
+}
+
+/// Fetch a specific branch, tag, or commit while retaining the configured ref in metadata.
+pub fn scan_library_at(config: &LibraryConfig, fetch_ref: &str) -> Result<ScanResult, ScanError> {
     validate_config(config)?;
+    validate_git_reference(fetch_ref).map_err(ScanError::InvalidConfig)?;
     let temp = tempfile::tempdir().map_err(|e| ScanError::Io(e.to_string()))?;
     run_git(temp.path(), &["init", "--quiet"])?;
     run_git(temp.path(), &["remote", "add", "origin", &config.repository])?;
-    run_git(temp.path(), &["fetch", "--quiet", "--no-tags", "--depth", "1", "--filter=blob:limit=2m", "origin", &config.reference])?;
+    run_git(temp.path(), &["fetch", "--quiet", "--no-tags", "--depth", "1", "--filter=blob:limit=2m", "origin", fetch_ref])?;
     let commit = git_output(temp.path(), &["rev-parse", "FETCH_HEAD"])?;
     run_git(temp.path(), &["checkout", "--quiet", "--detach", "FETCH_HEAD"])?;
     scan_checkout(config, temp.path(), commit.trim())
@@ -284,6 +290,15 @@ fn scan_global(
 
 fn read_adjacent_documentation(groovy_file: &Path) -> Result<Option<String>, ScanError> {
     let documentation_file = groovy_file.with_extension("txt");
+    let metadata = match fs::symlink_metadata(&documentation_file) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
+        Ok(_) => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(ScanError::Io(format!("cannot inspect adjacent documentation: {error}"))),
+    };
+    if metadata.len() > 1_048_576 {
+        return Err(ScanError::Io("adjacent documentation exceeds 1048576 bytes".into()));
+    }
     match fs::read_to_string(&documentation_file) {
         Ok(content) => {
             let content = content.trim();
