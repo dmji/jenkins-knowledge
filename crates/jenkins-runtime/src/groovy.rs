@@ -89,7 +89,6 @@ fn params_from_signature(signature: &str) -> Option<Vec<(String, String)>> {
     }
     parts.push(raw[start..].trim());
     Some(parts.iter().enumerate().map(|(index, part)| {
-        let words: Vec<_> = part.split_whitespace().collect();
         if let Some((ty, name)) = part.rsplit_once(' ') {
             (groovy_type(Some(ty)).into(), identifier(name, &format!("arg{index}")))
         } else {
