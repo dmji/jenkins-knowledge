@@ -152,7 +152,7 @@ fn reject_secret_fields(value: &Value, path: &str, errors: &mut Vec<String>) {
     match value {
         Value::Object(fields) => {
             for (key, child) in fields {
-                let normalized = key.to_ascii_lowercase().replace('_', "").replace('-', "");
+                let normalized = key.to_ascii_lowercase().replace(['_', '-'], "");
                 if [
                     "password",
                     "token",
