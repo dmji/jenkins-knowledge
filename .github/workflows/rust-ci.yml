@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  catalog-validator:
-    name: Catalog validator
+  validate:
+    name: Validate workspace and container images
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -31,68 +31,31 @@ jobs:
 
       - name: Cache Cargo registry, git dependencies, and build artifacts
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            crates/catalog-validator -> target
-            crates/jenkins-gdsl-collector -> target
-            crates/shared-library-scanner -> target
-            crates/declarative-model -> target
-            crates/jenkins-runtime -> target
-          shared-key: rust-crates
-          cache-on-failure: true
 
       - name: Check formatting
-        run: cargo fmt --manifest-path crates/catalog-validator/Cargo.toml -- --check
+        run: cargo fmt --all -- --check
 
       - name: Run tests
-        run: cargo test --manifest-path crates/catalog-validator/Cargo.toml --all-targets
+        run: cargo test --workspace --all-targets
 
       - name: Run Clippy
-        run: cargo clippy --manifest-path crates/catalog-validator/Cargo.toml --all-targets -- -D warnings
-
-      - name: Check collector formatting
-        run: cargo fmt --manifest-path crates/jenkins-gdsl-collector/Cargo.toml && cargo fmt --manifest-path crates/jenkins-gdsl-collector/Cargo.toml -- --check
-
-      - name: Test collector
-        run: cargo test --manifest-path crates/jenkins-gdsl-collector/Cargo.toml --all-targets
-
-      - name: Lint collector
-        run: cargo clippy --manifest-path crates/jenkins-gdsl-collector/Cargo.toml --all-targets -- -D warnings
-
-      - name: Check shared library scanner formatting
-        run: cargo fmt --manifest-path crates/shared-library-scanner/Cargo.toml && cargo fmt --manifest-path crates/shared-library-scanner/Cargo.toml -- --check
-
-      - name: Test shared library scanner
-        run: cargo test --manifest-path crates/shared-library-scanner/Cargo.toml --all-targets
-
-      - name: Lint shared library scanner
-        run: cargo clippy --manifest-path crates/shared-library-scanner/Cargo.toml --all-targets -- -D warnings
-
-      - name: Check Declarative Pipeline model formatting
-        run: cargo fmt --manifest-path crates/declarative-model/Cargo.toml && cargo fmt --manifest-path crates/declarative-model/Cargo.toml -- --check
-
-      - name: Test Declarative Pipeline model
-        run: cargo test --manifest-path crates/declarative-model/Cargo.toml --all-targets
-
-      - name: Lint Declarative Pipeline model
-        run: cargo clippy --manifest-path crates/declarative-model/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Validate example catalog
-        run: cargo run --manifest-path crates/catalog-validator/Cargo.toml -- examples/catalog/catalog.json schemas/catalog.schema.json
-
-      - name: Format and check Knowledge Builder
-        run: cargo fmt --manifest-path crates/knowledge-builder/Cargo.toml && cargo fmt --manifest-path crates/knowledge-builder/Cargo.toml -- --check
-
-      - name: Test Knowledge Builder
-        run: cargo test --manifest-path crates/knowledge-builder/Cargo.toml --all-targets
-
-      - name: Lint Knowledge Builder
-        run: cargo clippy --manifest-path crates/knowledge-builder/Cargo.toml --all-targets -- -D warnings
+        run: cargo run -p catalog-validator -- examples/catalog/catalog.json schemas/catalog.schema.json
 
       - name: Build fixture Knowledge Package
         run: |
-          cargo run --manifest-path crates/knowledge-builder/Cargo.toml -- build profiles/fixture.yml target/fixture-package
-          cargo run --manifest-path crates/catalog-validator/Cargo.toml -- target/fixture-package/catalog.json schemas/catalog.schema.json
+          SOURCE_DATE_EPOCH=0 cargo run -p knowledge-builder -- build profiles/fixture.yml target/fixture-package
+          cargo run -p catalog-validator -- target/fixture-package/catalog.json schemas/catalog.schema.json
+
+      - name: Smoke-test Runtime against fixture package
+        run: cargo run -p jenkins-runtime -- --package target/fixture-package search deploy
+
+      - name: Build MCP server and Jenkins LSP
+        run: |
+          cargo build -p jenkins-runtime --bin jenkins-mcp
+          cargo build -p jenkins-lsp
 
       - name: Upload fixture Knowledge Package
         uses: actions/upload-artifact@v4
@@ -100,30 +63,6 @@ jobs:
           name: knowledge-package-fixture
           path: target/fixture-package/
           if-no-files-found: error
-
-      - name: Format and check Runtime
-        run: cargo fmt --manifest-path crates/jenkins-runtime/Cargo.toml && cargo fmt --manifest-path crates/jenkins-runtime/Cargo.toml -- --check
-
-      - name: Test Runtime
-        run: cargo test --manifest-path crates/jenkins-runtime/Cargo.toml --all-targets
-
-      - name: Build MCP server
-        run: cargo build --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp
-
-      - name: Lint Runtime and MCP server
-        run: cargo clippy --manifest-path crates/jenkins-runtime/Cargo.toml --all-targets -- -D warnings
-
-      - name: Format and check Jenkins LSP
-        run: cargo fmt --manifest-path crates/jenkins-lsp/Cargo.toml && cargo fmt --manifest-path crates/jenkins-lsp/Cargo.toml -- --check
-
-      - name: Test Jenkins LSP
-        run: cargo test --manifest-path crates/jenkins-lsp/Cargo.toml --all-targets
-
-      - name: Build Jenkins LSP
-        run: cargo build --manifest-path crates/jenkins-lsp/Cargo.toml
-
-      - name: Lint Jenkins LSP
-        run: cargo clippy --manifest-path crates/jenkins-lsp/Cargo.toml --all-targets -- -D warnings
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -133,3 +72,9 @@ jobs:
       - name: Compile VS Code extension
         working-directory: editors/vscode
         run: npm install && npm run compile
+
+      - name: Build Builder image
+        run: docker build --file Dockerfile.builder --tag jenkins-knowledge-builder:ci .
+
+      - name: Build Runtime image
+        run: docker build --file Dockerfile.runtime --tag jenkins-knowledge-runtime:ci .
