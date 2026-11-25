@@ -28,12 +28,14 @@ fn main() {
         process::exit(2);
     }
 
-    let catalog: Value = match profile.as_str() {
-        "quick" => discover(&controller, username.as_deref(), token.as_deref()),
-        "gdsl" => collect(&controller, username.as_deref(), token.as_deref()),
+    let result = match profile.as_str() {
+        "quick" => discover(&controller, username.as_deref(), token.as_deref())
+            .map_err(|error| error.to_string()),
+        "gdsl" => collect(&controller, username.as_deref(), token.as_deref())
+            .map_err(|error| error.to_string()),
         _ => unreachable!("profile was validated"),
-    }
-    .unwrap_or_else(|error| {
+    };
+    let catalog: Value = result.unwrap_or_else(|error| {
         eprintln!("{error}");
         process::exit(1);
     });
