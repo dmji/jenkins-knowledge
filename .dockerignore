@@ -1,0 +1,5 @@
+/.git
+/target
+/editors/vscode/node_modules
+/editors/vscode/out
+*.log
