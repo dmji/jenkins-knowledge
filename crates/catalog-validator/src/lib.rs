@@ -41,8 +41,12 @@ pub fn validate_catalog(catalog: &Value, schema: &Value) -> Result<(), Validatio
 }
 
 fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
-    let sources = catalog["sources"].as_array().expect("schema validated sources");
-    let symbols = catalog["symbols"].as_array().expect("schema validated symbols");
+    let sources = catalog["sources"]
+        .as_array()
+        .expect("schema validated sources");
+    let symbols = catalog["symbols"]
+        .as_array()
+        .expect("schema validated symbols");
     let mut source_ids = HashSet::new();
     let mut symbol_ids = HashSet::new();
 
@@ -53,7 +57,9 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
         }
         if let Some(url) = source["url"].as_str() {
             if url_has_credentials(url) {
-                errors.push(format!("/sources/{index}/url: URLs must not contain embedded credentials or secret query parameters"));
+                errors.push(format!(
+                    "/sources/{index}/url: URLs must not contain embedded credentials or secret query parameters"
+                ));
             }
         }
         reject_secret_fields(source, &format!("/sources/{index}"), errors);
@@ -61,9 +67,13 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
 
     if let Some(coverage) = catalog["coverage"].as_array() {
         for (index, entry) in coverage.iter().enumerate() {
-            let source_id = entry["sourceId"].as_str().expect("schema validated coverage source id");
+            let source_id = entry["sourceId"]
+                .as_str()
+                .expect("schema validated coverage source id");
             if !source_ids.contains(source_id) {
-                errors.push(format!("/coverage/{index}/sourceId: unknown source id '{source_id}'"));
+                errors.push(format!(
+                    "/coverage/{index}/sourceId: unknown source id '{source_id}'"
+                ));
             }
         }
     }
@@ -73,9 +83,13 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
         if !symbol_ids.insert(id) {
             errors.push(format!("/symbols/{index}/id: duplicate symbol id '{id}'"));
         }
-        let source_id = symbol["sourceId"].as_str().expect("schema validated source id");
+        let source_id = symbol["sourceId"]
+            .as_str()
+            .expect("schema validated symbol source id");
         if !source_ids.contains(source_id) {
-            errors.push(format!("/symbols/{index}/sourceId: unknown source id '{source_id}'"));
+            errors.push(format!(
+                "/symbols/{index}/sourceId: unknown source id '{source_id}'"
+            ));
         }
 
         let mut parameter_names = HashSet::new();
@@ -104,10 +118,22 @@ fn url_has_credentials(value: &str) -> bool {
     }
     value.split_once('?').is_some_and(|(_, query)| {
         query.split('&').any(|part| {
-            let key = part.split('=').next().unwrap_or_default().to_ascii_lowercase();
-            ["token", "api_key", "apikey", "password", "secret", "authorization", "access_token"]
-                .iter()
-                .any(|sensitive| key.contains(sensitive))
+            let key = part
+                .split('=')
+                .next()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            [
+                "token",
+                "api_key",
+                "apikey",
+                "password",
+                "secret",
+                "authorization",
+                "access_token",
+            ]
+            .iter()
+            .any(|sensitive| key.contains(sensitive))
         })
     })
 }
@@ -117,10 +143,20 @@ fn reject_secret_fields(value: &Value, path: &str, errors: &mut Vec<String>) {
         Value::Object(fields) => {
             for (key, child) in fields {
                 let normalized = key.to_ascii_lowercase().replace('_', "").replace('-', "");
-                if ["password", "token", "apitoken", "authorization", "secret", "credentials", "clientsecret"]
-                    .contains(&normalized.as_str())
+                if [
+                    "password",
+                    "token",
+                    "apitoken",
+                    "authorization",
+                    "secret",
+                    "credentials",
+                    "clientsecret",
+                ]
+                .contains(&normalized.as_str())
                 {
-                    errors.push(format!("{path}/{key}: secret-bearing fields are not permitted in catalogs"));
+                    errors.push(format!(
+                        "{path}/{key}: secret-bearing fields are not permitted in catalogs"
+                    ));
                 } else {
                     reject_secret_fields(child, &format!("{path}/{key}"), errors);
                 }
@@ -163,7 +199,10 @@ mod tests {
     fn rejects_unknown_symbol_source() {
         let mut invalid = valid_catalog();
         invalid["symbols"][0]["sourceId"] = json!("missing-source");
-        assert!(validate_catalog(&invalid, &schema()).unwrap_err().to_string().contains("unknown source id"));
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("unknown source id"));
     }
 
     #[test]
@@ -171,7 +210,10 @@ mod tests {
         let mut invalid = valid_catalog();
         let duplicate = invalid["symbols"][0].clone();
         invalid["symbols"].as_array_mut().unwrap().push(duplicate);
-        assert!(validate_catalog(&invalid, &schema()).unwrap_err().to_string().contains("duplicate symbol id"));
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate symbol id"));
     }
 
     #[test]
@@ -179,30 +221,42 @@ mod tests {
         let mut invalid = valid_catalog();
         let duplicate = invalid["sources"][0].clone();
         invalid["sources"].as_array_mut().unwrap().push(duplicate);
-        assert!(validate_catalog(&invalid, &schema()).unwrap_err().to_string().contains("duplicate source id"));
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate source id"));
     }
 
     #[test]
     fn rejects_duplicate_parameter_names() {
         let mut invalid = valid_catalog();
-        invalid["symbols"][0]["parameters"] = json!([{"name":"script"},{"name":"script"}]);
-        assert!(validate_catalog(&invalid, &schema()).unwrap_err().to_string().contains("duplicate parameter name"));
+        invalid["symbols"][0]["parameters"] =
+            json!([{"name":"script"},{"name":"script"}]);
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate parameter name"));
     }
 
     #[test]
     fn rejects_secret_fields_and_credential_urls() {
         let mut invalid = valid_catalog();
         invalid["sources"][0]["metadata"] = json!({"api_token":"must-not-leak"});
-        let errors = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        let errors = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(errors.contains("secret-bearing fields"));
         assert!(!errors.contains("must-not-leak"));
     }
 
     #[test]
-    fn rejects_urls_with_embedded_credentials_or_query_parameters() {
+    fn rejects_urls_with_embedded_credentials() {
         let mut invalid = valid_catalog();
         invalid["sources"][0]["url"] = json!("https://user:password@example.test/repo");
-        assert!(validate_catalog(&invalid, &schema()).unwrap_err().to_string().contains("must not contain credentials"));
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("embedded credentials"));
     }
 
     #[test]
@@ -213,7 +267,10 @@ mod tests {
             "surface":"pipeline-steps",
             "status":"not-collected"
         }]);
-        assert!(validate_catalog(&invalid, &schema()).unwrap_err().to_string().contains("/coverage/0/sourceId"));
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("/coverage/0/sourceId"));
     }
 
     #[test]
