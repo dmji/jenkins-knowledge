@@ -59,6 +59,15 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
         reject_secret_fields(source, &format!("/sources/{index}"), errors);
     }
 
+    if let Some(coverage) = catalog["coverage"].as_array() {
+        for (index, entry) in coverage.iter().enumerate() {
+            let source_id = entry["sourceId"].as_str().expect("schema validated coverage source id");
+            if !source_ids.contains(source_id) {
+                errors.push(format!("/coverage/{index}/sourceId: unknown source id '{source_id}'"));
+            }
+        }
+    }
+
     for (index, symbol) in symbols.iter().enumerate() {
         let id = symbol["id"].as_str().expect("schema validated symbol id");
         if !symbol_ids.insert(id) {
