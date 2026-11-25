@@ -2,7 +2,7 @@ use catalog_validator::validate_catalog;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, env, fs, path::{Path, PathBuf}, time::SystemTime};
+use std::{collections::BTreeMap, env, fs, path::{Path, PathBuf}};
 
 #[derive(Debug, Deserialize)]
 pub struct Profile {
@@ -144,7 +144,7 @@ fn staging_path(output: &Path) -> PathBuf {
 fn build_timestamp() -> String {
     if let Ok(epoch) = env::var("SOURCE_DATE_EPOCH") {
         if let Ok(seconds) = epoch.parse::<i64>() {
-            if let Some(timestamp) = chrono::DateTime::from_timestamp(seconds, 0) {
+            if let Some(timestamp) = chrono::DateTime::<chrono::Utc>::from_timestamp(seconds, 0) {
                 return timestamp.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
             }
         }
