@@ -57,7 +57,7 @@ jobs:
             jenkins-knowledge-runtime:ci \
             --package /package search deploy > "$GITHUB_WORKSPACE/target/runtime-image-search.json"
 
-          grep -q '"name": "deployApp"' "$GITHUB_WORKSPACE/target/runtime-image-search.json"
+          grep -q '"name": "deploy"' "$GITHUB_WORKSPACE/target/runtime-image-search.json"
           docker run --rm --entrypoint git jenkins-knowledge-builder:ci --version
 
           docker run --rm --entrypoint sh jenkins-knowledge-runtime:ci -ec '
