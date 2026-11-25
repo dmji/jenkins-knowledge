@@ -77,6 +77,9 @@ jobs:
         working-directory: editors/vscode
         run: npm install && npm run compile
 
+      - name: Build release binaries for container images
+        run: cargo build --release -p knowledge-builder -p jenkins-runtime
+
       - name: Build Builder image
         run: docker build --file Dockerfile.builder --tag jenkins-knowledge-builder:ci .
 
