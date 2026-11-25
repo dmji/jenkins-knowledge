@@ -55,12 +55,12 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
         if !source_ids.insert(id) {
             errors.push(format!("/sources/{index}/id: duplicate source id '{id}'"));
         }
-        if let Some(url) = source["url"].as_str()
-            && url_has_credentials(url)
-        {
-            errors.push(format!(
-                "/sources/{index}/url: URLs must not contain embedded credentials or secret query parameters"
-            ));
+        if let Some(url) = source["url"].as_str() {
+            if url_has_credentials(url) {
+                errors.push(format!(
+                    "/sources/{index}/url: URLs must not contain embedded credentials or secret query parameters"
+                ));
+            }
         }
         reject_secret_fields(source, &format!("/sources/{index}"), errors);
     }
@@ -105,12 +105,12 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
         let mut parameter_names = HashSet::new();
         if let Some(parameters) = symbol["parameters"].as_array() {
             for (parameter_index, parameter) in parameters.iter().enumerate() {
-                if let Some(name) = parameter["name"].as_str()
-                    && !parameter_names.insert(name)
-                {
-                    errors.push(format!(
-                        "/symbols/{index}/parameters/{parameter_index}/name: duplicate parameter name '{name}'"
-                    ));
+                if let Some(name) = parameter["name"].as_str() {
+                    if !parameter_names.insert(name) {
+                        errors.push(format!(
+                            "/symbols/{index}/parameters/{parameter_index}/name: duplicate parameter name '{name}'"
+                        ));
+                    }
                 }
             }
         }
