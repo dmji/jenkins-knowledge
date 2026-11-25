@@ -380,7 +380,10 @@ fn parse_methods(source: &str) -> Vec<Method> {
                 declaration.push(' ');
                 declaration.push_str(lines[index].trim());
             }
-            if let Some(method) = parse_method_declaration(&declaration, start + 1, owner.clone()) {
+            if let Some(mut method) = parse_method_declaration(&declaration, start + 1, owner.clone()) {
+                let (description, examples) = documentation(source, start);
+                method.description = description;
+                method.examples = examples;
                 result.push(method);
             }
         }
