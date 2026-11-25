@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "crates/catalog-validator",
+    "crates/declarative-model",
+    "crates/jenkins-gdsl-collector",
+    "crates/jenkins-lsp",
+    "crates/jenkins-runtime",
+    "crates/knowledge-builder",
+    "crates/shared-library-scanner",
+]
+resolver = "2"
