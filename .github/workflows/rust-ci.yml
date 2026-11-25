@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rust-ci-${{ github.workflow }}-${{ github.ref }}
+  group: rust-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -29,8 +29,13 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Cache Cargo
+      - name: Cache Cargo registry, git dependencies, and build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            crates/catalog-validator -> crates/catalog-validator/target
+          shared-key: catalog-validator
+          cache-on-failure: true
 
       - name: Check formatting
         run: cargo fmt --manifest-path crates/catalog-validator/Cargo.toml -- --check
