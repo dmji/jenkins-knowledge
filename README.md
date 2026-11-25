@@ -93,11 +93,11 @@ Build from a profile. The checked-in fixture profile does not require Jenkins or
 SOURCE_DATE_EPOCH=0 cargo run -p knowledge-builder -- build profiles/fixture.yml target/fixture-package
 ```
 
-The output contains `catalog.json` and `manifest.json`. The manifest records package/catalog schema versions, profile identity, build timestamp, source revisions, source provenance, tool version, and a SHA-256 checksum of the catalog. Set `SOURCE_DATE_EPOCH=0` for a stable timestamp and byte-identical fixture package output. See [Builder documentation](crates/knowledge-builder/README.md) for live collection and credential requirements.
+The output contains `catalog.json` and `manifest.json`. The manifest records package/catalog schema versions, profile identity, build timestamp, source revisions, source provenance, tool version, and a SHA-256 checksum of the catalog. The `checksums` object is the complete set of package files covered by integrity verification (currently `catalog.json`); `manifest.json` is not self-checksummed. Runtime verifies every declared file before parsing the catalog and rejects missing files, invalid digests, duplicate entries, unsafe paths, and symbolic links. Set `SOURCE_DATE_EPOCH=0` for a stable timestamp and byte-identical fixture package output. See [Builder documentation](crates/knowledge-builder/README.md) for live collection and credential requirements.
 
 ## Read-only Runtime CLI
 
-A package directory contains `manifest.json` and the catalog file named by its `catalog` field (currently `catalog.json`). The Runtime validates both schemas and rejects manifest/catalog schema-version mismatches. It performs no Jenkins, Git, or network access.
+A package directory contains `manifest.json` and the catalog file named by its `catalog` field (currently `catalog.json`). Runtime embeds the manifest and catalog schemas in the executable, verifies every file listed in `manifest.checksums` with SHA-256 before parsing the catalog, and rejects packages with missing or mismatched files, malformed or duplicate checksum entries, unsafe paths, or symbolic links. Schema loading and package validation are independent of the process working directory. It performs no Jenkins, Git, or network access.
 
 ```sh
 cargo run -p jenkins-runtime -- --package target/fixture-package search deploy
@@ -121,12 +121,15 @@ The server exposes search_api, get_api_details, list_api, get_usage_examples, an
 
 ## Container images
 
-Build the images from the repository root:
+Build the Builder and Runtime release binaries once before packaging either image. Both images consume these same workspace artifacts; Docker does not compile Rust:
 
 ```sh
+cargo build --release -p knowledge-builder -p jenkins-runtime
 docker build -f Dockerfile.builder -t jenkins-knowledge-builder .
 docker build -f Dockerfile.runtime -t jenkins-knowledge-runtime .
 ```
+
+The Docker build context includes only the two required release executables from `target/release/`; other Cargo build artifacts remain excluded by `.dockerignore`.
 
 The Builder image includes the compiled Builder, Git, and CA certificates for source collection. Pass credentials at runtime through environment variables or a Git credential helper; never bake them into an image. For an offline fixture build, mount the repository and an output directory:
 
@@ -139,7 +142,7 @@ docker run --rm \
   build profiles/fixture.yml /output/fixture-package
 ```
 
-The Runtime image contains only the read-only MCP executable, schemas, and CA certificates. Mount a prebuilt package at `/package`:
+The Runtime image contains only the read-only MCP executable with embedded schemas and CA certificates. Mount a prebuilt package at `/package`:
 
 ```sh
 docker run --rm -i -v "$PWD/target/fixture-package:/package:ro" jenkins-knowledge-runtime
