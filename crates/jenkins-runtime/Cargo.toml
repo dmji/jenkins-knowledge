@@ -12,3 +12,7 @@ serde_json = "1"
 [[bin]]
 name = "jenkins-mcp"
 path = "src/bin/mcp.rs"
+
+[[bin]]
+name = "groovy-stubs"
+path = "src/bin/groovy-stubs.rs"
