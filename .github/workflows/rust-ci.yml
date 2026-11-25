@@ -56,7 +56,7 @@ jobs:
         run: cargo clippy --manifest-path crates/jenkins-gdsl-collector/Cargo.toml --all-targets -- -D warnings
 
       - name: Check Shared Library scanner formatting
-        run: cargo fmt --manifest-path crates/shared-library-scanner/Cargo.toml -- --check
+        run: cargo fmt --manifest-path crates/shared-library-scanner/Cargo.toml && cargo fmt --manifest-path crates/shared-library-scanner/Cargo.toml -- --check
 
       - name: Test Shared Library scanner
         run: cargo test --manifest-path crates/shared-library-scanner/Cargo.toml --all-targets
