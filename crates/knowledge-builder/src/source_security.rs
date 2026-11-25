@@ -43,6 +43,7 @@ pub fn validate_git_url(value: &str) -> Result<(), String> {
     if user.is_some_and(|user| user.is_empty() || user.contains(':') || !user.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')))
         || host.is_empty()
         || path.is_empty()
+        || path.contains('@')
         || host.starts_with('-')
         || !host.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
         || path.starts_with('-')
