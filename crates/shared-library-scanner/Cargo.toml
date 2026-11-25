@@ -5,7 +5,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
+catalog-validator = { path = "../catalog-validator" }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-
-[dev-dependencies]
 tempfile = "3"
+
