@@ -36,7 +36,7 @@ Define and validate the catalog and package contracts first. Add scanners, runti
 
 ## Status
 
-Early scaffold. Extraction and runtime implementations are not yet complete.
+The Rust Builder assembles validated, versioned Knowledge Packages from profile-selected Jenkins and Shared Library sources. Offline fixture builds are supported for CI and reproducibility checks.
 
 ## Implementation language
 
@@ -78,3 +78,14 @@ See [scanner usage and extraction limitations](crates/shared-library-scanner/REA
 ## Jenkins controller GDSL extraction
 
 The Rust collector fetches the Pipeline DSL exposed by a configured controller and emits a schema-validated catalog. See [collector usage and compatibility notes](crates/jenkins-gdsl-collector/README.md).
+
+## Building a Knowledge Package
+
+Build from a profile (the checked-in fixture profile does not require Jenkins or Git access):
+
+```sh
+cargo test --manifest-path crates/knowledge-builder/Cargo.toml --all-targets
+cargo run --manifest-path crates/knowledge-builder/Cargo.toml -- build profiles/fixture.yml ./target/fixture-package
+```
+
+The output contains `catalog.json` and `manifest.json`. See [Builder documentation](crates/knowledge-builder/README.md) for live collection, provenance, checksums, and reproducible timestamp settings.

@@ -78,3 +78,24 @@ jobs:
 
       - name: Validate example catalog
         run: cargo run --manifest-path crates/catalog-validator/Cargo.toml -- examples/catalog/catalog.json schemas/catalog.schema.json
+
+      - name: Format and check Knowledge Builder
+        run: cargo fmt --manifest-path crates/knowledge-builder/Cargo.toml && cargo fmt --manifest-path crates/knowledge-builder/Cargo.toml -- --check
+
+      - name: Test Knowledge Builder
+        run: cargo test --manifest-path crates/knowledge-builder/Cargo.toml --all-targets
+
+      - name: Lint Knowledge Builder
+        run: cargo clippy --manifest-path crates/knowledge-builder/Cargo.toml --all-targets -- -D warnings
+
+      - name: Build fixture Knowledge Package
+        run: |
+          cargo run --manifest-path crates/knowledge-builder/Cargo.toml -- build profiles/fixture.yml target/fixture-package
+          cargo run --manifest-path crates/catalog-validator/Cargo.toml -- target/fixture-package/catalog.json schemas/catalog.schema.json
+
+      - name: Upload fixture Knowledge Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-package-fixture
+          path: target/fixture-package/
+          if-no-files-found: error

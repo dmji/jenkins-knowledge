@@ -1,0 +1,5 @@
+profile: fixture
+fixtures:
+  - ../crates/knowledge-builder/tests/fixtures/catalog.json
+package:
+  id: fixture-package

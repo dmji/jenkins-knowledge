@@ -4,20 +4,22 @@
   "title": "Knowledge Package Manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["packageVersion", "catalogSchemaVersion", "profile", "createdAt", "catalog"],
+  "required": ["packageVersion", "catalogSchemaVersion", "profile", "createdAt", "catalog", "sourceRevisions", "provenance", "checksums", "toolVersions"],
   "properties": {
-    "packageVersion": { "type": "string" },
-    "catalogSchemaVersion": { "type": "string" },
-    "profile": { "type": "string" },
+    "packageVersion": { "type": "string", "minLength": 1 },
+    "catalogSchemaVersion": { "type": "string", "const": "1.0.0" },
+    "profile": { "type": "string", "minLength": 1 },
     "createdAt": { "type": "string", "format": "date-time" },
     "catalog": { "type": "string", "const": "catalog.json" },
+    "sourceRevisions": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+    "provenance": { "type": "object", "additionalProperties": { "type": "object" } },
     "checksums": {
       "type": "object",
       "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
     },
     "toolVersions": {
       "type": "object",
-      "additionalProperties": { "type": "string" }
+      "additionalProperties": { "type": "string", "minLength": 1 }
     }
   }
 }
