@@ -342,6 +342,42 @@ mod tests {
     }
 
     #[test]
+    fn accepts_controller_runtime_snapshot_fixture() {
+        assert!(validate_catalog(&valid_catalog(), &schema()).is_ok());
+    }
+
+    #[test]
+    fn rejects_controller_plugin_referencing_non_plugin_source() {
+        let mut invalid = valid_catalog();
+        invalid["controller"]["plugins"][0]["sourceId"] = json!("controller");
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("is not a plugin source"));
+    }
+
+    #[test]
+    fn rejects_symbol_evidence_with_unknown_source() {
+        let mut invalid = valid_catalog();
+        invalid["symbols"][0]["evidence"][0]["sourceId"] = json!("missing-source");
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("unknown source id"));
+    }
+
+    #[test]
+    fn rejects_duplicate_controller_plugin_short_names() {
+        let mut invalid = valid_catalog();
+        let duplicate = invalid["controller"]["plugins"][0].clone();
+        invalid["controller"]["plugins"].as_array_mut().unwrap().push(duplicate);
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate plugin short name"));
+    }
+
+    #[test]
     fn allows_same_name_symbols_from_distinct_sources() {
         let mut catalog = valid_catalog();
         let mut source = catalog["sources"][0].clone();
