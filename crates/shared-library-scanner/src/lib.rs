@@ -266,6 +266,7 @@ fn scan_classes_and_methods(path: &str, source: &str, source_id: &str, confidenc
     symbols: &mut Vec<Value>, diagnostics: &mut Vec<Diagnostic>) {
     let lines: Vec<&str> = source.lines().collect();
     let mut depth = 0i32;
+    let mut signature_depth = 0i32;
     let mut owner: Option<String> = None;
     for (index, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
@@ -283,7 +284,8 @@ fn scan_classes_and_methods(path: &str, source: &str, source_id: &str, confidenc
         } else if owner.is_some() {
             depth += brace_delta(line);
             if depth <= 0 { owner = None; depth = 0; }
-            else if path.starts_with("src/") && !trimmed.is_empty() && !trimmed.starts_with('@') {
+            else if path.starts_with("src/") && depth == 1 && signature_depth == 0
+                && !trimmed.is_empty() && !trimmed.starts_with('@') {
                 if let Some((name, ty)) = parse_property_declaration(trimmed) {
                     let class_name = owner.as_deref().unwrap_or_default();
                     symbols.push(json!({
@@ -294,6 +296,11 @@ fn scan_classes_and_methods(path: &str, source: &str, source_id: &str, confidenc
                     }));
                 }
             }
+        }
+        if owner.is_some() {
+            signature_depth = (signature_depth + paren_delta(line)).max(0);
+        } else {
+            signature_depth = 0;
         }
     }
     if path.starts_with("src/") {
@@ -337,6 +344,10 @@ fn parse_property_declaration(line: &str) -> Option<(String, String)> {
 
 fn brace_delta(line: &str) -> i32 {
     line.chars().fold(0, |n, c| match c { '{' => n+1, '}' => n-1, _ => n })
+}
+
+fn paren_delta(line: &str) -> i32 {
+    line.chars().fold(0, |n, c| match c { '(' => n+1, ')' => n-1, _ => n })
 }
 
 fn diagnose_unsupported_syntax(path: &str, source: &str, source_id: &str, diagnostics: &mut Vec<Diagnostic>) {
