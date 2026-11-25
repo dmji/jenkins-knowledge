@@ -78,16 +78,17 @@ pub fn collect(
         .timeout(REQUEST_TIMEOUT)
         .build()
         .map_err(|_| CollectorError::RequestFailed)?;
-    collect_with_client(&base, username, api_token, &client)
+    collect_with_client(controller, &base, username, api_token, &client)
 }
 
 fn collect_with_client(
-    base: &Url,
+    controller: &str,
+    endpoint: &Url,
     username: Option<&str>,
     api_token: Option<&str>,
     client: &Client,
 ) -> Result<Value, CollectorError> {
-    let mut request = client.get(base.clone());
+    let mut request = client.get(endpoint.clone());
     if username.is_some() != api_token.is_some() {
         return Err(CollectorError::RequestFailed);
     }
@@ -129,7 +130,7 @@ fn collect_with_client(
     if body.trim().is_empty() {
         return Err(CollectorError::EmptyResponse);
     }
-    catalog_from_gdsl(base.as_str(), &headers, &body)
+    catalog_from_gdsl(controller, &headers, &body)
 
 /// Convert GDSL method declarations into catalog step symbols.
 /// Only explicit declarations are emitted; unknown parameter types/defaults remain absent.
@@ -332,8 +333,33 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 mod tests {
     use super::*;
     use reqwest::header::HeaderValue;
+    use std::{io::Write, net::TcpListener, thread};
 
     const FIXTURE: &str = include_str!("../tests/fixtures/pipeline.gdsl");
+
+    fn mock_jenkins(status: &str, body: Vec<u8>, delay: Duration) -> Url {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request);
+            if !delay.is_zero() {
+                thread::sleep(delay);
+            }
+            let header = format!(
+                "HTTP/1.1 {status}\\r\\nContent-Length: {}\\r\\nConnection: close\\r\\n\\r\\n",
+                body.len()
+            );
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(&body);
+        });
+        Url::parse(&format!("http://{address}/pipeline-syntax/gdsl")).unwrap()
+    }
+
+    fn test_client(timeout: Duration) -> Client {
+        Client::builder().connect_timeout(Duration::from_secs(1)).timeout(timeout).build().unwrap()
+    }
 
     #[test]
     fn extracts_steps_parameters_docs_and_provenance() {
@@ -374,6 +400,50 @@ mod tests {
         assert!(!catalog.to_string().contains("secret"));
     }
 
+
+
+    #[test]
+    fn collects_successful_http_response() {
+        let endpoint = mock_jenkins("200 OK", FIXTURE.as_bytes().to_vec(), Duration::ZERO);
+        let controller = format!("http://{}", endpoint.host_str().unwrap());
+        let result = collect_with_client(&controller, &endpoint, None, None, &test_client(Duration::from_secs(1))).unwrap();
+        assert_eq!(result["symbols"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn reports_non_success_http_status() {
+        let endpoint = mock_jenkins("503 Service Unavailable", b"unavailable".to_vec(), Duration::ZERO);
+        let error = collect_with_client("http://localhost", &endpoint, None, None, &test_client(Duration::from_secs(1))).unwrap_err();
+        assert_eq!(error, CollectorError::Unavailable(503));
+    }
+
+    #[test]
+    fn reports_empty_http_response() {
+        let endpoint = mock_jenkins("200 OK", Vec::new(), Duration::ZERO);
+        let error = collect_with_client("http://localhost", &endpoint, None, None, &test_client(Duration::from_secs(1))).unwrap_err();
+        assert_eq!(error, CollectorError::EmptyResponse);
+    }
+
+    #[test]
+    fn rejects_non_utf8_http_response() {
+        let endpoint = mock_jenkins("200 OK", vec![0xff, 0xfe], Duration::ZERO);
+        let error = collect_with_client("http://localhost", &endpoint, None, None, &test_client(Duration::from_secs(1))).unwrap_err();
+        assert_eq!(error, CollectorError::InvalidEncoding);
+    }
+
+    #[test]
+    fn rejects_oversized_http_response_while_reading() {
+        let endpoint = mock_jenkins("200 OK", vec![b'x'; MAX_RESPONSE_BYTES + 1], Duration::ZERO);
+        let error = collect_with_client("http://localhost", &endpoint, None, None, &test_client(Duration::from_secs(2))).unwrap_err();
+        assert_eq!(error, CollectorError::ResponseTooLarge { limit: MAX_RESPONSE_BYTES });
+    }
+
+    #[test]
+    fn reports_http_request_timeout() {
+        let endpoint = mock_jenkins("200 OK", FIXTURE.as_bytes().to_vec(), Duration::from_millis(100));
+        let error = collect_with_client("http://localhost", &endpoint, None, None, &test_client(Duration::from_millis(10))).unwrap_err();
+        assert_eq!(error, CollectorError::RequestTimeout);
+    }
 
     #[test]
     fn rejects_oversized_gdsl_before_parsing() {
