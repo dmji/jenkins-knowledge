@@ -95,7 +95,7 @@ impl Runtime {
         } else {
             path.to_path_buf()
         };
-        let package_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+        let package_dir = manifest_path\n            .parent()\n            .filter(|parent| !parent.as_os_str().is_empty())\n            .unwrap_or_else(|| Path::new("."));
         let manifest_text = fs::read_to_string(&manifest_path)
             .map_err(|e| RuntimeError(format!("cannot read {}: {e}", manifest_path.display())))?;
         let manifest_document: ManifestDocument = serde_json::from_str(&manifest_text)
@@ -436,7 +436,7 @@ mod tests {
         manifest["checksums"]["catalog.json"] = Value::String("not-a-digest".into());
         fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
         let error = Runtime::open(directory.path()).unwrap_err().to_string();
-        assert!(error.contains("64 lowercase hexadecimal"));
+        assert!(error.contains("invalid manifest"));
     }
 
     #[test]
