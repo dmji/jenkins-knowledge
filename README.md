@@ -139,7 +139,7 @@ docker run --rm \
   build profiles/fixture.yml /output/fixture-package
 ```
 
-The Runtime image contains only the read-only MCP executable, schemas, and CA certificates. Mount a prebuilt package at `/package`:
+The Runtime image contains only the read-only MCP executable with embedded schemas and CA certificates. Mount a prebuilt package at `/package`:
 
 ```sh
 docker run --rm -i -v "$PWD/target/fixture-package:/package:ro" jenkins-knowledge-runtime
