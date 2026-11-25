@@ -170,7 +170,7 @@ fn handle_request(connection: &Connection, request: Request, runtime: Option<&Ru
             let Some(runtime) = runtime else {
                 connection.sender.send(Message::Response(Response::new_err(
                     request.id, lsp_server::ErrorCode::InvalidRequest as i32,
-                    "No Knowledge Package is loaded"
+                    "No Knowledge Package is loaded".to_string()
                 )))?;
                 return Ok(());
             };
