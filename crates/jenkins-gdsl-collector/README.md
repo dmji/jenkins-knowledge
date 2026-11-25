@@ -33,10 +33,20 @@ The source revision records retrieval time because GDSL does not expose a stable
 content revision. A controller snapshot should therefore be regenerated when
 Jenkins or its plugins change.
 
-HTTP 401/403, other non-success responses, empty responses, invalid URLs, and
-malformed declarations produce actionable errors. Request errors are redacted to
-avoid leaking credentials or request details. The generated package contains
-controller identity and retrieval metadata only, never authentication material.
+HTTP 401/403, other non-success responses, empty responses, invalid UTF-8,
+invalid URLs, oversized responses, timeouts, and malformed declarations produce
+structured errors. Request errors are redacted to avoid leaking credentials or
+request details. The generated package contains controller identity and retrieval
+metadata only, never authentication material.
+
+## Resource limits
+
+The collector uses sequential requests with a 5-second connection timeout and a
+15-second total request timeout. It reads at most 4 MiB plus one detection byte
+from the response stream, rejecting larger bodies before parsing. GDSL parsing
+emits at most 10,000 method symbols and accepts at most 256 parameters per method.
+These limits apply before catalog validation and prevent an unexpectedly large
+controller response from causing unbounded buffering or symbol generation.
 
 ## Tests
 
