@@ -2,7 +2,9 @@ use catalog_validator::validate_catalog;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, env, fs, path::{Path, PathBuf}};
+use std::{collections::BTreeMap, env, fs, path::Path};
+
+mod source_security;
 
 #[derive(Debug, Deserialize)]
 pub struct Profile {
@@ -45,6 +47,27 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let input = fs::read_to_string(profile_path).map_err(|e| BuildError::Io(format!("cannot read {}: {e}", profile_path.display())))?;
     let profile: Profile = serde_yaml::from_str(&input).map_err(|e| BuildError::Profile(e.to_string()))?;
     if profile.profile.trim().is_empty() { return Err(BuildError::Profile("profile identity must not be empty".into())); }
+    for controller in &profile.jenkins.controllers {
+        source_security::validate_controller_url(&controller.url).map_err(|error| {
+            BuildError::Profile(format!("controller '{}' URL: {error}", controller.id))
+        })?;
+    }
+    for library in &profile.libraries {
+        source_security::validate_git_url(&library.url).map_err(|error| {
+            BuildError::Profile(format!("Shared Library '{}' URL: {error}", library.name))
+        })?;
+        source_security::validate_git_reference(&library.revision).map_err(|error| {
+            BuildError::Profile(format!("Shared Library '{}' revision: {error}", library.name))
+        })?;
+        if let Some(commit) = &library.commit {
+            if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(BuildError::Profile(format!(
+                    "Shared Library '{}' commit must be a full 40-character SHA",
+                    library.name
+                )));
+            }
+        }
+    }
     let base = profile_path.parent().unwrap_or(Path::new("."));
     let mut catalogs = Vec::new();
 
@@ -65,7 +88,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             let config = shared_library_scanner::LibraryConfig { name: library.name.clone(), repository: library.url.clone(), reference: library.revision.clone() };
             let result = if let Some(commit) = &library.commit {
                 let checkout = checkout_pinned_library(&library.url, commit, &library.name)?;
-                shared_library_scanner::scan_checkout(&config, &checkout.0, commit)
+                shared_library_scanner::scan_checkout(&config, checkout.0.path(), commit)
                     .map_err(|e| BuildError::Source(format!("Shared Library '{}': {e}", library.name)))?
             } else {
                 shared_library_scanner::scan_library(&config)
@@ -101,8 +124,12 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
         validate_catalog(&catalog, &schema).map_err(|e| BuildError::Source(format!("{label}: {e}")))?;
         for source in catalog["sources"].as_array().into_iter().flatten() {
-            let id = source["id"].as_str().ok_or_else(|| BuildError::Source(format!("{label}: source has no id")))?;
-            let revision = source["revision"].as_str().unwrap_or("unknown");
+            let mut safe_source = source.clone();
+            if let Some(url) = source["url"].as_str() {
+                safe_source["url"] = json!(source_security::redact_url(url));
+            }
+            let id = safe_source["id"].as_str().ok_or_else(|| BuildError::Source(format!("{label}: source has no id")))?;
+            let revision = safe_source["revision"].as_str().unwrap_or("unknown");
             if let Some(previous) = source_origins.insert(id.to_owned(), (label.clone(), revision.to_owned())) {
                 return Err(BuildError::Source(format!(
                     "source id '{id}' is declared by both '{}' (revision '{}') and '{}' (revision '{}'); source identities and revisions must not be overwritten during merge",
@@ -110,8 +137,13 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 )));
             }
             source_revisions.insert(id.to_owned(), revision.to_owned());
-            provenance.insert(id.to_owned(), json!({"name":source["name"],"kind":source["kind"],"revision":source["revision"],"url":source.get("url")}));
-            sources.push(source.clone());
+            provenance.insert(id.to_owned(), json!({
+                "name":safe_source["name"],
+                "kind":safe_source["kind"],
+                "revision":safe_source["revision"],
+                "url":safe_source.get("url")
+            }));
+            sources.push(safe_source);
         }
         symbols.extend(catalog["symbols"].as_array().into_iter().flatten().cloned());
         coverage.extend(catalog["coverage"].as_array().into_iter().flatten().cloned());
@@ -137,11 +169,13 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
 
     let parent = output.parent().unwrap_or(Path::new("."));
     fs::create_dir_all(parent).map_err(|e| BuildError::Io(e.to_string()))?;
-    let staging = staging_path(output);
-    if staging.exists() { fs::remove_dir_all(&staging).map_err(|e| BuildError::Io(e.to_string()))?; }
-    fs::create_dir(&staging).map_err(|e| BuildError::Io(e.to_string()))?;
+    let staging = tempfile::Builder::new()
+        .prefix(".jenkins-knowledge-staging-")
+        .tempdir_in(parent)
+        .map_err(|e| BuildError::Io(format!("cannot create package staging directory: {e}")))?;
+    let staging_path = staging.path();
     let catalog_bytes = format!("{}\n", serde_json::to_string_pretty(&catalog).map_err(|e| BuildError::Io(e.to_string()))?);
-    fs::write(staging.join("catalog.json"), &catalog_bytes).map_err(|e| BuildError::Io(e.to_string()))?;
+    fs::write(staging_path.join("catalog.json"), &catalog_bytes).map_err(|e| BuildError::Io(e.to_string()))?;
     let manifest = json!({
         "packageVersion":"1.0.0",
         "catalogSchemaVersion":"1.0.0",
@@ -158,19 +192,16 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let manifest_validator = jsonschema::validator_for(&manifest_schema)
         .map_err(|e| BuildError::InvalidCatalog(format!("invalid manifest schema: {e}")))?;
     if let Some(error) = manifest_validator.iter_errors(&manifest).next() {
-        let _ = fs::remove_dir_all(&staging);
         return Err(BuildError::InvalidCatalog(format!("manifest: {error}")));
     }
-    fs::write(staging.join("manifest.json"), format!("{}\n", serde_json::to_string_pretty(&manifest).map_err(|e| BuildError::Io(e.to_string()))?))
+    fs::write(staging_path.join("manifest.json"), format!("{}\n", serde_json::to_string_pretty(&manifest).map_err(|e| BuildError::Io(e.to_string()))?))
         .map_err(|e| BuildError::Io(e.to_string()))?;
-    fs::rename(&staging, output).map_err(|e| { let _ = fs::remove_dir_all(&staging); BuildError::Io(format!("cannot publish package {}: {e}", output.display())) })?;
+    staging.persist_noclobber(output).map_err(|error| {
+        BuildError::Io(format!("cannot publish package {}: {}", output.display(), error.error))
+    })?;
     Ok(())
 }
 
-fn staging_path(output: &Path) -> PathBuf {
-    let name = output.file_name().unwrap_or_default().to_string_lossy();
-    output.with_file_name(format!(".{name}.staging-{}", std::process::id()))
-}
 fn build_timestamp() -> String {
     if let Ok(epoch) = env::var("SOURCE_DATE_EPOCH") {
         if let Ok(seconds) = epoch.parse::<i64>() {
@@ -184,22 +215,25 @@ fn build_timestamp() -> String {
 fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() }
 
 // A pinned commit is checked out into a temporary directory before scan_checkout is called.
-struct Checkout(PathBuf);
-impl std::ops::Deref for Checkout { type Target = PathBuf; fn deref(&self) -> &Self::Target { &self.0 } }
-impl Drop for Checkout { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+struct Checkout(tempfile::TempDir);
 fn checkout_pinned_library(url: &str, commit: &str, name: &str) -> Result<Checkout, BuildError> {
-    if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(BuildError::Source(format!("Shared Library '{name}': commit must be a full 40-character SHA")));
-    }
-    let dir = env::temp_dir().join(format!("jenkins-knowledge-{}-{}", std::process::id(), &commit[..12]));
-    if dir.exists() { fs::remove_dir_all(&dir).map_err(|e| BuildError::Io(e.to_string()))?; }
-    fs::create_dir_all(&dir).map_err(|e| BuildError::Io(e.to_string()))?;
+    let dir = tempfile::Builder::new()
+        .prefix("jenkins-knowledge-checkout-")
+        .tempdir()
+        .map_err(|e| BuildError::Io(format!("cannot create checkout directory: {e}")))?;
     let run = |args: &[&str]| {
-        let status = std::process::Command::new("git").args(args).current_dir(&dir).status()
+        let status = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir.path())
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .status()
             .map_err(|e| BuildError::Source(format!("Shared Library '{name}': cannot run git: {e}")))?;
-        if status.success() { Ok(()) } else { Err(BuildError::Source(format!("Shared Library '{name}': git checkout failed"))) }
+        if status.success() { Ok(()) } else { Err(BuildError::Source(format!("Shared Library '{name}': git operation failed; remote details are redacted"))) }
     };
-    run(&["init","--quiet"])?; run(&["remote","add","origin",url])?; run(&["fetch","--quiet","--depth","1","origin",commit])?; run(&["checkout","--quiet","--detach","FETCH_HEAD"])?;
+    run(&["init","--quiet"])?;
+    run(&["remote","add","origin",url])?;
+    run(&["fetch","--quiet","--depth","1","origin",commit])?;
+    run(&["checkout","--quiet","--detach","FETCH_HEAD"])?;
     Ok(Checkout(dir))
 }
 
