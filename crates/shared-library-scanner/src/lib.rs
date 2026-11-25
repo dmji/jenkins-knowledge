@@ -207,7 +207,7 @@ fn scan_global(
         "description": description.unwrap_or_else(|| format!("Shared Library global defined by {path}")),
         "contexts": ["pipeline"],
         "confidence": confidence,
-        "provenance": [format!("{path}:1 (global script)")]
+        "provenance": [format!("{path}:{} (global script)", declaration_line + 1)]
     });
     if !examples.is_empty() {
         symbol["examples"] = json!(examples);
@@ -589,7 +589,8 @@ mod tests {
     fn scans_vars_global_documentation_and_methods() {
         let result = scan_checkout(&config("main"), &fixture(), "0123456789abcdef0123456789abcdef01234567").unwrap();
         let symbols = result.catalog["symbols"].as_array().unwrap();
-        assert!(symbols.iter().any(|s| s["name"] == "deployApp" && s["kind"] == "global-variable"));
+        assert!(symbols.iter().any(|s| s["name"] == "deployApp" && s["kind"] == "global-variable"
+            && s["provenance"][0] == "vars/deployApp.groovy:4 (global script)"));
         assert!(symbols.iter().any(|s| s["kind"] == "global-variable" && s["description"] == "Deploy an application to an environment."));
         assert!(symbols.iter().any(|s| s["kind"] == "global-variable" && s["examples"][0] == "deployApp([environment: 'staging'])"));
         assert!(symbols.iter().any(|s| s["kind"] == "class" && s["name"] == "Deployment"));
