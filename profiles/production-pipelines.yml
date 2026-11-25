@@ -1,0 +1,25 @@
+profile: production-pipelines
+
+jenkins:
+  controllers:
+    - id: production
+      url: https://jenkins.example.invalid
+      # Credentials are supplied to the builder at runtime, never committed here.
+
+libraries:
+  - name: platform-lib
+    url: https://git.example.invalid/platform-lib.git
+    revision: release/2.x
+    commit: PIN_TO_GIT_COMMIT_SHA
+  - name: deployment-lib
+    url: https://git.example.invalid/deployment-lib.git
+    revision: main
+    commit: PIN_TO_GIT_COMMIT_SHA
+
+package:
+  id: production-pipelines
+  include:
+    - jenkins-core
+    - controller
+    - plugins
+    - shared-libraries

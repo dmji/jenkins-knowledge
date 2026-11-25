@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "1.0.0",
+  "catalogId": "example-local",
+  "generatedAt": "2026-01-01T00:00:00Z",
+  "sources": [
+    {
+      "id": "jenkins-core-example",
+      "kind": "jenkins-core",
+      "name": "Jenkins core",
+      "version": "REPLACE_WITH_VERSION",
+      "revision": "REPLACE_WITH_COMMIT_OR_RELEASE",
+      "metadata": {}
+    },
+    {
+      "id": "shared-library-platform",
+      "kind": "shared-library",
+      "name": "platform-lib",
+      "version": "release/2.x",
+      "revision": "REPLACE_WITH_GIT_COMMIT_SHA",
+      "url": "https://git.example.invalid/platform-lib",
+      "metadata": {}
+    }
+  ],
+  "symbols": [
+    {
+      "id": "platform-lib:vars:deployApp",
+      "name": "deployApp",
+      "kind": "global-variable",
+      "sourceId": "shared-library-platform",
+      "signature": "deployApp(Map config)",
+      "description": "Example only. Replace with a symbol extracted from the actual library.",
+      "parameters": [
+        {
+          "name": "config",
+          "type": "Map",
+          "required": true,
+          "description": "Deployment configuration."
+        }
+      ],
+      "returnType": "Object",
+      "examples": [],
+      "contexts": ["pipeline"],
+      "confidence": "inferred",
+      "provenance": ["illustrative fixture; not verified against a real library"]
+    }
+  ]
+}
