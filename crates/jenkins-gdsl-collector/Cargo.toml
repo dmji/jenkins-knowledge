@@ -1,0 +1,12 @@
+[package]
+name = "jenkins-gdsl-collector"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+catalog-validator = { path = "../catalog-validator" }
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+serde_json = "1"
+url = "2"

@@ -1,0 +1,3 @@
+// Representative Jenkins Pipeline GDSL declarations
+method(name: 'sh', type: 'Object', params: [script: 'Shell script to execute'], doc: 'Run a shell script. https://www.jenkins.io/doc/pipeline/steps/workflow-durable-task-step/#sh-shell-script')
+method(name: 'archiveArtifacts', type: 'void', params: [artifacts: 'Files to archive', allowEmptyArchive: 'Allow no matches'], doc: 'Archive build artifacts.')

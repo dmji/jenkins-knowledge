@@ -55,3 +55,7 @@ The canonical catalog contract is documented in [docs/catalog-contract.md](docs/
 cargo test --manifest-path crates/catalog-validator/Cargo.toml
 cargo run --manifest-path crates/catalog-validator/Cargo.toml -- examples/catalog/catalog.json schemas/catalog.schema.json
 ```
+
+## Jenkins controller GDSL extraction
+
+The Rust collector fetches the Pipeline DSL exposed by a configured controller and emits a schema-validated catalog. See [collector usage and compatibility notes](crates/jenkins-gdsl-collector/README.md).
