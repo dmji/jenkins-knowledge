@@ -53,6 +53,6 @@ The optional symbol `fieldEvidence` object records evidence quality independentl
 
 ## Validation and compatibility
 
-Validation applies JSON Schema constraints and semantic rules: unique source IDs and symbol IDs, valid symbol and coverage source references, unique parameter names within a symbol, and rejection of credential-bearing source URLs or secret-named fields. Duplicate source identities are rejected during package merge rather than overwritten. Same-name symbols from distinct sources remain distinct when their IDs and source references are distinct. Conflicts are reported with both contributing input labels and revisions.
+Validation applies JSON Schema constraints and semantic rules: unique source IDs and symbol IDs, valid symbol and coverage source references, one coverage record per source/surface pair, unique parameter names within a symbol, and rejection of credential-bearing source URLs or secret-named fields. Duplicate source identities are rejected during package merge rather than overwritten. Same-name symbols from distinct sources remain distinct when their IDs and source references are distinct. Conflicts are reported with both contributing input labels and revisions.
 
 Unknown properties are rejected. The optional `coverage` and `fieldEvidence` fields are additive and do not invalidate existing 1.0.0 catalogs. Changes to required fields, enum values, or field meaning require an explicit schema version decision and migration notes. The current schema rejects unsupported schema versions rather than guessing.
