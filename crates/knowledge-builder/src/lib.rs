@@ -398,7 +398,10 @@ fixtures:
         fs::write(directory.path().join("broken.json"), "{ not json").unwrap();
         fs::write(
             directory.path().join("profile.yml"),
-            "profile: malformed\\nfixtures:\\n  - broken.json\\n",
+            r#"profile: malformed
+fixtures:
+  - broken.json
+"#,
         )
         .unwrap();
         let output = directory.path().join("package");
@@ -420,7 +423,11 @@ fixtures:
         fs::write(directory.path().join("second.json"), serde_json::to_vec(&second).unwrap()).unwrap();
         fs::write(
             directory.path().join("profile.yml"),
-            "profile: snapshot-conflict\\nfixtures:\\n  - first.json\\n  - second.json\\n",
+            r#"profile: snapshot-conflict
+fixtures:
+  - first.json
+  - second.json
+"#,
         )
         .unwrap();
 
