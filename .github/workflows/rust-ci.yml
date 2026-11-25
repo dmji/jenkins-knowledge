@@ -78,10 +78,13 @@ jobs:
         run: npm install && npm run compile
 
       - name: Build release binaries for container images
-        run: cargo build --release -p knowledge-builder -p jenkins-runtime
+        run: cargo build --release -p knowledge-builder -p catalog-validator -p jenkins-runtime --bins
 
       - name: Build Builder image
         run: docker build --file Dockerfile.builder --tag jenkins-knowledge-builder:ci .
 
       - name: Build Runtime image
         run: docker build --file Dockerfile.runtime --tag jenkins-knowledge-runtime:ci .
+
+      - name: Smoke-test Builder to Runtime package handoff
+        run: bash .github/scripts/container-smoke.sh
