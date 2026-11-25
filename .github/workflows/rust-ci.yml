@@ -49,6 +49,7 @@ jobs:
 
       - name: Build fixture Knowledge Package
         run: |
+          rm -rf target/fixture-package
           SOURCE_DATE_EPOCH=0 cargo run -p knowledge-builder -- build profiles/fixture.yml target/fixture-package
           cargo run -p catalog-validator -- target/fixture-package/catalog.json schemas/catalog.schema.json
 
@@ -75,6 +76,9 @@ jobs:
       - name: Compile VS Code extension
         working-directory: editors/vscode
         run: npm install && npm run compile
+
+      - name: Build release binaries for container images
+        run: cargo build --release -p knowledge-builder -p jenkins-runtime
 
       - name: Build Builder image
         run: docker build --file Dockerfile.builder --tag jenkins-knowledge-builder:ci .
