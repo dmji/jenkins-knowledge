@@ -28,9 +28,10 @@ The Runtime also exposes catalog coverage without converting missing or unavaila
 ```sh
 cargo run -p jenkins-runtime -- --package target/fixture-package search deploy --kind global-variable --confidence inferred --limit 20
 cargo run -p jenkins-runtime -- --package target/fixture-package list --plugin workflow-basic-steps
+cargo run -p jenkins-runtime -- --package target/fixture-package coverage
 ```
 
-Supported search filters: `--kind`, `--source`, `--plugin`, `--owner`, `--type`, `--confidence`, and `--limit`. Valid confidence values are `verified`, `inferred`, and `unknown`. Search and list now return an envelope containing `profile`, `limit`, and `results`; consumers that previously expected a bare array should read the `results` field.
+The `coverage` command reports collected and unavailable catalog surfaces for the selected package. Supported search filters: `--kind`, `--source`, `--plugin`, `--owner`, `--type`, `--confidence`, and `--limit`. Valid confidence values are `verified`, `inferred`, and `unknown`. Search and list now return an envelope containing `profile`, `limit`, and `results`; consumers that previously expected a bare array should read the `results` field.
 
 ## LSP
 
