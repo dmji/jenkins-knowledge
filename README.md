@@ -47,6 +47,58 @@ Rust is the primary implementation language. Builder, Runtime, MCP server, CLI, 
 - Cargo is the standard build and test system. Do not introduce Gradle/JVM as the project build system.
 - Prefer established Rust crates and the standard library. Document and justify dependencies and any technically necessary language exceptions.
 
+## Development environment and validation
+
+Open the repository in VS Code and choose **Dev Containers: Reopen in Container**. The container provides stable Rust with rustfmt and Clippy, Node.js 20, npm, and Git. The post-create check verifies that these tools are available.
+
+Run the canonical validation script from the repository root:
+
+    bash scripts/validate.sh
+
+It checks formatting, tests, and Clippy for every Rust crate; validates the example catalog; builds the MCP and LSP binaries; builds and validates an offline fixture package; opens that package with the Runtime CLI; and compiles the VS Code extension.
+
+The same script is run by CI inside the Dev Container. CI also builds both production images and tests the Builder-to-Runtime package handoff.
+
+The crates intentionally retain independent Cargo manifests rather than introducing a root workspace. The validation script enumerates all seven crates explicitly, preserving their independent build boundaries and avoiding a partial workspace definition. Use the script instead of maintaining a second set of ad hoc CI commands.
+
+## Builder and Runtime container images
+
+The Builder and Runtime are separate images with different responsibilities.
+
+Build the Builder image:
+
+    docker build -f containers/builder/Dockerfile -t jenkins-knowledge-builder:local .
+
+Run an offline fixture build (the mounted repository is the working directory):
+
+    docker run --rm \
+      --user "$(id -u):$(id -g)" \
+      --env HOME=/tmp \
+      --volume "$PWD:/workspace" \
+      --workdir /workspace \
+      jenkins-knowledge-builder:local \
+      build profiles/fixture.yml target/fixture-package
+
+The Builder image contains the compiled package builder and catalog validator, Git, OpenSSH client, and CA certificates. Live collection credentials are supplied only when the container runs, for example through JENKINS_USERNAME, JENKINS_API_TOKEN, a mounted Git credential configuration, or an SSH agent/key. Do not put credentials in Dockerfiles, image build arguments, or the image itself.
+
+Build and run the credential-free Runtime image:
+
+    docker build -f containers/runtime/Dockerfile -t jenkins-knowledge-runtime:local .
+    docker run --rm \
+      --volume "$PWD/target/fixture-package:/package:ro" \
+      jenkins-knowledge-runtime:local \
+      --package /package search deploy
+
+The Runtime image contains only the Runtime CLI, MCP server, Groovy stub generator, and the schemas needed to load a package. It runs as a non-root user and intentionally excludes Git, Cargo/Rust tooling, Builder executables, and Jenkins/Git credentials. Mount a completed package read-only at /package; the Runtime performs no collection or network access.
+
+To launch the MCP stdio server from the same image:
+
+    docker run --rm -i \
+      --volume "$PWD/target/fixture-package:/package:ro" \
+      --entrypoint jenkins-mcp \
+      jenkins-knowledge-runtime:local \
+      --package /package
+
 ## Catalog contract and validation
 
 The canonical catalog contract is documented in [docs/catalog-contract.md](docs/catalog-contract.md). Validate catalog JSON and semantic source references with the Rust validator:
