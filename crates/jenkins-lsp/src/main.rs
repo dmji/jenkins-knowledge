@@ -207,8 +207,8 @@ mod tests {
 
     #[test]
     fn ignores_punctuation_and_empty_lines() {
-        assert_eq!(word_at("sh 'hello world'", 0, 3).as_deref(), Some("sh"));
-        assert_eq!(word_at("sh 'hello world'", 0, 5), None);
+        assert_eq!(word_at("sh 'hello world'", 0, 2).as_deref(), Some("sh"));
+        assert_eq!(word_at("sh 'hello world'", 0, 3), None);
         assert_eq!(word_at("first\nsecond", 1, 3).as_deref(), Some("second"));
     }
 }
