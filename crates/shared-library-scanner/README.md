@@ -48,3 +48,22 @@ The optional `--diagnostics <path>` argument writes a versioned JSON object with
 - This is intentionally not a complete Groovy parser: multiline class headers, nested/local classes, complex field initializers, script-generated members, extension methods, AST transforms, and dynamic metaprogramming may not be represented. An absent symbol is not evidence that a member does not exist. Treat diagnostics as coverage warnings, not compiler errors.
 
 The scanner validates each generated catalog against `schemas/catalog.schema.json` and the semantic source-reference checks from `catalog-validator`.
+
+
+## Safety and resource limits
+
+Only absolute HTTPS/SSH remotes and Git SCP-style remotes are accepted. Local paths, `file://`, `git://`, embedded HTTPS credentials, query strings, fragments, and unsafe Git refs are rejected by the same validation policy in Builder and the standalone scanner.
+
+Git fetches are shallow, omit tags, request blobs no larger than 2 MiB, disable terminal prompts, and each Git subprocess is terminated after 120 seconds. Git server implementations may ignore partial-clone filters, so traversal limits remain the final local safety boundary.
+
+The scanner skips symlinks (including directory symlinks), resolves every candidate against the canonical checkout root, and enforces these defaults:
+
+| Limit | Default | Environment override |
+|---|---:|---|
+| Traversal depth | 32 directories | `JENKINS_KNOWLEDGE_SCAN_MAX_DEPTH` |
+| Groovy files | 10,000 | `JENKINS_KNOWLEDGE_SCAN_MAX_FILES` |
+| Individual Groovy file | 1 MiB | `JENKINS_KNOWLEDGE_SCAN_MAX_FILE_BYTES` |
+| Aggregate Groovy source | 32 MiB | `JENKINS_KNOWLEDGE_SCAN_MAX_TOTAL_BYTES` |
+| Adjacent text documentation | 1 MiB per file | fixed |
+
+Overrides must be positive integers. Exceeding a limit fails the scan with a diagnostic naming the exceeded limit; it does not silently truncate results. These limits apply to source traversal; Git subprocess timeouts and shallow filtered fetches bound the preceding checkout phase.
