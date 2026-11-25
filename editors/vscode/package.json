@@ -1,0 +1,48 @@
+{
+  "name": "jenkins-knowledge",
+  "displayName": "Jenkins Knowledge",
+  "description": "Jenkins Pipeline and Shared Library completion backed by a Knowledge Package.",
+  "version": "0.1.0",
+  "publisher": "dmji",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:groovy"],
+  "main": "./out/extension.js",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "Jenkins Knowledge",
+      "properties": {
+        "jenkinsKnowledge.serverPath": {
+          "type": "string",
+          "default": "jenkins-lsp",
+          "description": "Path to the compiled jenkins-lsp executable."
+        },
+        "jenkinsKnowledge.packagePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a built Knowledge Package, relative to the workspace or absolute."
+        },
+        "jenkinsKnowledge.profile": {
+          "type": "string",
+          "default": "",
+          "description": "Expected package profile. A mismatch disables catalog results."
+        }
+      }
+    }
+  }
+}
