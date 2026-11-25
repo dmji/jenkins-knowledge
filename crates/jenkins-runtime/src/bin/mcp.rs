@@ -90,3 +90,33 @@ fn main() {
         if let Some(response)=response { if writeln!(stdout,"{response}").and_then(|_|stdout.flush()).is_err(){break;} }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_public_tool_has_an_object_input_schema() {
+        let definitions = tools();
+        let definitions = definitions.as_array().unwrap();
+        let names: Vec<_> = definitions.iter().filter_map(|tool| tool["name"].as_str()).collect();
+        assert_eq!(names, ["search_api", "get_api_details", "list_api", "get_usage_examples", "get_pipeline_step"]);
+        for tool in definitions {
+            assert_eq!(tool["inputSchema"]["type"], "object");
+            assert!(tool["inputSchema"]["properties"].is_object());
+        }
+    }
+
+    #[test]
+    fn detail_tools_require_their_lookup_argument() {
+        let definitions = tools();
+        for (name, argument) in [
+            ("get_api_details", "name_or_id"),
+            ("get_usage_examples", "name_or_id"),
+            ("get_pipeline_step", "name"),
+        ] {
+            let tool = definitions.as_array().unwrap().iter().find(|tool| tool["name"] == name).unwrap();
+            assert!(tool["inputSchema"]["required"].as_array().unwrap().iter().any(|v| v == argument));
+        }
+    }
+}
