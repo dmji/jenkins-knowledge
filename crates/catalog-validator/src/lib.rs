@@ -391,7 +391,8 @@ mod tests {
     fn accepts_legacy_catalog_without_runtime_snapshot() {
         let legacy: Value = serde_json::from_str(include_str!(
             "../../../crates/knowledge-builder/tests/fixtures/catalog.json"
-        )).unwrap();
+        ))
+        .unwrap();
         assert!(validate_catalog(&legacy, &schema()).is_ok());
     }
 
@@ -447,7 +448,10 @@ mod tests {
     fn rejects_duplicate_controller_plugin_short_names() {
         let mut invalid = valid_catalog();
         let duplicate = invalid["controller"]["plugins"][0].clone();
-        invalid["controller"]["plugins"].as_array_mut().unwrap().push(duplicate);
+        invalid["controller"]["plugins"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicate);
         assert!(validate_catalog(&invalid, &schema())
             .unwrap_err()
             .to_string()
