@@ -63,7 +63,7 @@ pub fn scan_checkout(
         return Err(ScanError::InvalidConfig("resolved commit must be a full 40-character Git SHA".into()));
     }
 
-    let source_id = format!("shared-library:{}@{}", slug(&config.name), &resolved_commit[..12]);
+    let source_id = format!("shared-library:{}:{}@{}", slug(&config.name), slug(&config.reference), &resolved_commit[..12]);
     let mut symbols = Vec::new();
     let mut diagnostics = Vec::new();
     let mut files = Vec::new();
@@ -93,7 +93,7 @@ pub fn scan_checkout(
     let generated_at = timestamp();
     let catalog = json!({
         "schemaVersion": "1.0.0",
-        "catalogId": format!("shared-library-{}-{}", slug(&config.name), &resolved_commit[..12]),
+        "catalogId": format!("shared-library-{}-{}-{}", slug(&config.name), slug(&config.reference), &resolved_commit[..12]),
         "generatedAt": generated_at,
         "sources": [{
             "id": source_id,
@@ -412,6 +412,14 @@ mod tests {
         assert_ne!(a.catalog["sources"][0]["id"], b.catalog["sources"][0]["id"]);
         assert_eq!(a.catalog["sources"][0]["version"], "release/1");
         assert_eq!(b.catalog["sources"][0]["version"], "release/2");
+    }
+
+    #[test]
+    fn same_commit_with_different_refs_remains_distinct() {
+        let sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let main = scan_checkout(&config("main"), &fixture(), sha).unwrap();
+        let release = scan_checkout(&config("release/1"), &fixture(), sha).unwrap();
+        assert_ne!(main.catalog["sources"][0]["id"], release.catalog["sources"][0]["id"]);
     }
 
     #[test]
