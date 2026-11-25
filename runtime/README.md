@@ -30,11 +30,11 @@ cargo run -p jenkins-runtime -- --package target/fixture-package search deploy -
 cargo run -p jenkins-runtime -- --package target/fixture-package list --plugin workflow-basic-steps
 ```
 
-Supported search filters: `--kind`, `--source`, `--plugin`, `--owner`, `--type`, `--confidence`, and `--limit`. Valid confidence values are `verified`, `inferred`, and `unknown`.
+Supported search filters: `--kind`, `--source`, `--plugin`, `--owner`, `--type`, `--confidence`, and `--limit`. Valid confidence values are `verified`, `inferred`, and `unknown`. Search and list now return an envelope containing `profile`, `limit`, and `results`; consumers that previously expected a bare array should read the `results` field.
 
 ## LSP
 
-The Jenkins LSP uses Runtime search for completion and hover, preserving the same deterministic ordering and maximum result bound. It exposes `jenkinsKnowledge/coverage` as a read-only custom request returning the selected profile and its coverage records.
+The Jenkins LSP uses Runtime search for completion and hover, preserving the same deterministic ordering and maximum result bound. It exposes `jenkinsKnowledge/search` with the shared filters and `jenkinsKnowledge/coverage` as read-only custom requests.
 
 ## MCP
 
