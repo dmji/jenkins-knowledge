@@ -93,6 +93,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
 
     let mut sources = Vec::new();
     let mut symbols = Vec::new();
+    let mut coverage = Vec::new();
     let mut source_revisions = BTreeMap::new();
     let mut source_origins = BTreeMap::new();
     let mut provenance = BTreeMap::new();
@@ -113,6 +114,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             sources.push(source.clone());
         }
         symbols.extend(catalog["symbols"].as_array().into_iter().flatten().cloned());
+        coverage.extend(catalog["coverage"].as_array().into_iter().flatten().cloned());
     }
     sources.sort_by_key(|v| v["id"].as_str().unwrap_or("").to_owned());
     symbols.sort_by_key(|v| v["id"].as_str().unwrap_or("").to_owned());
@@ -121,7 +123,8 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         "catalogId":profile.package.id.unwrap_or_else(|| profile.profile.clone()),
         "generatedAt":build_timestamp(),
         "sources":sources,
-        "symbols":symbols
+        "symbols":symbols,
+        "coverage":coverage
     });
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
     validate_catalog(&catalog, &schema).map_err(|e| BuildError::InvalidCatalog(e.to_string()))?;
