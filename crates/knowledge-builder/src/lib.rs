@@ -246,13 +246,13 @@ fn checkout_pinned_library(url: &str, commit: &str, name: &str) -> Result<Checko
         .tempdir()
         .map_err(|e| BuildError::Io(format!("cannot create checkout directory: {e}")))?;
     let run = |args: &[&str]| {
-        let status = std::process::Command::new("git")
+        let output = std::process::Command::new("git")
             .args(args)
             .current_dir(dir.path())
             .env("GIT_TERMINAL_PROMPT", "0")
-            .status()
+            .output()
             .map_err(|e| BuildError::Source(format!("Shared Library '{name}': cannot run git: {e}")))?;
-        if status.success() { Ok(()) } else { Err(BuildError::Source(format!("Shared Library '{name}': git operation failed; remote details are redacted"))) }
+        if output.status.success() { Ok(()) } else { Err(BuildError::Source(format!("Shared Library '{name}': git operation failed; remote details are redacted"))) }
     };
     run(&["init","--quiet"])?;
     run(&["remote","add","origin",url])?;
@@ -365,13 +365,13 @@ fixtures:
     }
 
     #[test]
-    fn strips_user_information_from_catalog_and_manifest_urls() {
+    fn strips_request_modifiers_from_catalog_and_manifest_urls() {
         let directory = tempfile::tempdir().unwrap();
         let mut catalog: Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/catalog-valid.json"
         ))
         .unwrap();
-        catalog["sources"][1]["url"] = json!("ssh://git:secret@github.example.test/team/library.git");
+        catalog["sources"][1]["url"] = json!("https://github.example.test/team/library.git?ref=release#readme");
         fs::write(
             directory.path().join("fixture.json"),
             serde_json::to_vec(&catalog).unwrap(),
@@ -391,8 +391,8 @@ fixtures:
         let catalog = fs::read_to_string(output.join("catalog.json")).unwrap();
         let manifest = fs::read_to_string(output.join("manifest.json")).unwrap();
         let package = format!("{catalog}{manifest}");
-        assert!(!package.contains("secret"));
-        assert!(package.contains("ssh://github.example.test/team/library.git"));
+        assert!(!package.contains("?ref=release"));
+        assert!(package.contains("https://github.example.test/team/library.git"));
     }
 
     #[test]
