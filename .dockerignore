@@ -1,5 +1,10 @@
 /.git
-/target
+/target/*
+!/target/release
+/target/release/*
+!/target/release/knowledge-builder
+!/target/release/jenkins-mcp
 /editors/vscode/node_modules
 /editors/vscode/out
 *.log
+/.env*
