@@ -160,11 +160,11 @@ fn parse_methods(input: &str) -> Result<Vec<Method>, CollectorError> {
     // Jenkins GDSL emits method(name: 'step', type: '...', params: [...], doc: '...').
     // Capture one declaration at a time, respecting nested brackets and quoted strings.
     let marker = Regex::new(r"\bmethod\s*\(").expect("constant regex");
-    let name_re = Regex::new(r#"\bname\s*:\s*(['"])([^'"\r\n]+)\1"#).expect("constant regex");
-    let type_re = Regex::new(r#"\btype\s*:\s*(['"])([^'"\r\n]+)\1"#).expect("constant regex");
-    let doc_re = Regex::new(r#"\b(?:doc|description)\s*:\s*(['"])((?:\\.|.)*?)\1"#).expect("constant regex");
+    let name_re = Regex::new(r#"\bname\s*:\s*(?:'([^'\r\n]+)'|"([^"\r\n]+)")"#).expect("constant regex");
+    let type_re = Regex::new(r#"\btype\s*:\s*(?:'([^'\r\n]+)'|"([^"\r\n]+)")"#).expect("constant regex");
+    let doc_re = Regex::new(r#"\b(?:doc|description)\s*:\s*(?:'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)")"#).expect("constant regex");
     let params_re = Regex::new(r"\bparams\s*:\s*\[([^\]]*)\]").expect("constant regex");
-    let param_re = Regex::new(r#"([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(['"])((?:\\.|.)*?)\2"#).expect("constant regex");
+    let param_re = Regex::new(r#"([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)")"#).expect("constant regex");
     let mut methods = Vec::new();
     for found in marker.find_iter(input) {
         let start = found.end();
@@ -173,12 +173,12 @@ fn parse_methods(input: &str) -> Result<Vec<Method>, CollectorError> {
         })?;
         let declaration = &input[start..end];
         let Some(captures) = name_re.captures(declaration) else { continue };
-        let name = captures[2].to_owned();
-        let return_type = type_re.captures(declaration).map(|c| c[2].to_owned()).unwrap_or_else(|| "Object".into());
-        let description = doc_re.captures(declaration).map(|c| unescape(&c[2]));
+        let name = captures.get(1).or_else(|| captures.get(2)).unwrap().as_str().to_owned();
+        let return_type = type_re.captures(declaration).map(|c| c.get(1).or_else(|| c.get(2)).unwrap().as_str().to_owned()).unwrap_or_else(|| "Object".into());
+        let description = doc_re.captures(declaration).map(|c| unescape(c.get(1).or_else(|| c.get(2)).unwrap().as_str()));
         let documentation_url = description.as_deref().and_then(extract_url);
         let parameters: Vec<Value> = params_re.captures(declaration).map(|captures| {
-            param_re.captures_iter(&captures[1]).map(|c| json!({"name": &c[1], "description": unescape(&c[3])})).collect()
+            param_re.captures_iter(&captures[1]).map(|c| json!({"name": &c[1], "description": unescape(c.get(2).or_else(|| c.get(3)).unwrap().as_str())})).collect()
         }).unwrap_or_default();
         let parameter_names = parameters.iter().filter_map(|p| p["name"].as_str()).collect::<Vec<_>>();
         let signature = format!("{}({}) -> {}", name, parameter_names.join(", "), return_type);
