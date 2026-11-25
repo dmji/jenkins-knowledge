@@ -19,42 +19,9 @@ pub fn validate_controller_url(value: &str) -> Result<(), String> {
 /// Allow HTTPS and SSH URLs, plus Git's SCP-like syntax. Local paths, git://,
 /// file://, credential-bearing URLs, query strings, and fragments are rejected.
 pub fn validate_git_url(value: &str) -> Result<(), String> {
-    if value.trim() != value || value.is_empty() || value.chars().any(char::is_control) {
-        return Err("repository URL must be non-empty and contain no whitespace padding or control characters".into());
-    }
-
-    if let Ok(parsed) = Url::parse(value) {
-        if !matches!(parsed.scheme(), "https" | "ssh") || parsed.host_str().is_none() {
-            return Err("only HTTPS and SSH Git URLs are supported".into());
-        }
-        if parsed.password().is_some() || (parsed.scheme() == "https" && !parsed.username().is_empty()) {
-            return Err("credentials must be supplied through Git's credential helper or SSH agent, not the URL".into());
-        }
-        if parsed.query().is_some() || parsed.fragment().is_some() {
-            return Err("query parameters and fragments are not allowed".into());
-        }
-        return Ok(());
-    }
-
-    // Git SCP syntax: [user@]host:path. Restrict the host to DNS/IPv4 characters
-    // to avoid interpreting local paths or command-line options as remotes.
-    let (authority, path) = value.split_once(':').ok_or_else(|| "expected an HTTPS/SSH URL or [user@]host:path Git remote".to_owned())?;
-    let (user, host) = authority.rsplit_once('@').map_or((None, authority), |(user, host)| (Some(user), host));
-    if user.is_some_and(|user| user.is_empty() || user.contains(':') || !user.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')))
-        || host.is_empty()
-        || path.is_empty()
-        || path.contains('@')
-        || host.starts_with('-')
-        || !host.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
-        || path.starts_with('-')
-        || path.contains('?')
-        || path.contains('#')
-        || authority.matches('@').count() > 1
-    {
-        return Err("invalid SCP-style Git remote".into());
-    }
-    Ok(())
+    shared_library_scanner::validate_git_url(value)
 }
+
 
 /// Remove user information from a URL before it is copied into package metadata.
 pub fn redact_url(value: &str) -> String {
@@ -70,28 +37,7 @@ pub fn redact_url(value: &str) -> String {
 }
 
 pub fn validate_git_reference(value: &str) -> Result<(), String> {
-    if value.is_empty()
-        || value.trim() != value
-        || value.starts_with('-')
-        || value.chars().any(char::is_whitespace)
-        || value.chars().any(char::is_control)
-        || value == "@"
-        || value.starts_with('/')
-        || value.starts_with('.')
-        || value.contains("..")
-        || value.contains("@{")
-        || value.contains("//")
-        || value.contains("/.")
-        || value.contains("./")
-        || value.ends_with('/')
-        || value.ends_with('.')
-        || value.ends_with(".lock")
-        || value.split('/').any(|component| component.starts_with('.') || component.ends_with('.') || component.ends_with(".lock"))
-        || value.chars().any(|character| matches!(character, '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
-    {
-        return Err("must be a valid branch, tag, or full commit reference".into());
-    }
-    Ok(())
+    shared_library_scanner::validate_git_reference(value)
 }
 
 #[cfg(test)]
