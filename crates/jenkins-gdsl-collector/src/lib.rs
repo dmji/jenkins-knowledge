@@ -56,6 +56,9 @@ pub fn collect(
 
     let client = Client::builder().build().map_err(|_| CollectorError::RequestFailed)?;
     let mut request = client.get(base.clone());
+    if username.is_some() != api_token.is_some() {
+        return Err(CollectorError::RequestFailed);
+    }
     if let (Some(user), Some(token)) = (username, api_token) {
         request = request.basic_auth(user, Some(token));
     }
@@ -88,15 +91,16 @@ pub fn catalog_from_gdsl(
             "no explicit method(name: ...) declarations found".into(),
         ));
     }
+    let controller_url = normalized_controller(controller)?;
     let version = headers
         .get("X-Jenkins")
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
     let retrieved_at = timestamp();
-    let source_id = format!("jenkins-controller-{}", stable_id(controller));
+    let source_id = format!("jenkins-controller-{}", stable_id(&controller_url));
     let endpoint = endpoint_for(controller)?;
     let symbols = methods.into_iter().map(|method| {
-        let id = format!("{}:step:{}", source_id, method.name);
+        let id = format!("{}:step:{}:{}", source_id, method.name, method.line);
         let mut symbol = json!({
             "id": id,
             "name": method.name,
@@ -119,15 +123,15 @@ pub fn catalog_from_gdsl(
     }).collect::<Vec<_>>();
     let catalog = json!({
         "schemaVersion": "1.0.0",
-        "catalogId": format!("jenkins-controller-{}", stable_id(controller)),
+        "catalogId": format!("jenkins-controller-{}", stable_id(&controller_url)),
         "generatedAt": retrieved_at,
         "sources": [{
             "id": source_id,
             "kind": "jenkins-controller",
-            "name": controller.trim_end_matches('/'),
+            "name": controller_url.trim_end_matches('/'),
             "version": version,
             "revision": format!("retrieved:{retrieved_at}"),
-            "url": controller.trim_end_matches('/'),
+            "url": controller_url.trim_end_matches('/'),
             "metadata": {
                 "endpoint": endpoint,
                 "retrievedAt": retrieved_at,
@@ -218,8 +222,17 @@ fn stable_id(value: &str) -> String {
     let hash = value.bytes().fold(2166136261u32, |h, b| (h ^ u32::from(b)).wrapping_mul(16777619));
     format!("{hash:08x}")
 }
-fn endpoint_for(controller: &str) -> Result<String, CollectorError> {
+fn normalized_controller(controller: &str) -> Result<String, CollectorError> {
     let mut url = Url::parse(controller).map_err(|_| CollectorError::InvalidControllerUrl)?;
+    if !matches!(url.scheme(), "http" | "https") || !url.username().is_empty() || url.password().is_some() || url.host_str().is_none() {
+        return Err(CollectorError::InvalidControllerUrl);
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url.to_string().trim_end_matches('/').to_owned())
+}
+fn endpoint_for(controller: &str) -> Result<String, CollectorError> {
+    let mut url = Url::parse(&normalized_controller(controller)?).map_err(|_| CollectorError::InvalidControllerUrl)?;
     { let mut path = url.path_segments_mut().map_err(|_| CollectorError::InvalidControllerUrl)?;
       path.pop_if_empty(); path.push("pipeline-syntax").push("gdsl"); }
     Ok(url.to_string())
@@ -241,7 +254,7 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let mp = (5*doy + 2)/153;
     let d = doy - (153*mp+2)/5 + 1;
     let m = mp + if mp < 10 { 3 } else { -9 };
-    (y + i64::from(m <= 2), m, d)
+    (y + if m <= 2 { 1 } else { 0 }, m, d)
 }
 
 #[cfg(test)]
@@ -281,6 +294,13 @@ mod tests {
     #[test]
     fn controller_url_cannot_embed_credentials() {
         assert!(matches!(endpoint_for("https://user:secret@ci.example.test"), Err(CollectorError::InvalidControllerUrl)));
+    }
+
+    #[test]
+    fn controller_query_and_fragment_are_not_recorded() {
+        let catalog = catalog_from_gdsl("https://ci.example.test/jenkins?token=secret#fragment", &HeaderMap::new(), FIXTURE).unwrap();
+        assert_eq!(catalog["sources"][0]["url"], "https://ci.example.test/jenkins");
+        assert!(!catalog.to_string().contains("secret"));
     }
 
     #[test]
