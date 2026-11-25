@@ -56,6 +56,14 @@ cargo test --manifest-path crates/catalog-validator/Cargo.toml
 cargo run --manifest-path crates/catalog-validator/Cargo.toml -- examples/catalog/catalog.json schemas/catalog.schema.json
 ```
 
+## Declarative Pipeline model
+
+The Rust Declarative Pipeline model emits schema-compatible directive symbols with parent contexts, nesting constraints, and conservative confidence. See [model usage and limitations](crates/declarative-model/README.md).
+
+```sh
+cargo test --manifest-path crates/declarative-model/Cargo.toml --all-targets
+```
+
 ## Jenkins Shared Library scanning
 
 Scan configured Shared Library Git revisions and emit schema-validated catalogs with exact resolved commit provenance:
