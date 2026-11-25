@@ -36,6 +36,40 @@
       "items": {
         "$ref": "#/$defs/symbol"
       }
+    },
+    "coverage": {
+      "type": "array",
+      "description": "Collection coverage, separate from symbol confidence and source provenance.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceId",
+          "surface",
+          "status"
+        ],
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "surface": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "inspected",
+              "unavailable",
+              "unsupported",
+              "not-collected"
+            ]
+          },
+          "details": {
+            "type": "string"
+          }
+        }
+      }
     }
   },
   "$defs": {
@@ -201,6 +235,17 @@
           "items": {
             "type": "string",
             "minLength": 1
+          }
+        },
+        "fieldEvidence": {
+          "type": "object",
+          "description": "Per-field evidence quality; omitted fields remain unknown, not verified.",
+          "additionalProperties": {
+            "enum": [
+              "verified",
+              "inferred",
+              "unknown"
+            ]
           }
         }
       }
