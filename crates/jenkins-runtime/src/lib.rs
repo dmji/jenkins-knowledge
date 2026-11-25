@@ -4,7 +4,6 @@ use serde::de::{Error as DeError, MapAccess, Visitor};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    cmp::Reverse,
     collections::{BTreeMap, BinaryHeap},
     fmt,
     fs,
@@ -276,9 +275,12 @@ impl Runtime {
 
     pub fn search_with_options(&self, options: &SearchOptions) -> Vec<Value> {
         let query = options.query.to_lowercase();
-        let mut results: Vec<_> = self.symbols().iter().filter(|symbol| {
+        let limit = options.limit.clamp(1, MAX_SEARCH_RESULTS);
+        let mut best = BinaryHeap::<(String, String, usize)>::with_capacity(limit);
+
+        for (index, symbol) in self.symbols().iter().enumerate() {
             let source_id = symbol["sourceId"].as_str().unwrap_or_default();
-            let source = self.sources().iter().find(|item| item["id"].as_str() == Some(source_id));
+            let source = self.source_index.get(source_id);
             let source_kind = source.and_then(|item| item["kind"].as_str()).unwrap_or_default();
             let matches_plugin = options.plugin.as_deref().is_none_or(|plugin| {
                 let declared_dependency = symbol["executionConstraints"]["pluginDependencies"]
@@ -299,7 +301,7 @@ impl Runtime {
                     .filter_map(|key| symbol.get(key).and_then(Value::as_str))
                     .any(|value| value == type_name || value.contains(type_name))
             });
-            (query.is_empty() || ["name", "description", "signature", "namespace", "returnType"]
+            let matches = (query.is_empty() || ["name", "description", "signature", "namespace", "returnType"]
                 .iter().filter_map(|key| symbol.get(key).and_then(Value::as_str))
                 .any(|value| value.to_lowercase().contains(&query)))
                 && options.kind.as_deref().is_none_or(|value| symbol["kind"].as_str() == Some(value))
@@ -307,12 +309,28 @@ impl Runtime {
                 && matches_plugin
                 && matches_owner
                 && matches_type
-                && options.confidence.as_deref().is_none_or(|value| symbol["confidence"].as_str() == Some(value))
-        }).collect();
-        results.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str())
-            .then_with(|| left["id"].as_str().cmp(&right["id"].as_str())));
-        results.into_iter().take(options.limit.clamp(1, MAX_SEARCH_RESULTS))
-            .map(|symbol| self.enrich(symbol)).collect()
+                && options.confidence.as_deref().is_none_or(|value| symbol["confidence"].as_str() == Some(value));
+
+            if matches {
+                let key = (
+                    symbol["name"].as_str().unwrap_or_default().to_owned(),
+                    symbol["id"].as_str().unwrap_or_default().to_owned(),
+                    index,
+                );
+                if best.len() < limit {
+                    best.push(key);
+                } else if best.peek().is_some_and(|largest| key < *largest) {
+                    best.pop();
+                    best.push(key);
+                }
+            }
+        }
+
+        let mut selected = best.into_vec();
+        selected.sort_unstable();
+        selected.into_iter()
+            .map(|(_, _, index)| self.enrich(&self.symbols()[index]))
+            .collect()
     }
 
     pub fn coverage(&self) -> &[Value] {
@@ -371,8 +389,8 @@ impl Runtime {
     }
 
     fn enrich(&self, symbol: &Value) -> Value {
-        let source_id = symbol["sourceId"].as_str();
-        let source = self.sources().iter().find(|s| s["id"].as_str() == source_id);
+        let source_id = symbol["sourceId"].as_str().unwrap_or_default();
+        let source = self.source_index.get(source_id);
         let mut result = symbol.clone();
         if let Some(object) = result.as_object_mut() {
             object.insert("source".into(), source.cloned().unwrap_or(Value::Null));
@@ -380,6 +398,32 @@ impl Runtime {
         }
         result
     }
+}
+
+
+fn build_source_index(catalog: &Value) -> BTreeMap<String, Value> {
+    catalog["sources"].as_array().into_iter().flatten()
+        .filter_map(|source| source["id"].as_str().map(|id| (id.to_owned(), source.clone())))
+        .collect()
+}
+
+fn read_bounded(path: &Path, limit: u64, label: &str) -> Result<Vec<u8>, RuntimeError> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|e| RuntimeError(format!("cannot inspect {label}: {e}")))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(RuntimeError(format!("{label} must be a regular file (symbolic links are not allowed)")));
+    }
+    if metadata.len() > limit {
+        return Err(RuntimeError(format!("{label} exceeds size limit ({limit} bytes)")));
+    }
+    let file = fs::File::open(path).map_err(|e| RuntimeError(format!("cannot read {label}: {e}")))?;
+    let mut contents = Vec::with_capacity(metadata.len().min(limit) as usize);
+    file.take(limit + 1).read_to_end(&mut contents)
+        .map_err(|e| RuntimeError(format!("cannot read {label}: {e}")))?;
+    if contents.len() as u64 > limit {
+        return Err(RuntimeError(format!("{label} exceeds size limit ({limit} bytes)")));
+    }
+    Ok(contents)
 }
 
 fn resolve_package_file(package_dir: &Path, name: &str) -> Result<PathBuf, RuntimeError> {
@@ -464,7 +508,7 @@ mod tests {
         let catalog: Value =
             serde_json::from_str(include_str!("../../../tests/fixtures/catalog-valid.json"))
                 .unwrap();
-        Runtime { manifest, catalog }
+        Runtime::from_validated_parts(manifest, catalog)
     }
 
     fn write_package(directory: &Path) {
