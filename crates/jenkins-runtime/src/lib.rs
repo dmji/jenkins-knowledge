@@ -367,7 +367,7 @@ mod tests {
         Runtime { manifest, catalog }
     }
 
-    fn write_package(directory: &Path) -> String {
+    fn write_package(directory: &Path) {
         let catalog = include_str!("../../../tests/fixtures/catalog-valid.json");
         fs::write(directory.join("catalog.json"), catalog).unwrap();
         let checksum = hex(&Sha256::digest(catalog.as_bytes()));
@@ -387,7 +387,6 @@ mod tests {
             serde_json::to_vec_pretty(&manifest).unwrap(),
         )
         .unwrap();
-        checksum
     }
 
     #[test]
@@ -417,6 +416,20 @@ mod tests {
         write_package(directory.path());
         let loaded = Runtime::open(directory.path()).unwrap();
         assert_eq!(loaded.profile(), "test");
+    }
+
+    #[test]
+    fn verifies_every_declared_package_file() {
+        let directory = tempfile::tempdir().unwrap();
+        write_package(directory.path());
+        fs::write(directory.path().join("metadata.txt"), "metadata").unwrap();
+        let manifest_path = directory.path().join("manifest.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["checksums"]["metadata.txt"] = Value::String("a".repeat(64));
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("checksum mismatch for package file 'metadata.txt'"));
     }
 
     #[test]
