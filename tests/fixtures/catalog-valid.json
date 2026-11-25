@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "1.0.0",
+  "catalogId": "fixture-jenkins",
+  "generatedAt": "2026-01-01T00:00:00Z",
+  "sources": [
+    {
+      "id": "controller",
+      "kind": "jenkins-controller",
+      "name": "Jenkins fixture",
+      "revision": "2.479.1"
+    },
+    {
+      "id": "platform-lib",
+      "kind": "shared-library",
+      "name": "platform-lib",
+      "version": "release/2.x",
+      "revision": "0123456789abcdef0123456789abcdef01234567",
+      "url": "https://example.invalid/platform-lib"
+    }
+  ],
+  "symbols": [
+    {
+      "id": "controller:sh",
+      "name": "sh",
+      "kind": "step",
+      "sourceId": "controller",
+      "signature": "sh(Map args)",
+      "description": "Runs a shell command.",
+      "parameters": [{"name": "script", "type": "String", "required": true}],
+      "returnType": "void",
+      "contexts": ["steps"],
+      "confidence": "verified",
+      "provenance": ["Jenkins GDSL fixture"]
+    },
+    {
+      "id": "declarative:agent",
+      "name": "agent",
+      "kind": "declarative-directive",
+      "sourceId": "controller",
+      "description": "Selects the executor for a Pipeline.",
+      "constraints": ["Must appear directly inside pipeline or stage."],
+      "contexts": ["pipeline", "stage"],
+      "confidence": "verified",
+      "provenance": ["Declarative Pipeline fixture"]
+    },
+    {
+      "id": "platform-lib:deployApp",
+      "name": "deployApp",
+      "kind": "global-variable",
+      "sourceId": "platform-lib",
+      "signature": "deployApp(Map config)",
+      "parameters": [{"name": "config", "type": "Map", "required": true}],
+      "returnType": "Object",
+      "examples": ["deployApp([environment: 'test'])"],
+      "contexts": ["pipeline"],
+      "confidence": "inferred",
+      "provenance": ["vars/deployApp.groovy"]
+    }
+  ]
+}
