@@ -15,7 +15,7 @@ class PipelineSteps {
     void sh(String script) { }
 }
 
-/**
+    /**
      * Deployment configuration type.
      * Confidence: verified
      */
