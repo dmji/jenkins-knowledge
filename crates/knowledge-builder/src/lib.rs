@@ -94,13 +94,21 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let mut sources = Vec::new();
     let mut symbols = Vec::new();
     let mut source_revisions = BTreeMap::new();
+    let mut source_origins = BTreeMap::new();
     let mut provenance = BTreeMap::new();
     for (label, catalog) in catalogs {
         let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
         validate_catalog(&catalog, &schema).map_err(|e| BuildError::Source(format!("{label}: {e}")))?;
         for source in catalog["sources"].as_array().into_iter().flatten() {
             let id = source["id"].as_str().ok_or_else(|| BuildError::Source(format!("{label}: source has no id")))?;
-            source_revisions.insert(id.to_owned(), source["revision"].as_str().unwrap_or("unknown").to_owned());
+            let revision = source["revision"].as_str().unwrap_or("unknown");
+            if let Some(previous) = source_origins.insert(id.to_owned(), (label.clone(), revision.to_owned())) {
+                return Err(BuildError::Source(format!(
+                    "source id '{id}' is declared by both '{}' (revision '{}') and '{}' (revision '{}'); source identities and revisions must not be overwritten during merge",
+                    previous.0, previous.1, label, revision
+                )));
+            }
+            source_revisions.insert(id.to_owned(), revision.to_owned());
             provenance.insert(id.to_owned(), json!({"name":source["name"],"kind":source["kind"],"revision":source["revision"],"url":source.get("url")}));
             sources.push(source.clone());
         }
