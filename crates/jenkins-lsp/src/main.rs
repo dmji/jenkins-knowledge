@@ -204,14 +204,19 @@ fn serve() -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, path::PathBuf};
+    use sha2::Digest;
+    use std::fs;
 
     fn fixture_runtime(profile: &str) -> Runtime {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let package = std::env::temp_dir().join(format!("jenkins-lsp-test-{}", process::id()));
         let _ = fs::remove_dir_all(&package);
         fs::create_dir_all(&package).unwrap();
-        fs::write(package.join("catalog.json"), include_str!("../../../tests/fixtures/catalog-valid.json")).unwrap();
+        let catalog = include_str!("../../../tests/fixtures/catalog-valid.json");
+        fs::write(package.join("catalog.json"), catalog).unwrap();
+        let checksum = sha2::Sha256::digest(catalog.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
         fs::write(package.join("manifest.json"), json!({
             "packageVersion": "1.0.0",
             "catalogSchemaVersion": "1.0.0",
@@ -220,11 +225,11 @@ mod tests {
             "catalog": "catalog.json",
             "sourceRevisions": {},
             "provenance": {},
-            "checksums": {},
+            "checksums": {"catalog.json": checksum},
             "toolVersions": {}
         }).to_string()).unwrap();
         let previous = std::env::current_dir().unwrap();
-        std::env::set_current_dir(root).unwrap();
+        std::env::set_current_dir(&package).unwrap();
         let runtime = Runtime::open(&package).unwrap();
         std::env::set_current_dir(previous).unwrap();
         fs::remove_dir_all(package).unwrap();

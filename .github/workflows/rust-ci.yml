@@ -49,6 +49,7 @@ jobs:
 
       - name: Build fixture Knowledge Package
         run: |
+          rm -rf target/fixture-package
           SOURCE_DATE_EPOCH=0 cargo run -p knowledge-builder -- build profiles/fixture.yml target/fixture-package
           cargo run -p catalog-validator -- target/fixture-package/catalog.json schemas/catalog.schema.json
 
