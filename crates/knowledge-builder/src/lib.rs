@@ -250,9 +250,11 @@ fn checkout_pinned_library(url: &str, commit: &str, name: &str) -> Result<Checko
             .args(args)
             .current_dir(dir.path())
             .env("GIT_TERMINAL_PROMPT", "0")
-            .output()
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
             .map_err(|e| BuildError::Source(format!("Shared Library '{name}': cannot run git: {e}")))?;
-        if output.status.success() { Ok(()) } else { Err(BuildError::Source(format!("Shared Library '{name}': git operation failed; remote details are redacted"))) }
+        if output.success() { Ok(()) } else { Err(BuildError::Source(format!("Shared Library '{name}': git operation failed; remote details are redacted"))) }
     };
     run(&["init","--quiet"])?;
     run(&["remote","add","origin",url])?;
