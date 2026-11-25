@@ -16,6 +16,13 @@
       "version": "release/2.x",
       "revision": "0123456789abcdef0123456789abcdef01234567",
       "url": "https://example.invalid/platform-lib"
+    },
+    {
+      "id": "workflow-basic-steps",
+      "kind": "plugin",
+      "name": "Pipeline: Basic Steps",
+      "version": "2.27",
+      "revision": "2.27"
     }
   ],
   "symbols": [
@@ -26,11 +33,46 @@
       "sourceId": "controller",
       "signature": "sh(Map args)",
       "description": "Runs a shell command.",
-      "parameters": [{"name": "script", "type": "String", "required": true}],
+      "parameters": [
+        {
+          "name": "script",
+          "type": "String",
+          "required": true
+        }
+      ],
       "returnType": "void",
-      "contexts": ["steps"],
+      "contexts": [
+        "steps"
+      ],
       "confidence": "verified",
-      "provenance": ["Jenkins GDSL fixture"]
+      "provenance": [
+        "Jenkins GDSL fixture"
+      ],
+      "availability": {
+        "status": "available",
+        "pluginSourceIds": [
+          "workflow-basic-steps"
+        ]
+      },
+      "executionConstraints": {
+        "cps": "compatible",
+        "sandbox": "unknown",
+        "contexts": [
+          "pipeline"
+        ],
+        "pluginDependencies": [
+          "workflow-basic-steps"
+        ]
+      },
+      "evidence": [
+        {
+          "sourceId": "controller",
+          "kind": "controller-observed",
+          "confidence": "verified",
+          "provenance": "Pipeline step descriptor",
+          "retrievedAt": "2026-01-01T00:00:00Z"
+        }
+      ]
     },
     {
       "id": "declarative:agent",
@@ -38,10 +80,17 @@
       "kind": "declarative-directive",
       "sourceId": "controller",
       "description": "Selects the executor for a Pipeline.",
-      "constraints": ["Must appear directly inside pipeline or stage."],
-      "contexts": ["pipeline", "stage"],
+      "constraints": [
+        "Must appear directly inside pipeline or stage."
+      ],
+      "contexts": [
+        "pipeline",
+        "stage"
+      ],
       "confidence": "verified",
-      "provenance": ["Declarative Pipeline fixture"]
+      "provenance": [
+        "Declarative Pipeline fixture"
+      ]
     },
     {
       "id": "platform-lib:deployApp",
@@ -49,12 +98,109 @@
       "kind": "global-variable",
       "sourceId": "platform-lib",
       "signature": "deployApp(Map config)",
-      "parameters": [{"name": "config", "type": "Map", "required": true}],
+      "parameters": [
+        {
+          "name": "config",
+          "type": "Map",
+          "required": true
+        }
+      ],
       "returnType": "Object",
-      "examples": ["deployApp([environment: 'test'])"],
-      "contexts": ["pipeline"],
+      "examples": [
+        "deployApp([environment: 'test'])"
+      ],
+      "contexts": [
+        "pipeline"
+      ],
       "confidence": "inferred",
-      "provenance": ["vars/deployApp.groovy"]
+      "provenance": [
+        "vars/deployApp.groovy"
+      ]
+    },
+    {
+      "id": "workflow-basic-steps:sh:class",
+      "name": "ShellStep",
+      "kind": "class",
+      "sourceId": "workflow-basic-steps",
+      "confidence": "verified",
+      "provenance": [
+        "org.jenkinsci.plugins.workflow.steps.durable_task.ShellStep"
+      ],
+      "evidence": [
+        {
+          "sourceId": "workflow-basic-steps",
+          "kind": "controller-observed",
+          "confidence": "verified",
+          "provenance": "Registered step implementation class",
+          "retrievedAt": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "workflow-basic-steps:sh:descriptor",
+      "name": "getDescriptor",
+      "kind": "method",
+      "sourceId": "workflow-basic-steps",
+      "signature": "getDescriptor()",
+      "returnType": "Descriptor",
+      "confidence": "verified",
+      "provenance": [
+        "ShellStep#getDescriptor"
+      ],
+      "executionConstraints": {
+        "cps": "unknown",
+        "sandbox": "not-inspected"
+      }
+    },
+    {
+      "id": "workflow-basic-steps:sh:label",
+      "name": "label",
+      "kind": "property",
+      "sourceId": "workflow-basic-steps",
+      "returnType": "String",
+      "confidence": "unknown",
+      "provenance": [
+        "ShellStep.label"
+      ]
     }
-  ]
+  ],
+  "controller": {
+    "identity": {
+      "id": "jenkins-ci",
+      "displayName": "Fixture controller",
+      "baseUrl": "https://jenkins.example.invalid/"
+    },
+    "coreVersion": "2.479.1",
+    "plugins": [
+      {
+        "sourceId": "workflow-basic-steps",
+        "shortName": "workflow-basic-steps",
+        "version": "2.27",
+        "enabled": true,
+        "active": true,
+        "dependencies": [
+          {
+            "shortName": "workflow-api",
+            "minimumVersion": "2.47",
+            "optional": false
+          }
+        ]
+      }
+    ],
+    "capabilities": [
+      {
+        "name": "pipeline-gdsl",
+        "status": "available"
+      },
+      {
+        "name": "script-console",
+        "status": "unknown"
+      }
+    ],
+    "collection": {
+      "profile": "quick",
+      "retrievedAt": "2026-01-01T00:00:00Z",
+      "requestCount": 2
+    }
+  }
 }
