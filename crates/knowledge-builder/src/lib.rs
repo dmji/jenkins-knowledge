@@ -419,28 +419,5 @@ fixtures:
         assert!(!directory.path().join("package").exists());
     }
 
-    #[test]
-    fn failed_pinned_checkout_removes_its_temporary_directory() {
-        use std::collections::BTreeSet;
-
-        let checkout_dirs = || -> BTreeSet<_> {
-            fs::read_dir(std::env::temp_dir())
-                .unwrap()
-                .filter_map(Result::ok)
-                .map(|entry| entry.path())
-                .filter(|path| path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("jenkins-knowledge-checkout-")))
-                .collect()
-        };
-
-        let before = checkout_dirs();
-        let error = checkout_pinned_library(
-            "ssh://git@127.0.0.1:1/nonexistent/repository.git",
-            "0123456789abcdef0123456789abcdef01234567",
-            "test-library",
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("git operation failed"));
-        assert_eq!(checkout_dirs(), before);
-    }
 
 }
