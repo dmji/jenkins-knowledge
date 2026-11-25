@@ -1,5 +1,4 @@
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -118,7 +117,7 @@ fn validate_config(config: &LibraryConfig) -> Result<(), ScanError> {
     if config.name.trim().is_empty() || config.repository.trim().is_empty() || config.reference.trim().is_empty() {
         return Err(ScanError::InvalidConfig("name, repository, and reference must be non-empty".into()));
     }
-    if config.repository.contains(['\n', '\r', '\0']) || config.reference.contains(['\n', '\r', '\0']) {
+    if config.repository.chars().any(|c| c.is_control()) || config.reference.chars().any(|c| c.is_control()) {
         return Err(ScanError::InvalidConfig("repository and reference must not contain control characters".into()));
     }
     Ok(())
@@ -197,8 +196,10 @@ fn scan_classes_and_methods(path: &str, source: &str, source_id: &str, confidenc
         }
         offset += line.len() + 1;
     }
-    for method in parse_methods(source) {
-        symbols.push(method_symbol(path, source_id, confidence, method, "method"));
+    if path.starts_with("src/") {
+        for method in parse_methods(source) {
+            symbols.push(method_symbol(path, source_id, confidence, method, "method"));
+        }
     }
     if source.contains("methodMissing") || source.contains("invokeMethod") || source.contains("metaClass") {
         diagnostics.push(format!("{path}: dynamic method dispatch cannot be fully enumerated"));
