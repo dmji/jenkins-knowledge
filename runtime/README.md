@@ -19,4 +19,4 @@ Planned MCP resources:
 - `jenkins://catalog/pipeline-steps`
 - `jenkins://catalog/profiles/{profile}`
 
-The Runtime is retrieval-only. It does not execute Pipeline steps or trigger Jenkins jobs.
+The Runtime is retrieval-only. It does not execute Pipeline steps or trigger Jenkins jobs.\n\nThe Rust implementation and CLI live in `crates/jenkins-runtime`. A package directory contains `manifest.json` and its catalog file. The CLI validates both package and catalog schemas, then supports `search`, `list`, `get`, `examples`, and `step` commands. See the root README for commands and filters.
