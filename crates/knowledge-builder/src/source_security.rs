@@ -65,7 +65,7 @@ pub fn redact_url(value: &str) -> String {
         parsed.set_fragment(None);
         return parsed.to_string();
     }
-    let without_suffix = value.split(|character| character == '?' || character == '#').next().unwrap_or(value);
+    let without_suffix = value.split(['?', '#']).next().unwrap_or(value);
     without_suffix.rsplit_once('@').map_or_else(|| without_suffix.to_owned(), |(_, rest)| rest.to_owned())
 }
 
