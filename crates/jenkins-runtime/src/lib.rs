@@ -3,6 +3,8 @@ use jsonschema::validator_for;
 use serde_json::Value;
 use std::{fs, path::Path};
 
+pub mod groovy;
+
 #[derive(Debug)]
 pub struct RuntimeError(pub String);
 impl std::fmt::Display for RuntimeError {
@@ -13,6 +15,11 @@ impl std::error::Error for RuntimeError {}
 pub struct Runtime { manifest: Value, catalog: Value }
 
 impl Runtime {
+    #[cfg(test)]
+    pub(crate) fn from_validated_parts(manifest: Value, catalog: Value) -> Self {
+        Self { manifest, catalog }
+    }
+
     pub fn open(path: impl AsRef<Path>) -> Result<Self, RuntimeError> {
         let path = path.as_ref();
         let manifest_path = if path.is_dir() { path.join("manifest.json") } else { path.to_path_buf() };
