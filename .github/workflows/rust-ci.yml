@@ -44,17 +44,17 @@ jobs:
           mkdir -p target
           rm -rf target/container-fixture-package
 
-          docker run --rm \\
-            --user "$(id -u):$(id -g)" \\
-            --env HOME=/tmp \\
-            --volume "$GITHUB_WORKSPACE:/workspace" \\
-            --workdir /workspace \\
-            jenkins-knowledge-builder:ci \\
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            jenkins-knowledge-builder:ci \
             build profiles/fixture.yml target/container-fixture-package
 
-          docker run --rm \\
-            --volume "$GITHUB_WORKSPACE/target/container-fixture-package:/package:ro" \\
-            jenkins-knowledge-runtime:ci \\
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE/target/container-fixture-package:/package:ro" \
+            jenkins-knowledge-runtime:ci \
             --package /package search deploy > "$GITHUB_WORKSPACE/target/runtime-image-search.json"
 
           grep -q '"name": "deployApp"' "$GITHUB_WORKSPACE/target/runtime-image-search.json"
