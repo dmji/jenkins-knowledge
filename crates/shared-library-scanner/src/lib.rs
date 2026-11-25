@@ -2,7 +2,9 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
@@ -56,7 +58,7 @@ pub fn scan_library(config: &LibraryConfig) -> Result<ScanResult, ScanError> {
     let temp = tempfile::tempdir().map_err(|e| ScanError::Io(e.to_string()))?;
     run_git(temp.path(), &["init", "--quiet"])?;
     run_git(temp.path(), &["remote", "add", "origin", &config.repository])?;
-    run_git(temp.path(), &["fetch", "--quiet", "--depth", "1", "origin", &config.reference])?;
+    run_git(temp.path(), &["fetch", "--quiet", "--no-tags", "--depth", "1", "--filter=blob:limit=2m", "origin", &config.reference])?;
     let commit = git_output(temp.path(), &["rev-parse", "FETCH_HEAD"])?;
     run_git(temp.path(), &["checkout", "--quiet", "--detach", "FETCH_HEAD"])?;
     scan_checkout(config, temp.path(), commit.trim())
@@ -77,17 +79,20 @@ pub fn scan_checkout(
     let source_id = format!("shared-library:{}:{}@{}", slug(&config.name), slug(&config.reference), &resolved_commit[..12]);
     let mut symbols = Vec::new();
     let mut diagnostics = Vec::new();
+    let canonical_root = checkout.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve checkout root: {e}")))?;
+    let limits = ScanLimits::from_environment()?;
     let mut files = Vec::new();
+    let mut total_bytes = 0u64;
     for directory in ["vars", "src"] {
-        let root = checkout.join(directory);
+        let root = canonical_root.join(directory);
         if root.exists() {
-            collect_groovy_files(&root, &mut files)?;
+            collect_groovy_files(&root, &canonical_root, 0, &mut files, &mut total_bytes, &limits)?;
         }
     }
     files.sort();
 
     for file in files {
-        let relative = file.strip_prefix(checkout).map_err(|e| ScanError::Io(e.to_string()))?;
+        let relative = file.strip_prefix(&canonical_root).map_err(|e| ScanError::Io(e.to_string()))?;
         let path = relative.to_string_lossy().replace('\\', "/");
         let content = fs::read_to_string(&file).map_err(|e| ScanError::Io(format!("{}: {e}", file.display())))?;
         let dynamic = has_dynamic_constructs(&content);
@@ -138,42 +143,88 @@ pub fn scan_checkout(
     Ok(ScanResult { catalog, diagnostics })
 }
 
+pub fn validate_git_url(value: &str) -> Result<(), String> { crate::source_security::validate_git_url(value) }
+pub fn validate_git_reference(value: &str) -> Result<(), String> { crate::source_security::validate_git_reference(value) }
+
 fn validate_config(config: &LibraryConfig) -> Result<(), ScanError> {
     if config.name.trim().is_empty() || config.repository.trim().is_empty() || config.reference.trim().is_empty() {
         return Err(ScanError::InvalidConfig("name, repository, and reference must be non-empty".into()));
     }
-    if config.repository.chars().any(|c| c.is_control()) || config.reference.chars().any(|c| c.is_control()) {
-        return Err(ScanError::InvalidConfig("repository and reference must not contain control characters".into()));
-    }
-    if config.repository.starts_with("http://") || config.repository.starts_with("https://") {
-        let authority = config.repository.split_once("://").map(|(_, rest)| rest.split('/').next().unwrap_or("")).unwrap_or("");
-        if authority.contains('@') || config.repository.chars().any(|c| c == '?' || c == '#') {
-            return Err(ScanError::InvalidConfig("HTTP repository URLs must not contain credentials, query parameters, or fragments".into()));
-        }
-    }
+    validate_git_url(&config.repository).map_err(ScanError::InvalidConfig)?;
+    validate_git_reference(&config.reference).map_err(ScanError::InvalidConfig)?;
     Ok(())
 }
 
-fn run_git(directory: &Path, args: &[&str]) -> Result<(), ScanError> {
-    let output = Command::new("git").args(args).current_dir(directory).output()
-        .map_err(|e| ScanError::Git(e.to_string()))?;
-    if output.status.success() { Ok(()) } else {
-        Err(ScanError::Git("git command failed; remote details are redacted".into()))
+const GIT_TIMEOUT: Duration = Duration::from_secs(120);
+fn run_git(directory: &Path, args: &[&str]) -> Result<(), ScanError> { run_git_inner(directory, args).map(|_| ()) }
+fn git_output(directory: &Path, args: &[&str]) -> Result<String, ScanError> { run_git_inner(directory, args) }
+fn run_git_inner(directory: &Path, args: &[&str]) -> Result<String, ScanError> {
+    let mut child = Command::new("git").args(args).current_dir(directory)
+        .env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null())
+        .stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+        .map_err(|_| ScanError::Git("cannot start git".into()))?;
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait().map_err(|_| ScanError::Git("cannot wait for git".into()))? {
+            Some(status) => {
+                if !status.success() { return Err(ScanError::Git("git command failed; remote details are redacted".into())); }
+                let mut output = String::new();
+                if let Some(mut stdout) = child.stdout.take() {
+                    use std::io::Read;
+                    stdout.take(4096).read_to_string(&mut output).map_err(|_| ScanError::Git("cannot read git output".into()))?;
+                }
+                return Ok(output.trim().to_owned());
+            }
+            None if started.elapsed() >= GIT_TIMEOUT => {
+                let _ = child.kill(); let _ = child.wait();
+                return Err(ScanError::Git("git command timed out after 120 seconds; child process terminated".into()));
+            }
+            None => thread::sleep(Duration::from_millis(100)),
+        }
     }
 }
-fn git_output(directory: &Path, args: &[&str]) -> Result<String, ScanError> {
-    let output = Command::new("git").args(args).current_dir(directory).output()
-        .map_err(|e| ScanError::Git(e.to_string()))?;
-    if output.status.success() { Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned()) }
-    else { Err(ScanError::Git("git command failed; remote details are redacted".into())) }
+
+#[derive(Debug)]
+struct ScanLimits { depth: usize, files: usize, file_bytes: u64, total_bytes: u64 }
+impl ScanLimits {
+    fn from_environment() -> Result<Self, ScanError> {
+        fn limit(name: &str, default: u64) -> Result<u64, ScanError> {
+            match std::env::var(name) {
+                Ok(value) => value.parse().ok().filter(|v| *v > 0)
+                    .ok_or_else(|| ScanError::InvalidConfig(format!("{name} must be a positive integer"))),
+                Err(_) => Ok(default),
+            }
+        }
+        Ok(Self {
+            depth: limit("JENKINS_KNOWLEDGE_SCAN_MAX_DEPTH", 32)? as usize,
+            files: limit("JENKINS_KNOWLEDGE_SCAN_MAX_FILES", 10000)? as usize,
+            file_bytes: limit("JENKINS_KNOWLEDGE_SCAN_MAX_FILE_BYTES", 1048576)?,
+            total_bytes: limit("JENKINS_KNOWLEDGE_SCAN_MAX_TOTAL_BYTES", 33554432)?,
+        })
+    }
 }
 
-fn collect_groovy_files(root: &Path, output: &mut Vec<PathBuf>) -> Result<(), ScanError> {
-    for entry in fs::read_dir(root).map_err(|e| ScanError::Io(e.to_string()))? {
-        let entry = entry.map_err(|e| ScanError::Io(e.to_string()))?;
+fn collect_groovy_files(root: &Path, checkout: &Path, depth: usize, output: &mut Vec<PathBuf>,
+    total_bytes: &mut u64, limits: &ScanLimits) -> Result<(), ScanError> {
+    if depth > limits.depth { return Err(ScanError::Io(format!("scan depth exceeds limit ({})", limits.depth))); }
+    for entry in fs::read_dir(root).map_err(|e| ScanError::Io(format!("cannot read directory: {e}")))? {
+        let entry = entry.map_err(|e| ScanError::Io(format!("cannot read directory entry: {e}")))?;
         let path = entry.path();
-        if path.is_dir() { collect_groovy_files(&path, output)?; }
-        else if path.extension().is_some_and(|ext| ext == "groovy") { output.push(path); }
+        let metadata = fs::symlink_metadata(&path).map_err(|e| ScanError::Io(format!("cannot inspect path: {e}")))?;
+        if metadata.file_type().is_symlink() { continue; }
+        if metadata.is_dir() {
+            let canonical = path.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve directory: {e}")))?;
+            if !canonical.starts_with(checkout) { return Err(ScanError::Io("directory escaped checkout root".into())); }
+            collect_groovy_files(&canonical, checkout, depth + 1, output, total_bytes, limits)?;
+        } else if metadata.is_file() && path.extension().is_some_and(|ext| ext == "groovy") {
+            let canonical = path.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve source file: {e}")))?;
+            if !canonical.starts_with(checkout) { return Err(ScanError::Io("source file escaped checkout root".into())); }
+            if metadata.len() > limits.file_bytes { return Err(ScanError::Io(format!("{} exceeds per-file limit of {} bytes", path.display(), limits.file_bytes))); }
+            *total_bytes = (*total_bytes).saturating_add(metadata.len());
+            if *total_bytes > limits.total_bytes { return Err(ScanError::Io(format!("source files exceed aggregate limit of {} bytes", limits.total_bytes))); }
+            output.push(canonical);
+            if output.len() > limits.files { return Err(ScanError::Io(format!("source file count exceeds limit ({})", limits.files))); }
+        }
     }
     Ok(())
 }
