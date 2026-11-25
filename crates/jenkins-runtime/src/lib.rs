@@ -164,8 +164,8 @@ fn read_json(path: &Path) -> Result<Value, RuntimeError> {
 }
 
 fn validate_schema(value: &Value, schema: &Value, label: &str) -> Result<(), RuntimeError> {
-    let validator = validator_for(schema)
-        .map_err(|e| RuntimeError(format!("invalid {label} schema: {e}")))?;
+    let validator =
+        validator_for(schema).map_err(|e| RuntimeError(format!("invalid {label} schema: {e}")))?;
     let errors: Vec<_> = validator
         .iter_errors(value)
         .map(|e| format!("{}: {e}", e.instance_path))
