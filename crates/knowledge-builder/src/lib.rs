@@ -2,7 +2,9 @@ use catalog_validator::validate_catalog;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, env, fs, path::{Path, PathBuf}};
+use std::{collections::BTreeMap, env, fs, path::Path};
+
+mod source_security;
 
 #[derive(Debug, Deserialize)]
 pub struct Profile {
@@ -45,6 +47,27 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let input = fs::read_to_string(profile_path).map_err(|e| BuildError::Io(format!("cannot read {}: {e}", profile_path.display())))?;
     let profile: Profile = serde_yaml::from_str(&input).map_err(|e| BuildError::Profile(e.to_string()))?;
     if profile.profile.trim().is_empty() { return Err(BuildError::Profile("profile identity must not be empty".into())); }
+    for controller in &profile.jenkins.controllers {
+        source_security::validate_controller_url(&controller.url).map_err(|error| {
+            BuildError::Profile(format!("controller '{}' URL: {error}", controller.id))
+        })?;
+    }
+    for library in &profile.libraries {
+        source_security::validate_git_url(&library.url).map_err(|error| {
+            BuildError::Profile(format!("Shared Library '{}' URL: {error}", library.name))
+        })?;
+        source_security::validate_git_reference(&library.revision).map_err(|error| {
+            BuildError::Profile(format!("Shared Library '{}' revision: {error}", library.name))
+        })?;
+        if let Some(commit) = &library.commit {
+            if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(BuildError::Profile(format!(
+                    "Shared Library '{}' commit must be a full 40-character SHA",
+                    library.name
+                )));
+            }
+        }
+    }
     let base = profile_path.parent().unwrap_or(Path::new("."));
     let mut catalogs = Vec::new();
 
@@ -65,7 +88,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             let config = shared_library_scanner::LibraryConfig { name: library.name.clone(), repository: library.url.clone(), reference: library.revision.clone() };
             let result = if let Some(commit) = &library.commit {
                 let checkout = checkout_pinned_library(&library.url, commit, &library.name)?;
-                shared_library_scanner::scan_checkout(&config, &checkout.0, commit)
+                shared_library_scanner::scan_checkout(&config, checkout.0.path(), commit)
                     .map_err(|e| BuildError::Source(format!("Shared Library '{}': {e}", library.name)))?
             } else {
                 shared_library_scanner::scan_library(&config)
@@ -97,12 +120,34 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let mut source_revisions = BTreeMap::new();
     let mut source_origins = BTreeMap::new();
     let mut provenance = BTreeMap::new();
+    let mut controller_snapshot: Option<Value> = None;
+    let mut controller_metadata: Option<Value> = None;
     for (label, catalog) in catalogs {
         let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
         validate_catalog(&catalog, &schema).map_err(|e| BuildError::Source(format!("{label}: {e}")))?;
+        if let Some(controller) = catalog.get("controller") {
+            let mut safe_controller = controller.clone();
+            if let Some(base_url) = safe_controller["identity"]["baseUrl"].as_str() {
+                safe_controller["identity"]["baseUrl"] = json!(source_security::redact_url(base_url));
+            }
+            if let Some(previous) = &controller_snapshot {
+                if previous != &safe_controller {
+                    return Err(BuildError::Source(format!(
+                        "{label}: controller snapshot differs from the other configured source snapshots; refusing to mix controller identities or revisions"
+                    )));
+                }
+            } else {
+                controller_snapshot = Some(safe_controller.clone());
+                controller_metadata = Some(safe_controller);
+            }
+        }
         for source in catalog["sources"].as_array().into_iter().flatten() {
-            let id = source["id"].as_str().ok_or_else(|| BuildError::Source(format!("{label}: source has no id")))?;
-            let revision = source["revision"].as_str().unwrap_or("unknown");
+            let mut safe_source = source.clone();
+            if let Some(url) = source["url"].as_str() {
+                safe_source["url"] = json!(source_security::redact_url(url));
+            }
+            let id = safe_source["id"].as_str().ok_or_else(|| BuildError::Source(format!("{label}: source has no id")))?;
+            let revision = safe_source["revision"].as_str().unwrap_or("unknown");
             if let Some(previous) = source_origins.insert(id.to_owned(), (label.clone(), revision.to_owned())) {
                 return Err(BuildError::Source(format!(
                     "source id '{id}' is declared by both '{}' (revision '{}') and '{}' (revision '{}'); source identities and revisions must not be overwritten during merge",
@@ -110,8 +155,13 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 )));
             }
             source_revisions.insert(id.to_owned(), revision.to_owned());
-            provenance.insert(id.to_owned(), json!({"name":source["name"],"kind":source["kind"],"revision":source["revision"],"url":source.get("url")}));
-            sources.push(source.clone());
+            provenance.insert(id.to_owned(), json!({
+                "name":safe_source["name"],
+                "kind":safe_source["kind"],
+                "revision":safe_source["revision"],
+                "url":safe_source.get("url")
+            }));
+            sources.push(safe_source);
         }
         symbols.extend(catalog["symbols"].as_array().into_iter().flatten().cloned());
         coverage.extend(catalog["coverage"].as_array().into_iter().flatten().cloned());
@@ -124,7 +174,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             v["surface"].as_str().unwrap_or("").to_owned(),
         )
     });
-    let catalog = json!({
+    let mut catalog = json!({
         "schemaVersion":"1.0.0",
         "catalogId":profile.package.id.unwrap_or_else(|| profile.profile.clone()),
         "generatedAt":build_timestamp(),
@@ -132,16 +182,21 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         "symbols":symbols,
         "coverage":coverage
     });
+    if let Some(controller) = controller_metadata {
+        catalog["controller"] = controller;
+    }
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
     validate_catalog(&catalog, &schema).map_err(|e| BuildError::InvalidCatalog(e.to_string()))?;
 
     let parent = output.parent().unwrap_or(Path::new("."));
     fs::create_dir_all(parent).map_err(|e| BuildError::Io(e.to_string()))?;
-    let staging = staging_path(output);
-    if staging.exists() { fs::remove_dir_all(&staging).map_err(|e| BuildError::Io(e.to_string()))?; }
-    fs::create_dir(&staging).map_err(|e| BuildError::Io(e.to_string()))?;
+    let staging = tempfile::Builder::new()
+        .prefix(".jenkins-knowledge-staging-")
+        .tempdir_in(parent)
+        .map_err(|e| BuildError::Io(format!("cannot create package staging directory: {e}")))?;
+    let staging_path = staging.path();
     let catalog_bytes = format!("{}\n", serde_json::to_string_pretty(&catalog).map_err(|e| BuildError::Io(e.to_string()))?);
-    fs::write(staging.join("catalog.json"), &catalog_bytes).map_err(|e| BuildError::Io(e.to_string()))?;
+    fs::write(staging_path.join("catalog.json"), &catalog_bytes).map_err(|e| BuildError::Io(e.to_string()))?;
     let manifest = json!({
         "packageVersion":"1.0.0",
         "catalogSchemaVersion":"1.0.0",
@@ -158,19 +213,18 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let manifest_validator = jsonschema::validator_for(&manifest_schema)
         .map_err(|e| BuildError::InvalidCatalog(format!("invalid manifest schema: {e}")))?;
     if let Some(error) = manifest_validator.iter_errors(&manifest).next() {
-        let _ = fs::remove_dir_all(&staging);
         return Err(BuildError::InvalidCatalog(format!("manifest: {error}")));
     }
-    fs::write(staging.join("manifest.json"), format!("{}\n", serde_json::to_string_pretty(&manifest).map_err(|e| BuildError::Io(e.to_string()))?))
+    fs::write(staging_path.join("manifest.json"), format!("{}\n", serde_json::to_string_pretty(&manifest).map_err(|e| BuildError::Io(e.to_string()))?))
         .map_err(|e| BuildError::Io(e.to_string()))?;
-    fs::rename(&staging, output).map_err(|e| { let _ = fs::remove_dir_all(&staging); BuildError::Io(format!("cannot publish package {}: {e}", output.display())) })?;
+    if output.exists() {
+        return Err(BuildError::OutputExists(output.display().to_string()));
+    }
+    fs::rename(staging.path(), output)
+        .map_err(|error| BuildError::Io(format!("cannot publish package {}: {error}", output.display())))?;
     Ok(())
 }
 
-fn staging_path(output: &Path) -> PathBuf {
-    let name = output.file_name().unwrap_or_default().to_string_lossy();
-    output.with_file_name(format!(".{name}.staging-{}", std::process::id()))
-}
 fn build_timestamp() -> String {
     if let Ok(epoch) = env::var("SOURCE_DATE_EPOCH") {
         if let Ok(seconds) = epoch.parse::<i64>() {
@@ -184,28 +238,34 @@ fn build_timestamp() -> String {
 fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() }
 
 // A pinned commit is checked out into a temporary directory before scan_checkout is called.
-struct Checkout(PathBuf);
-impl std::ops::Deref for Checkout { type Target = PathBuf; fn deref(&self) -> &Self::Target { &self.0 } }
-impl Drop for Checkout { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+#[derive(Debug)]
+struct Checkout(tempfile::TempDir);
 fn checkout_pinned_library(url: &str, commit: &str, name: &str) -> Result<Checkout, BuildError> {
-    if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(BuildError::Source(format!("Shared Library '{name}': commit must be a full 40-character SHA")));
-    }
-    let dir = env::temp_dir().join(format!("jenkins-knowledge-{}-{}", std::process::id(), &commit[..12]));
-    if dir.exists() { fs::remove_dir_all(&dir).map_err(|e| BuildError::Io(e.to_string()))?; }
-    fs::create_dir_all(&dir).map_err(|e| BuildError::Io(e.to_string()))?;
+    let dir = tempfile::Builder::new()
+        .prefix("jenkins-knowledge-checkout-")
+        .tempdir()
+        .map_err(|e| BuildError::Io(format!("cannot create checkout directory: {e}")))?;
     let run = |args: &[&str]| {
-        let status = std::process::Command::new("git").args(args).current_dir(&dir).status()
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir.path())
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
             .map_err(|e| BuildError::Source(format!("Shared Library '{name}': cannot run git: {e}")))?;
-        if status.success() { Ok(()) } else { Err(BuildError::Source(format!("Shared Library '{name}': git checkout failed"))) }
+        if output.success() { Ok(()) } else { Err(BuildError::Source(format!("Shared Library '{name}': git operation failed; remote details are redacted"))) }
     };
-    run(&["init","--quiet"])?; run(&["remote","add","origin",url])?; run(&["fetch","--quiet","--depth","1","origin",commit])?; run(&["checkout","--quiet","--detach","FETCH_HEAD"])?;
+    run(&["init","--quiet"])?;
+    run(&["remote","add","origin",url])?;
+    run(&["fetch","--quiet","--depth","1","origin",commit])?;
+    run(&["checkout","--quiet","--detach","FETCH_HEAD"])?;
     Ok(Checkout(dir))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::build_package;
+    use super::{build_package, checkout_pinned_library};
     use serde_json::{json, Value};
     use std::fs;
 
@@ -238,6 +298,7 @@ mod tests {
             serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
         assert_eq!(merged["coverage"][0]["surface"], "pipeline-steps");
         assert_eq!(merged["coverage"][0]["status"], "inspected");
+        assert_eq!(merged["controller"]["identity"]["id"], "jenkins-ci");
     }
 
     #[test]
@@ -280,4 +341,132 @@ mod tests {
         assert!(message.contains("2.480.0"), "{message}");
         assert!(!directory.path().join("package").exists());
     }
+
+    #[test]
+    fn rejects_credential_bearing_controller_urls_before_collection() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            r#"profile: unsafe
+jenkins:
+  controllers:
+    - id: ci
+      url: https://user:secret@jenkins.example.test/
+fixtures:
+  - unused.json
+"#,
+        )
+        .unwrap();
+        let error = build_package(
+            &directory.path().join("profile.yml"),
+            &directory.path().join("package"),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("credentials must be supplied through the runtime environment"));
+        assert!(!directory.path().join("package").exists());
+    }
+
+    #[test]
+    fn strips_request_modifiers_from_catalog_and_manifest_urls() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        ))
+        .unwrap();
+        catalog["sources"][1]["url"] = json!("https://github.example.test/team/library.git?ref=release#readme");
+        fs::write(
+            directory.path().join("fixture.json"),
+            serde_json::to_vec(&catalog).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            r#"profile: redaction-test
+fixtures:
+  - fixture.json
+"#,
+        )
+        .unwrap();
+
+        let output = directory.path().join("package");
+        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        let catalog = fs::read_to_string(output.join("catalog.json")).unwrap();
+        let manifest = fs::read_to_string(output.join("manifest.json")).unwrap();
+        let package = format!("{catalog}{manifest}");
+        assert!(!package.contains("?ref=release"));
+        assert!(package.contains("https://github.example.test/team/library.git"));
+    }
+
+    #[test]
+    fn rejects_malformed_fixture_json_without_publishing_a_package() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("broken.json"), "{ not json").unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            r#"profile: malformed
+fixtures:
+  - broken.json
+"#,
+        )
+        .unwrap();
+        let output = directory.path().join("package");
+        assert!(build_package(&directory.path().join("profile.yml"), &output).is_err());
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn rejects_mixed_controller_snapshots_before_merging_sources() {
+        let directory = tempfile::tempdir().unwrap();
+        let first: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        ))
+        .unwrap();
+        let mut second = first.clone();
+        second["catalogId"] = json!("second-snapshot");
+        second["controller"]["identity"]["id"] = json!("different-controller");
+        fs::write(directory.path().join("first.json"), serde_json::to_vec(&first).unwrap()).unwrap();
+        fs::write(directory.path().join("second.json"), serde_json::to_vec(&second).unwrap()).unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            r#"profile: snapshot-conflict
+fixtures:
+  - first.json
+  - second.json
+"#,
+        )
+        .unwrap();
+
+        let error = build_package(
+            &directory.path().join("profile.yml"),
+            &directory.path().join("package"),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("controller snapshot differs"));
+        assert!(!directory.path().join("package").exists());
+    }
+
+    #[test]
+    fn failed_pinned_checkout_removes_its_temporary_directory() {
+        use std::collections::BTreeSet;
+
+        let checkout_dirs = || -> BTreeSet<_> {
+            fs::read_dir(std::env::temp_dir())
+                .unwrap()
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("jenkins-knowledge-checkout-")))
+                .collect()
+        };
+
+        let before = checkout_dirs();
+        let error = checkout_pinned_library(
+            "ssh://git@127.0.0.1:1/nonexistent/repository.git",
+            "0123456789abcdef0123456789abcdef01234567",
+            "test-library",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("git operation failed"));
+        assert_eq!(checkout_dirs(), before);
+    }
+
 }
