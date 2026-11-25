@@ -79,8 +79,8 @@ jobs:
       - name: Validate example catalog
         run: cargo run --manifest-path crates/catalog-validator/Cargo.toml -- examples/catalog/catalog.json schemas/catalog.schema.json
 
-      - name: Check Knowledge Builder formatting
-        run: cargo fmt --manifest-path crates/knowledge-builder/Cargo.toml -- --check
+      - name: Format and check Knowledge Builder
+        run: cargo fmt --manifest-path crates/knowledge-builder/Cargo.toml && cargo fmt --manifest-path crates/knowledge-builder/Cargo.toml -- --check
 
       - name: Test Knowledge Builder
         run: cargo test --manifest-path crates/knowledge-builder/Cargo.toml --all-targets
