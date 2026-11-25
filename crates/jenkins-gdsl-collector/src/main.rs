@@ -1,31 +1,43 @@
-use jenkins_gdsl_collector::collect;
+use jenkins_gdsl_collector::{collect, discover};
 use serde_json::Value;
 use std::{env, fs, process};
 
 fn main() {
     let mut args = env::args().skip(1);
     let Some(controller) = args.next() else {
-        eprintln!("usage: jenkins-gdsl-collector <controller-url> <output.json>");
-        process::exit(2);
+        usage();
     };
     let Some(output) = args.next() else {
-        eprintln!("usage: jenkins-gdsl-collector <controller-url> <output.json>");
-        process::exit(2);
+        usage();
     };
-    if args.next().is_some() {
-        eprintln!("unexpected extra arguments");
+
+    let profile = match (args.next(), args.next(), args.next()) {
+        (None, None, None) => "quick".to_owned(),
+        (Some(flag), Some(profile), None) if flag == "--profile" => profile,
+        _ => usage(),
+    };
+    if profile != "quick" && profile != "gdsl" {
+        eprintln!("unsupported profile '{profile}'; supported profiles: quick, gdsl");
         process::exit(2);
     }
+
     let username = env::var("JENKINS_USERNAME").ok();
     let token = env::var("JENKINS_API_TOKEN").ok();
     if username.is_some() != token.is_some() {
         eprintln!("set both JENKINS_USERNAME and JENKINS_API_TOKEN, or neither");
         process::exit(2);
     }
-    let catalog: Value = match collect(&controller, username.as_deref(), token.as_deref()) {
-        Ok(value) => value,
-        Err(error) => { eprintln!("{error}"); process::exit(1); }
-    };
+
+    let catalog: Value = match profile.as_str() {
+        "quick" => discover(&controller, username.as_deref(), token.as_deref()),
+        "gdsl" => collect(&controller, username.as_deref(), token.as_deref()),
+        _ => unreachable!("profile was validated"),
+    }
+    .unwrap_or_else(|error| {
+        eprintln!("{error}");
+        process::exit(1);
+    });
+
     let serialized = match serde_json::to_vec_pretty(&catalog) {
         Ok(bytes) => bytes,
         Err(error) => {
@@ -41,4 +53,11 @@ fn main() {
         eprintln!("could not write catalog: {error}");
         process::exit(2);
     }
+}
+
+fn usage() -> ! {
+    eprintln!(
+        "usage: jenkins-gdsl-collector <controller-url> <output.json> [--profile quick|gdsl] (default: quick)"
+    );
+    process::exit(2);
 }
