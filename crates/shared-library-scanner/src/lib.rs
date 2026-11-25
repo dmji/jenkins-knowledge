@@ -351,12 +351,26 @@ fn paren_delta(line: &str) -> i32 {
 }
 
 fn diagnose_unsupported_syntax(path: &str, source: &str, source_id: &str, diagnostics: &mut Vec<Diagnostic>) {
-    for (index, line) in source.lines().enumerate() {
+    let lines: Vec<&str> = source.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         if ["trait ", "enum ", "record ", "@interface", "sealed class ", "def (", "def ["]
             .iter().any(|needle| trimmed.starts_with(needle)) {
             push_diagnostic(diagnostics, source_id, path, "unsupported-groovy-syntax",
                 &format!("Unsupported declaration form at line {}; no symbol was inferred from it.", index + 1));
+        }
+        if is_method_declaration_start(trimmed) {
+            let mut declaration = trimmed.to_owned();
+            let mut next = index + 1;
+            while !has_balanced_parentheses(&declaration) && next < lines.len() {
+                declaration.push(' ');
+                declaration.push_str(lines[next].trim());
+                next += 1;
+            }
+            if !has_balanced_parentheses(&declaration) {
+                push_diagnostic(diagnostics, source_id, path, "unsupported-groovy-syntax",
+                    &format!("Incomplete method signature at line {}; no symbol was inferred from it.", index + 1));
+            }
         }
     }
 }
@@ -546,7 +560,6 @@ fn slug(value: &str) -> String {
     }
     output.trim_matches('-').to_owned()
 }
-fn line_number(source: &str, offset: usize) -> usize { source[..offset].bytes().filter(|b| *b == b'\n').count() + 1 }
 fn timestamp() -> String {
     let seconds = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     let days = (seconds / 86400) as i64;
