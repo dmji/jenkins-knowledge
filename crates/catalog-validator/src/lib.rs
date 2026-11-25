@@ -90,16 +90,34 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
 
     if let Some(controller) = catalog.get("controller").filter(|value| !value.is_null()) {
         let mut plugin_names = HashSet::new();
-        for (index, plugin) in controller["plugins"].as_array().expect("schema validated plugins").iter().enumerate() {
-            let source_id = plugin["sourceId"].as_str().expect("schema validated plugin source id");
+        for (index, plugin) in controller["plugins"]
+            .as_array()
+            .expect("schema validated plugins")
+            .iter()
+            .enumerate()
+        {
+            let source_id = plugin["sourceId"]
+                .as_str()
+                .expect("schema validated plugin source id");
             if !source_ids.contains(source_id) {
-                errors.push(format!("/controller/plugins/{index}/sourceId: unknown source id '{source_id}'"));
-            } else if !sources.iter().any(|source| source["id"] == source_id && source["kind"] == "plugin") {
-                errors.push(format!("/controller/plugins/{index}/sourceId: source '{source_id}' is not a plugin source"));
+                errors.push(format!(
+                    "/controller/plugins/{index}/sourceId: unknown source id '{source_id}'"
+                ));
+            } else if !sources
+                .iter()
+                .any(|source| source["id"] == source_id && source["kind"] == "plugin")
+            {
+                errors.push(format!(
+                    "/controller/plugins/{index}/sourceId: source '{source_id}' is not a plugin source"
+                ));
             }
-            let short_name = plugin["shortName"].as_str().expect("schema validated plugin short name");
+            let short_name = plugin["shortName"]
+                .as_str()
+                .expect("schema validated plugin short name");
             if !plugin_names.insert(short_name) {
-                errors.push(format!("/controller/plugins/{index}/shortName: duplicate plugin short name '{short_name}'"));
+                errors.push(format!(
+                    "/controller/plugins/{index}/shortName: duplicate plugin short name '{short_name}'"
+                ));
             }
         }
         reject_secret_fields(controller, "/controller", errors);
@@ -134,18 +152,26 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
         if let Some(availability) = symbol.get("availability") {
             if let Some(plugin_ids) = availability["pluginSourceIds"].as_array() {
                 for (plugin_index, plugin_id) in plugin_ids.iter().enumerate() {
-                    let plugin_id = plugin_id.as_str().expect("schema validated plugin source id");
+                    let plugin_id = plugin_id
+                        .as_str()
+                        .expect("schema validated plugin source id");
                     if !source_ids.contains(plugin_id) {
-                        errors.push(format!("/symbols/{index}/availability/pluginSourceIds/{plugin_index}: unknown source id '{plugin_id}'"));
+                        errors.push(format!(
+                            "/symbols/{index}/availability/pluginSourceIds/{plugin_index}: unknown source id '{plugin_id}'"
+                        ));
                     }
                 }
             }
         }
         if let Some(evidence) = symbol["evidence"].as_array() {
             for (evidence_index, item) in evidence.iter().enumerate() {
-                let source_id = item["sourceId"].as_str().expect("schema validated evidence source id");
+                let source_id = item["sourceId"]
+                    .as_str()
+                    .expect("schema validated evidence source id");
                 if !source_ids.contains(source_id) {
-                    errors.push(format!("/symbols/{index}/evidence/{evidence_index}/sourceId: unknown source id '{source_id}'"));
+                    errors.push(format!(
+                        "/symbols/{index}/evidence/{evidence_index}/sourceId: unknown source id '{source_id}'"
+                    ));
                 }
             }
         }
