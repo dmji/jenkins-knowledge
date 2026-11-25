@@ -17,5 +17,6 @@ cargo build -p jenkins-lsp
 npm --prefix editors/vscode install
 npm --prefix editors/vscode run compile
 
+cargo build --release -p knowledge-builder -p jenkins-runtime
 docker build --file Dockerfile.builder --tag jenkins-knowledge-builder:local .
 docker build --file Dockerfile.runtime --tag jenkins-knowledge-runtime:local .
