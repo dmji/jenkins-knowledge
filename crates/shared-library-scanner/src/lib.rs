@@ -648,7 +648,6 @@ fn timestamp() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Command;
 
     fn fixture() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/library")
