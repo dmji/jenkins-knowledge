@@ -114,3 +114,10 @@ cargo run --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp --
 ```
 
 The server exposes search_api, get_api_details, list_api, get_usage_examples, and get_pipeline_step, plus the jenkins://catalog/manifest, jenkins://catalog/libraries, jenkins://catalog/pipeline-steps, and selected-profile resources. It is read-only and never connects to Jenkins or executes Pipeline steps. See [MCP server documentation](runtime/mcp.md) for client configuration and protocol details.
+
+## VS Code integration
+
+The optional VS Code extension adds Jenkins catalog completion and hover information to Groovy documents while leaving ordinary Groovy language features to the installed Groovy tooling. The Rust LSP reads one explicitly selected Knowledge Package and supports Pipeline steps and Shared Library APIs.
+
+See [VS Code setup, configuration, limitations, and smoke tests](editors/vscode/README.md).
+Build the server with `cargo build --release --manifest-path crates/jenkins-lsp/Cargo.toml`.
