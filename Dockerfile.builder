@@ -1,6 +1,6 @@
-FROM debian:bookworm-slim AS builder-base
+FROM ubuntu:24.04 AS builder-base
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 FROM builder-base AS builder

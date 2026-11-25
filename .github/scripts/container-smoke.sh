@@ -5,7 +5,7 @@ builder_image="${BUILDER_IMAGE:-jenkins-knowledge-builder:ci}"
 runtime_image="${RUNTIME_IMAGE:-jenkins-knowledge-runtime:ci}"
 workspace="$(pwd)"
 package_parent="$(mktemp -d)"
-trap 'rm -rf "$package_parent"' EXIT
+trap 'docker run --rm --user 0:0 --volume "$package_parent:/cleanup" --entrypoint sh "$runtime_image" -ec '\''rm -rf /cleanup/package /cleanup/stubs.groovy'\''; rmdir "$package_parent"' EXIT
 chmod 0777 "$package_parent"
 
 docker run --rm \
