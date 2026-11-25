@@ -191,7 +191,7 @@ fn run_git_inner(directory: &Path, args: &[&str]) -> Result<String, ScanError> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct ScanLimits { depth: usize, files: usize, file_bytes: u64, total_bytes: u64 }
 impl ScanLimits {
     fn from_environment() -> Result<Self, ScanError> {
@@ -214,7 +214,12 @@ impl ScanLimits {
 fn collect_groovy_files(root: &Path, checkout: &Path, depth: usize, output: &mut Vec<PathBuf>,
     total_bytes: &mut u64, limits: &ScanLimits) -> Result<(), ScanError> {
     if depth > limits.depth { return Err(ScanError::Io(format!("scan depth exceeds limit ({})", limits.depth))); }
-    for entry in fs::read_dir(root).map_err(|e| ScanError::Io(format!("cannot read directory: {e}")))? {
+    let metadata = fs::symlink_metadata(root).map_err(|e| ScanError::Io(format!("cannot inspect directory: {e}")))?;
+    if metadata.file_type().is_symlink() { return Ok(()); }
+    if !metadata.is_dir() { return Ok(()); }
+    let canonical_root = root.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve directory: {e}")))?;
+    if !canonical_root.starts_with(checkout) { return Err(ScanError::Io("directory escaped checkout root".into())); }
+    for entry in fs::read_dir(&canonical_root).map_err(|e| ScanError::Io(format!("cannot read directory: {e}")))? {
         let entry = entry.map_err(|e| ScanError::Io(format!("cannot read directory entry: {e}")))?;
         let path = entry.path();
         let metadata = fs::symlink_metadata(&path).map_err(|e| ScanError::Io(format!("cannot inspect path: {e}")))?;
@@ -834,6 +839,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         fs::write(outside.path().join("vars/escaped.groovy"), "def escaped() {}").unwrap();
         symlink(outside.path().join("vars/escaped.groovy"), temp.path().join("vars/linked.groovy")).unwrap();
         symlink(outside.path().join("vars"), temp.path().join("vars/linked-dir")).unwrap();
+        symlink(temp.path().join("vars"), temp.path().join("vars/loop")).unwrap();
         let result = scan_checkout(&config("main"), temp.path(), "0123456789abcdef0123456789abcdef01234567").unwrap();
         assert!(!result.catalog["symbols"].as_array().unwrap().iter().any(|s| s["name"] == "escaped"));
     }
