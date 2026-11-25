@@ -590,7 +590,7 @@ mod tests {
         let result = scan_checkout(&config("main"), &fixture(), "0123456789abcdef0123456789abcdef01234567").unwrap();
         let symbols = result.catalog["symbols"].as_array().unwrap();
         assert!(symbols.iter().any(|s| s["name"] == "deployApp" && s["kind"] == "global-variable"
-            && s["provenance"][0] == "vars/deployApp.groovy:4 (global script)"));
+            && s["provenance"][0] == "vars/deployApp.groovy:5 (global script)"));
         assert!(symbols.iter().any(|s| s["kind"] == "global-variable" && s["description"] == "Deploy an application to an environment."));
         assert!(symbols.iter().any(|s| s["kind"] == "global-variable" && s["examples"][0] == "deployApp([environment: 'staging'])"));
         assert!(symbols.iter().any(|s| s["kind"] == "class" && s["name"] == "Deployment"));
