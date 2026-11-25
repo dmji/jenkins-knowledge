@@ -413,6 +413,27 @@ mod tests {
     }
 
     #[test]
+    fn rejects_credentials_in_controller_base_url() {
+        let mut invalid = valid_catalog();
+        invalid["controller"]["identity"]["baseUrl"] =
+            json!("https://user:password@jenkins.example.invalid/");
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("controller/identity/baseUrl"));
+    }
+
+    #[test]
+    fn rejects_availability_reference_to_non_plugin_source() {
+        let mut invalid = valid_catalog();
+        invalid["symbols"][0]["availability"]["pluginSourceIds"] = json!(["controller"]);
+        assert!(validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string()
+            .contains("is not a plugin source"));
+    }
+
+    #[test]
     fn rejects_symbol_evidence_with_unknown_source() {
         let mut invalid = valid_catalog();
         invalid["symbols"][0]["evidence"][0]["sourceId"] = json!("missing-source");
