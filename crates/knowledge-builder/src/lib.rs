@@ -76,10 +76,15 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         for controller in &profile.jenkins.controllers {
             let source_id = format!("declarative-model-{}", controller.id);
             let fragment = declarative_model::catalog_fragment(&source_id);
+            let mut model_symbols = fragment["symbols"].as_array().cloned().unwrap_or_default();
+            for symbol in &mut model_symbols {
+                let local_id = symbol["id"].as_str().unwrap_or("unknown").to_owned();
+                symbol["id"] = json!(format!("{source_id}:{local_id}"));
+            }
             let catalog = json!({
                 "schemaVersion":"1.0.0","catalogId":source_id,"generatedAt":build_timestamp(),
                 "sources":[{"id":source_id,"kind":"jenkins-controller","name":format!("Declarative Pipeline model ({})", controller.id),"revision":"model-v1"}],
-                "symbols":fragment["symbols"]
+                "symbols":model_symbols
             });
             catalogs.push((format!("Declarative model for '{}'", controller.id), catalog));
         }
