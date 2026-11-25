@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
-mod source_security;
+pub mod source_security;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
@@ -176,7 +176,7 @@ fn run_git_inner(directory: &Path, args: &[&str]) -> Result<String, ScanError> {
             Some(status) => {
                 if !status.success() { return Err(ScanError::Git("git command failed; remote details are redacted".into())); }
                 let mut output = String::new();
-                if let Some(mut stdout) = child.stdout.take() {
+                if let Some(stdout) = child.stdout.take() {
                     use std::io::Read;
                     stdout.take(4096).read_to_string(&mut output).map_err(|_| ScanError::Git("cannot read git output".into()))?;
                 }
