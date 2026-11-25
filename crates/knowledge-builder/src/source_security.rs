@@ -84,7 +84,7 @@ pub fn validate_git_reference(value: &str) -> Result<(), String> {
         || value.ends_with('/')
         || value.ends_with('.')
         || value.ends_with(".lock")
-        || value.contains(['~', '^', ':', '?', '*', '[', '\\'])
+        || value.chars().any(|character| matches!(character, '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
     {
         return Err("must be a valid branch, tag, or full commit reference".into());
     }
