@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/jenkins-knowledge/manifest.schema.json",
+  "title": "Knowledge Package Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["packageVersion", "catalogSchemaVersion", "profile", "createdAt", "catalog"],
+  "properties": {
+    "packageVersion": { "type": "string" },
+    "catalogSchemaVersion": { "type": "string" },
+    "profile": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "catalog": { "type": "string", "const": "catalog.json" },
+    "checksums": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+    },
+    "toolVersions": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}
