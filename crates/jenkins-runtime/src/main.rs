@@ -4,11 +4,18 @@ use std::{env, process};
 
 fn usage() {
     eprintln!("Usage: jenkins-runtime --package <dir|manifest.json> [--profile <name>] <search|list|get|examples|step> [arguments] [--kind <kind>] [--source <source-id>]");
-    eprintln!("Commands: search <query>, list, get <name-or-id>, examples <name-or-id>, step <step-name>");
+    eprintln!(
+        "Commands: search <query>, list, get <name-or-id>, examples <name-or-id>, step <step-name>"
+    );
 }
+
 fn main() {
-    if let Err(error) = run() { eprintln!("error: {error}"); process::exit(1); }
+    if let Err(error) = run() {
+        eprintln!("error: {error}");
+        process::exit(1);
+    }
 }
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1).peekable();
     let mut package = None;
@@ -22,7 +29,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "--profile" => profile = args.next(),
             "--kind" => kind = args.next(),
             "--source" => source = args.next(),
-            "-h" | "--help" => { usage(); return Ok(()); }
+            "-h" | "--help" => {
+                usage();
+                return Ok(());
+            }
             _ => positional.push(arg),
         }
     }
@@ -32,7 +42,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = Runtime::open(package)?;
     if let Some(requested) = profile {
         if requested != runtime.profile() {
-            return Err(format!("requested profile '{requested}' does not match package profile '{}'; select the matching package explicitly", runtime.profile()).into());
+            return Err(format!(
+                "requested profile '{requested}' does not match package profile '{}'; select the matching package explicitly",
+                runtime.profile()
+            )
+            .into());
         }
     }
     let output = match command.as_str() {
@@ -41,7 +55,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         "get" => runtime.get(query)?,
         "examples" => runtime.examples(query)?,
         "step" => runtime.pipeline_step(query)?,
-        _ => { usage(); return Err(format!("unknown command '{command}'").into()); }
+        _ => {
+            usage();
+            return Err(format!("unknown command '{command}'").into());
+        }
     };
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
