@@ -50,7 +50,7 @@ cargo run --manifest-path crates/catalog-validator/Cargo.toml -- \
   "$fixture_dir/catalog.json" schemas/catalog.schema.json
 
 echo "==> Loading the package with the Runtime CLI"
-cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- \
+cargo run --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime -- \
   --package "$fixture_dir" search deploy > "$runtime_output"
 grep -q '"name": "deploy"' "$runtime_output"
 
