@@ -89,3 +89,18 @@ cargo run --manifest-path crates/knowledge-builder/Cargo.toml -- build profiles/
 ```
 
 The output contains `catalog.json` and `manifest.json`. See [Builder documentation](crates/knowledge-builder/README.md) for live collection, provenance, checksums, and reproducible timestamp settings.
+
+## Read-only Runtime CLI
+
+A package directory contains `manifest.json` and the catalog file named by its `catalog` field (currently `catalog.json`). The Runtime validates both schemas and rejects manifest/catalog schema-version mismatches. Run commands from the repository root so the bundled schemas can be found.
+
+```sh
+cargo test --manifest-path crates/jenkins-runtime/Cargo.toml --all-targets
+cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- --package path/to/package search deploy
+cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- --package path/to/package --profile production list --kind step
+cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- --package path/to/package get deployApp
+cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- --package path/to/package examples deployApp
+cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- --package path/to/package step sh
+```
+
+The optional `--profile` must match the package manifest; selecting another profile requires selecting its package explicitly. Results include the source snapshot, profile, and confidence. The Runtime performs no Jenkins/Git/network access and exposes no write operations.
