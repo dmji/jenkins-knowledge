@@ -19,7 +19,7 @@ Set the following workspace settings:
 
 ```json
 {
-  "jenkinsKnowledge.serverPath": "${workspaceFolder}/target/release/jenkins-lsp",
+  "jenkinsKnowledge.serverPath": "target/release/jenkins-lsp",
   "jenkinsKnowledge.packagePath": "target/fixture-package",
   "jenkinsKnowledge.profile": "fixture"
 }
