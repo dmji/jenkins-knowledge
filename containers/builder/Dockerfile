@@ -7,6 +7,7 @@ COPY crates/declarative-model/ crates/declarative-model/
 COPY crates/jenkins-gdsl-collector/ crates/jenkins-gdsl-collector/
 COPY crates/shared-library-scanner/ crates/shared-library-scanner/
 COPY crates/knowledge-builder/ crates/knowledge-builder/
+COPY schemas/ schemas/
 
 RUN cargo build --release --manifest-path crates/knowledge-builder/Cargo.toml \
     && cargo build --release --manifest-path crates/catalog-validator/Cargo.toml
