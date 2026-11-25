@@ -3,13 +3,27 @@ use regex::Regex;
 use reqwest::blocking::Client;
 use reqwest::header::HeaderMap;
 use serde_json::{json, Value};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    io::Read,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_GDSL_SYMBOLS: usize = 10_000;
+const MAX_PARAMETERS_PER_SYMBOL: usize = 256;
 use url::Url;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CollectorError {
     InvalidControllerUrl,
     RequestFailed,
+    RequestTimeout,
+    ResponseTooLarge { limit: usize },
+    InvalidEncoding,
+    TooManySymbols { limit: usize },
+    TooManyParameters { limit: usize },
     Unavailable(u16),
     AuthenticationFailed,
     EmptyResponse,
@@ -22,6 +36,11 @@ impl std::fmt::Display for CollectorError {
         match self {
             Self::InvalidControllerUrl => write!(f, "controller URL must be an HTTP(S) URL without embedded credentials"),
             Self::RequestFailed => write!(f, "request to Jenkins failed (request details are redacted)"),
+            Self::RequestTimeout => write!(f, "request to Jenkins timed out"),
+            Self::ResponseTooLarge { limit } => write!(f, "Jenkins GDSL response exceeded the {limit}-byte limit"),
+            Self::InvalidEncoding => write!(f, "Jenkins GDSL response is not valid UTF-8"),
+            Self::TooManySymbols { limit } => write!(f, "Jenkins GDSL exceeded the {limit}-symbol limit"),
+            Self::TooManyParameters { limit } => write!(f, "Jenkins GDSL method exceeded the {limit}-parameter limit"),
             Self::Unavailable(code) => write!(f, "Jenkins GDSL endpoint returned HTTP {code}"),
             Self::AuthenticationFailed => write!(f, "Jenkins rejected the supplied credentials"),
             Self::EmptyResponse => write!(f, "Jenkins GDSL endpoint returned an empty response"),
@@ -54,7 +73,20 @@ pub fn collect(
     segments.push("pipeline-syntax").push("gdsl");
     drop(segments);
 
-    let client = Client::builder().build().map_err(|_| CollectorError::RequestFailed)?;
+    let client = Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|_| CollectorError::RequestFailed)?;
+    collect_with_client(&base, username, api_token, &client)
+}
+
+fn collect_with_client(
+    base: &Url,
+    username: Option<&str>,
+    api_token: Option<&str>,
+    client: &Client,
+) -> Result<Value, CollectorError> {
     let mut request = client.get(base.clone());
     if username.is_some() != api_token.is_some() {
         return Err(CollectorError::RequestFailed);
@@ -62,7 +94,13 @@ pub fn collect(
     if let (Some(user), Some(token)) = (username, api_token) {
         request = request.basic_auth(user, Some(token));
     }
-    let response = request.send().map_err(|_| CollectorError::RequestFailed)?;
+    let response = request.send().map_err(|error| {
+        if error.is_timeout() {
+            CollectorError::RequestTimeout
+        } else {
+            CollectorError::RequestFailed
+        }
+    })?;
     let status = response.status();
     if status.as_u16() == 401 || status.as_u16() == 403 {
         return Err(CollectorError::AuthenticationFailed);
@@ -71,12 +109,27 @@ pub fn collect(
         return Err(CollectorError::Unavailable(status.as_u16()));
     }
     let headers = response.headers().clone();
-    let body = response.text().map_err(|_| CollectorError::RequestFailed)?;
+    let mut body = Vec::with_capacity(64 * 1024);
+    response
+        .take((MAX_RESPONSE_BYTES + 1) as u64)
+        .read_to_end(&mut body)
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::TimedOut {
+                CollectorError::RequestTimeout
+            } else {
+                CollectorError::RequestFailed
+            }
+        })?;
+    if body.len() > MAX_RESPONSE_BYTES {
+        return Err(CollectorError::ResponseTooLarge {
+            limit: MAX_RESPONSE_BYTES,
+        });
+    }
+    let body = String::from_utf8(body).map_err(|_| CollectorError::InvalidEncoding)?;
     if body.trim().is_empty() {
         return Err(CollectorError::EmptyResponse);
     }
-    catalog_from_gdsl(controller, &headers, &body)
-}
+    catalog_from_gdsl(base.as_str(), &headers, &body)
 
 /// Convert GDSL method declarations into catalog step symbols.
 /// Only explicit declarations are emitted; unknown parameter types/defaults remain absent.
@@ -85,6 +138,11 @@ pub fn catalog_from_gdsl(
     headers: &HeaderMap,
     gdsl: &str,
 ) -> Result<Value, CollectorError> {
+    if gdsl.len() > MAX_RESPONSE_BYTES {
+        return Err(CollectorError::ResponseTooLarge {
+            limit: MAX_RESPONSE_BYTES,
+        });
+    }
     let methods = parse_methods(gdsl)?;
     if methods.is_empty() {
         return Err(CollectorError::MalformedGdsl(
@@ -167,6 +225,11 @@ fn parse_methods(input: &str) -> Result<Vec<Method>, CollectorError> {
     let param_re = Regex::new(r#"([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)")"#).expect("constant regex");
     let mut methods = Vec::new();
     for found in marker.find_iter(input) {
+        if methods.len() >= MAX_GDSL_SYMBOLS {
+            return Err(CollectorError::TooManySymbols {
+                limit: MAX_GDSL_SYMBOLS,
+            });
+        }
         let start = found.end();
         let end = matching_paren(input, start - 1).ok_or_else(|| {
             CollectorError::MalformedGdsl(format!("unterminated method declaration at line {}", line_number(input, found.start())))
@@ -178,8 +241,16 @@ fn parse_methods(input: &str) -> Result<Vec<Method>, CollectorError> {
         let description = doc_re.captures(declaration).map(|c| unescape(c.get(1).or_else(|| c.get(2)).unwrap().as_str()));
         let documentation_url = description.as_deref().and_then(extract_url);
         let parameters: Vec<Value> = params_re.captures(declaration).map(|captures| {
-            param_re.captures_iter(&captures[1]).map(|c| json!({"name": &c[1], "description": unescape(c.get(2).or_else(|| c.get(3)).unwrap().as_str())})).collect()
+            param_re.captures_iter(&captures[1])
+                .take(MAX_PARAMETERS_PER_SYMBOL + 1)
+                .map(|c| json!({"name": &c[1], "description": unescape(c.get(2).or_else(|| c.get(3)).unwrap().as_str())}))
+                .collect()
         }).unwrap_or_default();
+        if parameters.len() > MAX_PARAMETERS_PER_SYMBOL {
+            return Err(CollectorError::TooManyParameters {
+                limit: MAX_PARAMETERS_PER_SYMBOL,
+            });
+        }
         let parameter_names = parameters.iter().filter_map(|p| p["name"].as_str()).collect::<Vec<_>>();
         let signature = format!("{}({}) -> {}", name, parameter_names.join(", "), return_type);
         methods.push(Method { name, signature, description, documentation_url, parameters, line: line_number(input, found.start()) });
@@ -301,6 +372,32 @@ mod tests {
         let catalog = catalog_from_gdsl("https://ci.example.test/jenkins?token=secret#fragment", &HeaderMap::new(), FIXTURE).unwrap();
         assert_eq!(catalog["sources"][0]["url"], "https://ci.example.test/jenkins");
         assert!(!catalog.to_string().contains("secret"));
+    }
+
+
+    #[test]
+    fn rejects_oversized_gdsl_before_parsing() {
+        let input = " ".repeat(MAX_RESPONSE_BYTES + 1);
+        let error = catalog_from_gdsl("https://ci.example.test", &HeaderMap::new(), &input).unwrap_err();
+        assert_eq!(error, CollectorError::ResponseTooLarge { limit: MAX_RESPONSE_BYTES });
+    }
+
+    #[test]
+    fn rejects_excessive_symbol_count() {
+        let input = "method(name: 'x')\\n".repeat(MAX_GDSL_SYMBOLS + 1);
+        let error = parse_methods(&input).unwrap_err();
+        assert_eq!(error, CollectorError::TooManySymbols { limit: MAX_GDSL_SYMBOLS });
+    }
+
+    #[test]
+    fn rejects_excessive_parameter_count() {
+        let params = (0..=MAX_PARAMETERS_PER_SYMBOL)
+            .map(|index| format!("p{index}: 'description'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let input = format!("method(name: 'many', params: [{params}])");
+        let error = parse_methods(&input).unwrap_err();
+        assert_eq!(error, CollectorError::TooManyParameters { limit: MAX_PARAMETERS_PER_SYMBOL });
     }
 
     #[test]
