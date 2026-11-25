@@ -87,8 +87,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         for library in &profile.libraries {
             let config = shared_library_scanner::LibraryConfig { name: library.name.clone(), repository: library.url.clone(), reference: library.revision.clone() };
             let result = if let Some(commit) = &library.commit {
-                let checkout = checkout_pinned_library(&library.url, commit, &library.name)?;
-                shared_library_scanner::scan_checkout(&config, checkout.0.path(), commit)
+                shared_library_scanner::scan_library_at(&config, commit)
                     .map_err(|e| BuildError::Source(format!("Shared Library '{}': {e}", library.name)))?
             } else {
                 shared_library_scanner::scan_library(&config)
@@ -237,31 +236,6 @@ fn build_timestamp() -> String {
 }
 fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() }
 
-// A pinned commit is checked out into a temporary directory before scan_checkout is called.
-#[derive(Debug)]
-struct Checkout(tempfile::TempDir);
-fn checkout_pinned_library(url: &str, commit: &str, name: &str) -> Result<Checkout, BuildError> {
-    let dir = tempfile::Builder::new()
-        .prefix("jenkins-knowledge-checkout-")
-        .tempdir()
-        .map_err(|e| BuildError::Io(format!("cannot create checkout directory: {e}")))?;
-    let run = |args: &[&str]| {
-        let output = std::process::Command::new("git")
-            .args(args)
-            .current_dir(dir.path())
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map_err(|e| BuildError::Source(format!("Shared Library '{name}': cannot run git: {e}")))?;
-        if output.success() { Ok(()) } else { Err(BuildError::Source(format!("Shared Library '{name}': git operation failed; remote details are redacted"))) }
-    };
-    run(&["init","--quiet"])?;
-    run(&["remote","add","origin",url])?;
-    run(&["fetch","--quiet","--depth","1","origin",commit])?;
-    run(&["checkout","--quiet","--detach","FETCH_HEAD"])?;
-    Ok(Checkout(dir))
-}
 
 #[cfg(test)]
 mod tests {
