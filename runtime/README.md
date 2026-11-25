@@ -1,22 +1,41 @@
 # Runtime
 
-The Runtime consumes a built, immutable Knowledge Package. It must not need access to Jenkins controllers or source Git repositories.
+The Runtime is the shared, read-only source of truth for loading and querying a validated Knowledge Package. CLI, MCP, and LSP use the same symbol enrichment, provenance, confidence, filtering, and bounded search implementation. It performs no Jenkins, Git, or network access.
 
-## Planned interfaces
+## Query contract
 
-Read-only operations:
+```rust
+SearchOptions {
+    query,
+    kind,
+    source,
+    plugin,
+    owner,
+    type_name,
+    confidence,
+    limit,
+}
+```
 
-- `search_api` — find symbols by name, kind, source, or profile.
-- `get_api_details` — retrieve signature, parameters, return type, provenance, and confidence.
-- `list_api` — enumerate symbols within a scope.
-- `get_usage_examples` — return catalog-backed examples.
-- `get_pipeline_step` — retrieve Jenkins Pipeline step metadata.
+All filters are optional. Text matching is case-insensitive across name, description, signature, namespace, and return type. Plugin matches the symbol's plugin source or declared plugin dependencies; owner matches explicit owner/namespace/class/type metadata; type matches explicit type/returnType/namespace/class metadata. Missing metadata does not produce inferred matches.
 
-Planned MCP resources:
+Results are sorted by symbol name and then stable symbol ID. The default limit is 50 and the hard maximum is 100. A caller cannot request an unbounded result set. Exact detail lookups reject ambiguous names and direct callers to use a symbol ID.
 
-- `jenkins://catalog/manifest`
-- `jenkins://catalog/libraries`
-- `jenkins://catalog/pipeline-steps`
-- `jenkins://catalog/profiles/{profile}`
+The Runtime also exposes catalog coverage without converting missing or unavailable coverage into verified symbols.
 
-The Runtime is retrieval-only. It does not execute Pipeline steps or trigger Jenkins jobs.\n\nThe Rust implementation and CLI live in `crates/jenkins-runtime`. A package directory contains `manifest.json` and its catalog file. The CLI validates both package and catalog schemas, then supports `search`, `list`, `get`, `examples`, and `step` commands. See the root README for commands and filters.
+## CLI
+
+```sh
+cargo run -p jenkins-runtime -- --package target/fixture-package search deploy --kind global-variable --confidence inferred --limit 20
+cargo run -p jenkins-runtime -- --package target/fixture-package list --plugin workflow-basic-steps
+```
+
+Supported search filters: `--kind`, `--source`, `--plugin`, `--owner`, `--type`, `--confidence`, and `--limit`. Valid confidence values are `verified`, `inferred`, and `unknown`.
+
+## LSP
+
+The Jenkins LSP uses Runtime search for completion and hover, preserving the same deterministic ordering and maximum result bound. It exposes `jenkinsKnowledge/coverage` as a read-only custom request returning the selected profile and its coverage records.
+
+## MCP
+
+See [MCP server documentation](mcp.md) for tool and resource schemas. MCP `search_api` and `list_api` expose the same filters and limits as the Runtime API, and `jenkins://catalog/coverage` returns coverage for the loaded profile.
