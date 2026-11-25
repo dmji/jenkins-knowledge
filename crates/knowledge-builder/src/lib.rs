@@ -204,6 +204,37 @@ mod tests {
     use std::fs;
 
     #[test]
+    fn preserves_collection_coverage_in_merged_catalog() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        ))
+        .unwrap();
+        catalog["coverage"] = json!([{
+            "sourceId":"controller",
+            "surface":"pipeline-steps",
+            "status":"inspected"
+        }]);
+        fs::write(
+            directory.path().join("fixture.json"),
+            serde_json::to_vec(&catalog).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            "profile: coverage-test\nfixtures:\n  - fixture.json\n",
+        )
+        .unwrap();
+
+        let output = directory.path().join("package");
+        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        let merged: Value =
+            serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
+        assert_eq!(merged["coverage"][0]["surface"], "pipeline-steps");
+        assert_eq!(merged["coverage"][0]["status"], "inspected");
+    }
+
+    #[test]
     fn rejects_conflicting_source_revisions_in_fixture_merge() {
         let directory = tempfile::tempdir().unwrap();
         let fixture = include_str!("../../../tests/fixtures/catalog-valid.json");
