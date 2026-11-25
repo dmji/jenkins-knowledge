@@ -21,6 +21,7 @@ impl std::fmt::Display for RuntimeError {
 }
 impl std::error::Error for RuntimeError {}
 
+#[derive(Debug)]
 pub struct Runtime {
     manifest: Value,
     catalog: Value,
