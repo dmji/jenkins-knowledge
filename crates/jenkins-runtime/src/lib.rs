@@ -4,9 +4,11 @@ use serde::de::{Error as DeError, MapAccess, Visitor};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    cmp::Reverse,
+    collections::{BTreeMap, BinaryHeap},
     fmt,
     fs,
+    io::Read,
     path::{Component, Path, PathBuf},
 };
 
@@ -14,6 +16,12 @@ pub mod groovy;
 
 pub const DEFAULT_SEARCH_LIMIT: usize = 50;
 pub const MAX_SEARCH_RESULTS: usize = 100;
+const MAX_MANIFEST_BYTES: u64 = 1_048_576;
+const MAX_CHECKSUM_ENTRIES: usize = 10_000;
+const MAX_PACKAGE_FILE_BYTES: u64 = 67_108_864;
+const MAX_PACKAGE_BYTES: u64 = 268_435_456;
+const MAX_CATALOG_SOURCES: usize = 10_000;
+const MAX_CATALOG_SYMBOLS: usize = 100_000;
 
 #[derive(Debug, Clone)]
 pub struct SearchOptions {
@@ -55,6 +63,7 @@ impl std::error::Error for RuntimeError {}
 pub struct Runtime {
     manifest: Value,
     catalog: Value,
+    source_index: BTreeMap<String, Value>,
 }
 
 #[derive(Debug)]
@@ -80,6 +89,9 @@ impl<'de> Deserialize<'de> for UniqueChecksums {
             {
                 let mut checksums = BTreeMap::new();
                 while let Some((name, digest)) = map.next_entry::<String, Value>()? {
+                    if checksums.len() >= MAX_CHECKSUM_ENTRIES {
+                        return Err(M::Error::custom(format!("checksum entry count exceeds limit ({MAX_CHECKSUM_ENTRIES})")));
+                    }
                     if checksums.insert(name.clone(), digest).is_some() {
                         return Err(M::Error::custom(format!(
                             "duplicate checksum entry '{name}'"
@@ -115,7 +127,8 @@ impl ManifestDocument {
 impl Runtime {
     #[cfg(test)]
     pub(crate) fn from_validated_parts(manifest: Value, catalog: Value) -> Self {
-        Self { manifest, catalog }
+        let source_index = build_source_index(&catalog);
+        Self { manifest, catalog, source_index }
     }
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self, RuntimeError> {
@@ -129,9 +142,8 @@ impl Runtime {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        let manifest_text = fs::read_to_string(&manifest_path)
-            .map_err(|e| RuntimeError(format!("cannot read {}: {e}", manifest_path.display())))?;
-        let manifest_document: ManifestDocument = serde_json::from_str(&manifest_text)
+        let manifest_bytes = read_bounded(&manifest_path, MAX_MANIFEST_BYTES, "manifest")?;
+        let manifest_document: ManifestDocument = serde_json::from_slice(&manifest_bytes)
             .map_err(|e| RuntimeError(format!("invalid JSON in {}: {e}", manifest_path.display())))?;
         let manifest = manifest_document.into_value();
 
@@ -149,13 +161,20 @@ impl Runtime {
             .get("checksums")
             .and_then(Value::as_object)
             .ok_or_else(|| RuntimeError("manifest.checksums must be an object".into()))?;
+        if checksums.len() > MAX_CHECKSUM_ENTRIES {
+            return Err(RuntimeError(format!("checksum entry count exceeds limit ({MAX_CHECKSUM_ENTRIES})")));
+        }
         if !checksums.contains_key(catalog_name) {
             return Err(RuntimeError(format!(
                 "manifest catalog '{catalog_name}' has no checksum entry"
             )));
         }
 
-        let mut verified_files = BTreeMap::new();
+        let mut aggregate_bytes = manifest_bytes.len() as u64;
+        if aggregate_bytes > MAX_PACKAGE_BYTES {
+            return Err(RuntimeError(format!("package exceeds aggregate size limit ({MAX_PACKAGE_BYTES} bytes)")));
+        }
+        let mut catalog_bytes = None;
         for (name, expected) in checksums {
             let expected = expected.as_str().ok_or_else(|| {
                 RuntimeError(format!("checksum for '{name}' must be a SHA-256 hex string"))
@@ -171,23 +190,36 @@ impl Runtime {
             }
 
             let file_path = resolve_package_file(package_dir, name)?;
-            let contents = fs::read(&file_path).map_err(|e| {
-                RuntimeError(format!("cannot read checksummed package file '{name}': {e}"))
-            })?;
+            let contents = read_bounded(&file_path, MAX_PACKAGE_FILE_BYTES, name)?;
+            aggregate_bytes = aggregate_bytes.saturating_add(contents.len() as u64);
+            if aggregate_bytes > MAX_PACKAGE_BYTES {
+                return Err(RuntimeError(format!("package exceeds aggregate size limit ({MAX_PACKAGE_BYTES} bytes)")));
+            }
             let actual = hex(&Sha256::digest(&contents));
             if actual != expected {
                 return Err(RuntimeError(format!(
                     "checksum mismatch for package file '{name}'"
                 )));
             }
-            verified_files.insert(name.clone(), contents);
+            if name == catalog_name {
+                catalog_bytes = Some(contents);
+            }
         }
 
-        let catalog_bytes = verified_files.get(catalog_name).ok_or_else(|| {
+        let catalog_bytes = catalog_bytes.ok_or_else(|| {
             RuntimeError(format!("catalog '{catalog_name}' was not checksum-verified"))
         })?;
-        let catalog: Value = serde_json::from_slice(catalog_bytes)
+        let catalog: Value = serde_json::from_slice(&catalog_bytes)
             .map_err(|e| RuntimeError(format!("invalid JSON in catalog '{catalog_name}': {e}")))?;
+
+        let source_count = catalog["sources"].as_array().map_or(0, Vec::len);
+        if source_count > MAX_CATALOG_SOURCES {
+            return Err(RuntimeError(format!("catalog source count exceeds limit ({MAX_CATALOG_SOURCES})")));
+        }
+        let symbol_count = catalog["symbols"].as_array().map_or(0, Vec::len);
+        if symbol_count > MAX_CATALOG_SYMBOLS {
+            return Err(RuntimeError(format!("catalog symbol count exceeds limit ({MAX_CATALOG_SYMBOLS})")));
+        }
 
         let catalog_schema: Value =
             serde_json::from_str(include_str!("../../../schemas/catalog.schema.json"))
@@ -207,7 +239,8 @@ impl Runtime {
                 "package/catalog schema version mismatch: manifest declares '{expected}', catalog is '{actual}'"
             )));
         }
-        Ok(Self { manifest, catalog })
+        let source_index = build_source_index(&catalog);
+        Ok(Self { manifest, catalog, source_index })
     }
 
     pub fn profile(&self) -> &str {
