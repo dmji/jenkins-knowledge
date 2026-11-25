@@ -33,7 +33,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            crates/catalog-validator -> crates/catalog-validator/target
+            crates/catalog-validator -> target
           shared-key: catalog-validator
           cache-on-failure: true
 
