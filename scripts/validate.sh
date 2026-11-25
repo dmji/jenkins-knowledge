@@ -52,7 +52,7 @@ cargo run --manifest-path crates/catalog-validator/Cargo.toml -- \
 echo "==> Loading the package with the Runtime CLI"
 cargo run --manifest-path crates/jenkins-runtime/Cargo.toml -- \
   --package "$fixture_dir" search deploy > "$runtime_output"
-grep -q '"name": "deployApp"' "$runtime_output"
+grep -q '"name": "deploy"' "$runtime_output"
 
 echo "==> Compiling the VS Code extension"
 (
