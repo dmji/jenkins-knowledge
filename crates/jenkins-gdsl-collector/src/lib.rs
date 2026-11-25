@@ -131,6 +131,7 @@ fn collect_with_client(
         return Err(CollectorError::EmptyResponse);
     }
     catalog_from_gdsl(controller, &headers, &body)
+}
 
 /// Convert GDSL method declarations into catalog step symbols.
 /// Only explicit declarations are emitted; unknown parameter types/defaults remain absent.
