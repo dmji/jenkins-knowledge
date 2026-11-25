@@ -422,7 +422,10 @@ fn is_method_declaration_start(line: &str) -> bool {
     let Some(open) = line.find('(') else { return false };
     let prefix = line[..open].trim();
     let name = prefix.split_whitespace().last().unwrap_or("");
-    valid_identifier(name) && !["if","for","while","switch","catch","synchronized","assert"].contains(&name)
+    let first = prefix.split_whitespace().next().unwrap_or("");
+    !["return", "throw", "new", "assert", "yield"].contains(&first)
+        && valid_identifier(name)
+        && !["if","for","while","switch","catch","synchronized","assert"].contains(&name)
         && (prefix.starts_with("def ") || prefix.split_whitespace().count() >= 2)
 }
 
@@ -752,9 +755,9 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         let temp = tempfile::tempdir().unwrap();
         let vars = temp.path().join("vars");
         fs::create_dir_all(&vars).unwrap();
-        fs::write(vars.join("example.groovy"), "trait DynamicThing { }\nenum State { READY }\n").unwrap();
+        fs::write(vars.join("example.groovy"), "trait DynamicThing { }\nenum State { READY }\ndef broken(\n").unwrap();
         let result = scan_checkout(&config("main"), temp.path(), "0123456789abcdef0123456789abcdef01234567").unwrap();
-        assert!(result.diagnostics.iter().filter(|d| d.code == "unsupported-groovy-syntax").count() >= 2);
+        assert!(result.diagnostics.iter().filter(|d| d.code == "unsupported-groovy-syntax").count() >= 3);
         assert!(!result.catalog["symbols"].as_array().unwrap().iter().any(|s| s["kind"] == "class"));
     }
 
