@@ -2,11 +2,11 @@ use jenkins_runtime::Runtime;
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 
-fn required(args: &Value, key: &str) -> Result<&str, String> {
+fn required<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
         .ok_or_else(|| format!("'{key}' must be a non-empty string"))
 }
-fn optional(args: &Value, key: &str) -> Option<&str> { args.get(key).and_then(Value::as_str) }
+fn optional<'a>(args: &'a Value, key: &str) -> Option<&'a str> { args.get(key).and_then(Value::as_str) }
 fn content(value: Value) -> Value {
     json!({"content":[{"type":"text","text":serde_json::to_string_pretty(&value).unwrap_or_else(|e|e.to_string())}]})
 }
