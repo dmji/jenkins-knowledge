@@ -296,6 +296,7 @@ mod tests {
             serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
         assert_eq!(merged["coverage"][0]["surface"], "pipeline-steps");
         assert_eq!(merged["coverage"][0]["status"], "inspected");
+        assert_eq!(merged["controller"]["identity"]["id"], "jenkins-ci");
     }
 
     #[test]
