@@ -8,10 +8,18 @@ class PipelineSteps {
     /**
      * Runs a shell command.
      * Catalog signature: sh(Map args)
+     * Catalog overload: sh(String script)
      * Confidence: verified
      */
     void sh(Map args) { }
+    void sh(String script) { }
 }
+
+/**
+     * Deployment configuration type.
+     * Confidence: verified
+     */
+class DeploymentOptions { }
 
 class deployApp {
     /**
@@ -19,5 +27,16 @@ class deployApp {
      * Confidence: inferred
      */
     Object call(Map config) { }
+}
+
+class DeployUtils {
+    /**
+     * Publishes a deployment.
+     * Catalog signature: publish(String target)
+     * Catalog overload: publish(Map config)
+     * Confidence: verified
+     */
+    String publish(String target) { }
+    String publish(Map config) { }
 }
 
