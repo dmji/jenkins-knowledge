@@ -1,3 +1,4 @@
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,10 +12,20 @@ pub struct LibraryConfig {
     pub reference: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Diagnostic {
+    pub code: String,
+    pub severity: String,
+    pub source_id: String,
+    pub path: String,
+    pub message: String,
+}
+
 #[derive(Debug)]
 pub struct ScanResult {
     pub catalog: Value,
-    pub diagnostics: Vec<String>,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug)]
@@ -81,11 +92,25 @@ pub fn scan_checkout(
         let content = fs::read_to_string(&file).map_err(|e| ScanError::Io(format!("{}: {e}", file.display())))?;
         let dynamic = has_dynamic_constructs(&content);
         if dynamic {
-            diagnostics.push(format!("{path}: dynamic Groovy constructs detected; affected declarations are heuristic"));
+            push_diagnostic(
+                &mut diagnostics,
+                &source_id,
+                &path,
+                "dynamic-groovy-constructs",
+                "Dynamic Groovy constructs detected; affected declarations are heuristic.",
+            );
         }
         let confidence = if dynamic { "inferred" } else { "verified" };
         if path.starts_with("vars/") {
-            scan_global(&path, &content, &source_id, confidence, &mut symbols, &mut diagnostics);
+            scan_global(
+                &file,
+                &path,
+                &content,
+                &source_id,
+                confidence,
+                &mut symbols,
+                &mut diagnostics,
+            )?;
         }
         scan_classes_and_methods(&path, &content, &source_id, confidence, &mut symbols, &mut diagnostics);
     }
@@ -153,16 +178,27 @@ fn collect_groovy_files(root: &Path, output: &mut Vec<PathBuf>) -> Result<(), Sc
     Ok(())
 }
 
-fn scan_global(path: &str, source: &str, source_id: &str, confidence: &str,
-    symbols: &mut Vec<Value>, diagnostics: &mut Vec<String>) {
+fn scan_global(
+    file: &Path,
+    path: &str,
+    source: &str,
+    source_id: &str,
+    confidence: &str,
+    symbols: &mut Vec<Value>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<(), ScanError> {
     let name = Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or_default();
-    if name.is_empty() { return; }
+    if name.is_empty() {
+        return Ok(());
+    }
     let declaration_line = source.lines().position(|line| {
         let line = line.trim();
         line.starts_with("def ") || line.starts_with("public ") || line.starts_with("protected ")
             || line.starts_with("private ") || line.starts_with("static ")
     }).unwrap_or(0);
-    let (description, examples) = documentation(source, declaration_line);
+    let (groovydoc_description, examples) = documentation(source, declaration_line);
+    let text_description = read_adjacent_documentation(file)?;
+    let description = groovydoc_description.or(text_description);
     let mut symbol = json!({
         "id": format!("{source_id}:{path}:global"),
         "name": name,
@@ -173,7 +209,9 @@ fn scan_global(path: &str, source: &str, source_id: &str, confidence: &str,
         "confidence": confidence,
         "provenance": [format!("{path}:1 (global script)")]
     });
-    if !examples.is_empty() { symbol["examples"] = json!(examples); }
+    if !examples.is_empty() {
+        symbol["examples"] = json!(examples);
+    }
     symbols.push(symbol);
 
     let methods = parse_methods(source);
@@ -181,12 +219,51 @@ fn scan_global(path: &str, source: &str, source_id: &str, confidence: &str,
         symbols.push(method_symbol(path, source_id, confidence, method, "method"));
     }
     if source.contains("metaClass") || source.contains("methodMissing") || source.contains("invokeMethod") {
-        diagnostics.push(format!("{path}: dynamic dispatch may expose additional global methods that cannot be enumerated statically"));
+        push_diagnostic(
+            diagnostics,
+            source_id,
+            path,
+            "dynamic-global-methods",
+            "Dynamic dispatch may expose additional global methods that cannot be enumerated.",
+        );
+    }
+    Ok(())
+}
+
+fn read_adjacent_documentation(groovy_file: &Path) -> Result<Option<String>, ScanError> {
+    let documentation_file = groovy_file.with_extension("txt");
+    match fs::read_to_string(&documentation_file) {
+        Ok(content) => {
+            let content = content.trim();
+            if content.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(content.to_owned()))
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(ScanError::Io(format!("{}: {error}", documentation_file.display()))),
     }
 }
 
+fn push_diagnostic(
+    diagnostics: &mut Vec<Diagnostic>,
+    source_id: &str,
+    path: &str,
+    code: &str,
+    message: &str,
+) {
+    diagnostics.push(Diagnostic {
+        code: code.to_owned(),
+        severity: "warning".to_owned(),
+        source_id: source_id.to_owned(),
+        path: path.to_owned(),
+        message: message.to_owned(),
+    });
+}
+
 fn scan_classes_and_methods(path: &str, source: &str, source_id: &str, confidence: &str,
-    symbols: &mut Vec<Value>, diagnostics: &mut Vec<String>) {
+    symbols: &mut Vec<Value>, diagnostics: &mut Vec<Diagnostic>) {
     let mut offset = 0;
     for line in source.lines() {
         let trimmed = line.trim();
@@ -213,7 +290,13 @@ fn scan_classes_and_methods(path: &str, source: &str, source_id: &str, confidenc
         }
     }
     if source.contains("methodMissing") || source.contains("invokeMethod") || source.contains("metaClass") {
-        diagnostics.push(format!("{path}: dynamic method dispatch cannot be fully enumerated"));
+        push_diagnostic(
+            diagnostics,
+            source_id,
+            path,
+            "dynamic-method-dispatch",
+            "Dynamic method dispatch cannot be fully enumerated.",
+        );
     }
 }
 
@@ -406,6 +489,55 @@ mod tests {
         assert!(symbols.iter().any(|s| s["name"] == "call" && s["kind"] == "method"));
         assert!(symbols.iter().any(|s| s["name"] == "call" && s["parameters"].as_array().unwrap().len() == 2));
         assert!(result.catalog["sources"][0]["revision"] == "0123456789abcdef0123456789abcdef01234567");
+    }
+
+    #[test]
+    fn groovydoc_takes_precedence_over_adjacent_text_documentation() {
+        let temp = tempfile::tempdir().unwrap();
+        let vars = temp.path().join("vars");
+        fs::create_dir_all(&vars).unwrap();
+        fs::write(
+            vars.join("deploy.groovy"),
+            "/**\n * Groovydoc description.\n */\ndef call() { }\n",
+        ).unwrap();
+        fs::write(vars.join("deploy.txt"), "Fallback text-file description.").unwrap();
+
+        let result = scan_checkout(
+            &config("main"),
+            temp.path(),
+            "0123456789abcdef0123456789abcdef01234567",
+        ).unwrap();
+        let global = result.catalog["symbols"].as_array().unwrap().iter()
+            .find(|symbol| symbol["kind"] == "global-variable")
+            .unwrap();
+
+        assert_eq!(global["description"], "Groovydoc description.");
+    }
+
+    #[test]
+    fn adjacent_text_documentation_is_used_when_groovydoc_is_absent() {
+        let temp = tempfile::tempdir().unwrap();
+        let vars = temp.path().join("vars");
+        fs::create_dir_all(&vars).unwrap();
+        fs::write(vars.join("releaseNotes.groovy"), "def call() { }\n").unwrap();
+        fs::write(
+            vars.join("releaseNotes.txt"),
+            "  Release notes helper.\n\nIncludes rollback guidance. \n",
+        ).unwrap();
+
+        let result = scan_checkout(
+            &config("main"),
+            temp.path(),
+            "0123456789abcdef0123456789abcdef01234567",
+        ).unwrap();
+        let global = result.catalog["symbols"].as_array().unwrap().iter()
+            .find(|symbol| symbol["kind"] == "global-variable")
+            .unwrap();
+
+        assert_eq!(
+            global["description"],
+            "Release notes helper.\n\nIncludes rollback guidance.",
+        );
     }
 
     #[test]
