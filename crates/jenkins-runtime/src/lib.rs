@@ -512,9 +512,16 @@ mod tests {
     }
 
     fn write_package(directory: &Path) {
-        let catalog = include_str!("../../../tests/fixtures/catalog-valid.json");
-        fs::write(directory.join("catalog.json"), catalog).unwrap();
-        let checksum = hex(&Sha256::digest(catalog.as_bytes()));
+        let catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        write_package_with_catalog(directory, &catalog);
+    }
+
+    fn write_package_with_catalog(directory: &Path, catalog: &Value) {
+        let catalog_bytes = serde_json::to_vec(catalog).unwrap();
+        fs::write(directory.join("catalog.json"), &catalog_bytes).unwrap();
+        let checksum = hex(&Sha256::digest(&catalog_bytes));
         let manifest = serde_json::json!({
             "packageVersion": "1.0.0",
             "catalogSchemaVersion": "1.0.0",
@@ -529,8 +536,7 @@ mod tests {
         fs::write(
             directory.join("manifest.json"),
             serde_json::to_vec_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
+        ).unwrap();
     }
 
     #[test]
@@ -552,6 +558,85 @@ mod tests {
         std::os::unix::fs::symlink(&target, &catalog).unwrap();
         let error = Runtime::open(directory.path()).unwrap_err().to_string();
         assert!(error.contains("symbolic links are not allowed"));
+    }
+
+    #[test]
+    fn rejects_manifest_larger_than_limit_before_deserialization() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("manifest.json"), vec![b' '; (MAX_MANIFEST_BYTES + 1) as usize]).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("manifest exceeds size limit"));
+    }
+
+    #[test]
+    fn rejects_oversized_checksummed_files_before_reading_them() {
+        let directory = tempfile::tempdir().unwrap();
+        write_package(directory.path());
+        let oversized = directory.path().join("oversized.bin");
+        fs::File::create(&oversized).unwrap().set_len(MAX_PACKAGE_FILE_BYTES + 1).unwrap();
+        let manifest_path = directory.path().join("manifest.json");
+        let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["checksums"]["oversized.bin"] = Value::String("0".repeat(64));
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("oversized.bin exceeds size limit"));
+    }
+
+    #[test]
+    fn rejects_excessive_checksum_entries_during_manifest_parsing() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut checksums = serde_json::Map::new();
+        for index in 0..=MAX_CHECKSUM_ENTRIES {
+            checksums.insert(format!("file-{index:05}"), Value::String("0".repeat(64)));
+        }
+        fs::write(
+            directory.path().join("manifest.json"),
+            serde_json::to_vec(&serde_json::json!({"checksums": checksums})).unwrap(),
+        ).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("checksum entry count exceeds limit"));
+    }
+
+    #[test]
+    fn rejects_catalogs_with_too_many_sources_or_symbols() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        catalog["sources"] = Value::Array(vec![Value::Null; MAX_CATALOG_SOURCES + 1]);
+        write_package_with_catalog(directory.path(), &catalog);
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("catalog source count exceeds limit"));
+
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        catalog["symbols"] = Value::Array(vec![Value::Null; MAX_CATALOG_SYMBOLS + 1]);
+        write_package_with_catalog(directory.path(), &catalog);
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("catalog symbol count exceeds limit"));
+    }
+
+    #[test]
+    fn search_with_small_limit_keeps_only_the_lexicographically_first_matches() {
+        let mut runtime = runtime();
+        let symbols = runtime.catalog["symbols"].as_array_mut().unwrap();
+        for index in 0..10_000 {
+            symbols.push(serde_json::json!({
+                "id": format!("top-k:{index:05}"),
+                "name": format!("match-{index:05}"),
+                "kind": "method",
+                "sourceId": "workflow-basic-steps",
+                "confidence": "unknown",
+                "provenance": ["test"]
+            }));
+        }
+        let options = SearchOptions { query: "match-".into(), limit: 3, ..SearchOptions::default() };
+        let results = runtime.search_with_options(&options);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0]["name"], "match-00000");
+        assert_eq!(results[2]["name"], "match-00002");
     }
 
     #[test]
@@ -694,7 +779,7 @@ mod tests {
     fn search_is_bounded_and_has_stable_order() {
         let mut runtime = runtime();
         let symbols = runtime.catalog["symbols"].as_array_mut().unwrap();
-        for index in 0..150 {
+        for index in 0..10_000 {
             symbols.push(serde_json::json!({
                 "id": format!("generated:{index:03}"),
                 "name": format!("generated{index:03}"),
