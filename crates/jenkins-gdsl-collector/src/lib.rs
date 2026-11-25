@@ -177,7 +177,7 @@ fn parse_methods(input: &str) -> Result<Vec<Method>, CollectorError> {
         let return_type = type_re.captures(declaration).map(|c| c[2].to_owned()).unwrap_or_else(|| "Object".into());
         let description = doc_re.captures(declaration).map(|c| unescape(&c[2]));
         let documentation_url = description.as_deref().and_then(extract_url);
-        let parameters = params_re.captures(declaration).map(|captures| {
+        let parameters: Vec<Value> = params_re.captures(declaration).map(|captures| {
             param_re.captures_iter(&captures[1]).map(|c| json!({"name": &c[1], "description": unescape(&c[3])})).collect()
         }).unwrap_or_default();
         let parameter_names = parameters.iter().filter_map(|p| p["name"].as_str()).collect::<Vec<_>>();
