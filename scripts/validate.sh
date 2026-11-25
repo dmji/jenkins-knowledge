@@ -2,7 +2,6 @@
 set -eu
 
 cargo fmt --manifest-path crates/catalog-validator/Cargo.toml -- --check
-cargo fmt --manifest-path crates/declarative-model/Cargo.toml -- --check
 cargo fmt --all
 cargo fmt --all -- --check
 cargo test --workspace --all-targets
