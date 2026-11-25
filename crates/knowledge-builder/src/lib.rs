@@ -136,7 +136,15 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         "checksums":{"catalog.json":hex(&Sha256::digest(catalog_bytes.as_bytes()))},
         "toolVersions":{"knowledge-builder":env!("CARGO_PKG_VERSION")}
     });
-    fs::write(staging.join("manifest.json"), format!("{}\n", serde_json::to_string_pretty(&manifest).map_err(|e| BuildError::Io(e.to_string()))?))
+    let manifest_schema: Value = serde_json::from_str(include_str!("../../../schemas/manifest.schema.json"))
+        .expect("bundled manifest schema");
+    let manifest_validator = jsonschema::validator_for(&manifest_schema)
+        .map_err(|e| BuildError::InvalidCatalog(format!("invalid manifest schema: {e}")))?;
+    if let Some(error) = manifest_validator.iter_errors(&manifest).next() {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(BuildError::InvalidCatalog(format!("manifest: {error}")));
+    }
+    fs::write(staging.join("manifest.json"), format!("{}\\n", serde_json::to_string_pretty(&manifest).map_err(|e| BuildError::Io(e.to_string()))?))
         .map_err(|e| BuildError::Io(e.to_string()))?;
     fs::rename(&staging, output).map_err(|e| { let _ = fs::remove_dir_all(&staging); BuildError::Io(format!("cannot publish package {}: {e}", output.display())) })?;
     Ok(())
