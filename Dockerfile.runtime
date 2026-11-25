@@ -1,8 +1,17 @@
-FROM debian:bookworm-slim
+FROM ubuntu:24.04 AS runtime-base
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-WORKDIR /app
-COPY target/release/jenkins-mcp /usr/local/bin/jenkins-mcp
-ENTRYPOINT ["jenkins-mcp"]
+
+FROM runtime-base AS runtime
+RUN groupadd --system --gid 10001 runtime \
+    && useradd --system --uid 10001 --gid runtime --home-dir /nonexistent --no-create-home runtime \
+    && mkdir -p /package \
+    && chown runtime:runtime /package
+COPY --chown=root:root target/release/jenkins-runtime /usr/local/bin/jenkins-runtime
+COPY --chown=root:root target/release/jenkins-mcp /usr/local/bin/jenkins-mcp
+COPY --chown=root:root target/release/groovy-stubs /usr/local/bin/groovy-stubs
+WORKDIR /package
+USER runtime:runtime
+ENTRYPOINT ["jenkins-runtime"]
 CMD ["--package", "/package"]
