@@ -2,7 +2,10 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
+pub mod source_security;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
@@ -52,11 +55,17 @@ impl std::error::Error for ScanError {}
 /// Git credentials must be provided through the normal Git credential helper/environment;
 /// they are never copied into catalog metadata or diagnostics.
 pub fn scan_library(config: &LibraryConfig) -> Result<ScanResult, ScanError> {
+    scan_library_at(config, &config.reference)
+}
+
+/// Fetch a specific branch, tag, or commit while retaining the configured ref in metadata.
+pub fn scan_library_at(config: &LibraryConfig, fetch_ref: &str) -> Result<ScanResult, ScanError> {
     validate_config(config)?;
+    validate_git_reference(fetch_ref).map_err(ScanError::InvalidConfig)?;
     let temp = tempfile::tempdir().map_err(|e| ScanError::Io(e.to_string()))?;
     run_git(temp.path(), &["init", "--quiet"])?;
     run_git(temp.path(), &["remote", "add", "origin", &config.repository])?;
-    run_git(temp.path(), &["fetch", "--quiet", "--depth", "1", "origin", &config.reference])?;
+    run_git(temp.path(), &["fetch", "--quiet", "--no-tags", "--depth", "1", "--filter=blob:limit=2m", "origin", fetch_ref])?;
     let commit = git_output(temp.path(), &["rev-parse", "FETCH_HEAD"])?;
     run_git(temp.path(), &["checkout", "--quiet", "--detach", "FETCH_HEAD"])?;
     scan_checkout(config, temp.path(), commit.trim())
@@ -77,17 +86,20 @@ pub fn scan_checkout(
     let source_id = format!("shared-library:{}:{}@{}", slug(&config.name), slug(&config.reference), &resolved_commit[..12]);
     let mut symbols = Vec::new();
     let mut diagnostics = Vec::new();
+    let canonical_root = checkout.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve checkout root: {e}")))?;
+    let limits = ScanLimits::from_environment()?;
     let mut files = Vec::new();
+    let mut total_bytes = 0u64;
     for directory in ["vars", "src"] {
-        let root = checkout.join(directory);
+        let root = canonical_root.join(directory);
         if root.exists() {
-            collect_groovy_files(&root, &mut files)?;
+            collect_groovy_files(&root, &canonical_root, 0, &mut files, &mut total_bytes, &limits)?;
         }
     }
     files.sort();
 
     for file in files {
-        let relative = file.strip_prefix(checkout).map_err(|e| ScanError::Io(e.to_string()))?;
+        let relative = file.strip_prefix(&canonical_root).map_err(|e| ScanError::Io(e.to_string()))?;
         let path = relative.to_string_lossy().replace('\\', "/");
         let content = fs::read_to_string(&file).map_err(|e| ScanError::Io(format!("{}: {e}", file.display())))?;
         let dynamic = has_dynamic_constructs(&content);
@@ -138,42 +150,93 @@ pub fn scan_checkout(
     Ok(ScanResult { catalog, diagnostics })
 }
 
+pub fn validate_git_url(value: &str) -> Result<(), String> { crate::source_security::validate_git_url(value) }
+pub fn validate_git_reference(value: &str) -> Result<(), String> { crate::source_security::validate_git_reference(value) }
+
 fn validate_config(config: &LibraryConfig) -> Result<(), ScanError> {
     if config.name.trim().is_empty() || config.repository.trim().is_empty() || config.reference.trim().is_empty() {
         return Err(ScanError::InvalidConfig("name, repository, and reference must be non-empty".into()));
     }
-    if config.repository.chars().any(|c| c.is_control()) || config.reference.chars().any(|c| c.is_control()) {
-        return Err(ScanError::InvalidConfig("repository and reference must not contain control characters".into()));
-    }
-    if config.repository.starts_with("http://") || config.repository.starts_with("https://") {
-        let authority = config.repository.split_once("://").map(|(_, rest)| rest.split('/').next().unwrap_or("")).unwrap_or("");
-        if authority.contains('@') || config.repository.chars().any(|c| c == '?' || c == '#') {
-            return Err(ScanError::InvalidConfig("HTTP repository URLs must not contain credentials, query parameters, or fragments".into()));
-        }
-    }
+    validate_git_url(&config.repository).map_err(ScanError::InvalidConfig)?;
+    validate_git_reference(&config.reference).map_err(ScanError::InvalidConfig)?;
     Ok(())
 }
 
-fn run_git(directory: &Path, args: &[&str]) -> Result<(), ScanError> {
-    let output = Command::new("git").args(args).current_dir(directory).output()
-        .map_err(|e| ScanError::Git(e.to_string()))?;
-    if output.status.success() { Ok(()) } else {
-        Err(ScanError::Git("git command failed; remote details are redacted".into()))
+const GIT_TIMEOUT: Duration = Duration::from_secs(120);
+fn run_git(directory: &Path, args: &[&str]) -> Result<(), ScanError> { run_git_inner(directory, args).map(|_| ()) }
+fn git_output(directory: &Path, args: &[&str]) -> Result<String, ScanError> { run_git_inner(directory, args) }
+fn run_git_inner(directory: &Path, args: &[&str]) -> Result<String, ScanError> {
+    let mut child = Command::new("git").args(args).current_dir(directory)
+        .env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null())
+        .stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+        .map_err(|_| ScanError::Git("cannot start git".into()))?;
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait().map_err(|_| ScanError::Git("cannot wait for git".into()))? {
+            Some(status) => {
+                if !status.success() { return Err(ScanError::Git("git command failed; remote details are redacted".into())); }
+                let mut output = String::new();
+                if let Some(stdout) = child.stdout.take() {
+                    use std::io::Read;
+                    stdout.take(4096).read_to_string(&mut output).map_err(|_| ScanError::Git("cannot read git output".into()))?;
+                }
+                return Ok(output.trim().to_owned());
+            }
+            None if started.elapsed() >= GIT_TIMEOUT => {
+                let _ = child.kill(); let _ = child.wait();
+                return Err(ScanError::Git("git command timed out after 120 seconds; child process terminated".into()));
+            }
+            None => thread::sleep(Duration::from_millis(100)),
+        }
     }
 }
-fn git_output(directory: &Path, args: &[&str]) -> Result<String, ScanError> {
-    let output = Command::new("git").args(args).current_dir(directory).output()
-        .map_err(|e| ScanError::Git(e.to_string()))?;
-    if output.status.success() { Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned()) }
-    else { Err(ScanError::Git("git command failed; remote details are redacted".into())) }
+
+#[derive(Debug, Clone, Copy)]
+struct ScanLimits { depth: usize, files: usize, file_bytes: u64, total_bytes: u64 }
+impl ScanLimits {
+    fn from_environment() -> Result<Self, ScanError> {
+        fn limit(name: &str, default: u64) -> Result<u64, ScanError> {
+            match std::env::var(name) {
+                Ok(value) => value.parse().ok().filter(|v| *v > 0)
+                    .ok_or_else(|| ScanError::InvalidConfig(format!("{name} must be a positive integer"))),
+                Err(_) => Ok(default),
+            }
+        }
+        Ok(Self {
+            depth: limit("JENKINS_KNOWLEDGE_SCAN_MAX_DEPTH", 32)? as usize,
+            files: limit("JENKINS_KNOWLEDGE_SCAN_MAX_FILES", 10000)? as usize,
+            file_bytes: limit("JENKINS_KNOWLEDGE_SCAN_MAX_FILE_BYTES", 1048576)?,
+            total_bytes: limit("JENKINS_KNOWLEDGE_SCAN_MAX_TOTAL_BYTES", 33554432)?,
+        })
+    }
 }
 
-fn collect_groovy_files(root: &Path, output: &mut Vec<PathBuf>) -> Result<(), ScanError> {
-    for entry in fs::read_dir(root).map_err(|e| ScanError::Io(e.to_string()))? {
-        let entry = entry.map_err(|e| ScanError::Io(e.to_string()))?;
+fn collect_groovy_files(root: &Path, checkout: &Path, depth: usize, output: &mut Vec<PathBuf>,
+    total_bytes: &mut u64, limits: &ScanLimits) -> Result<(), ScanError> {
+    if depth > limits.depth { return Err(ScanError::Io(format!("scan depth exceeds limit ({})", limits.depth))); }
+    let metadata = fs::symlink_metadata(root).map_err(|e| ScanError::Io(format!("cannot inspect directory: {e}")))?;
+    if metadata.file_type().is_symlink() { return Ok(()); }
+    if !metadata.is_dir() { return Ok(()); }
+    let canonical_root = root.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve directory: {e}")))?;
+    if !canonical_root.starts_with(checkout) { return Err(ScanError::Io("directory escaped checkout root".into())); }
+    for entry in fs::read_dir(&canonical_root).map_err(|e| ScanError::Io(format!("cannot read directory: {e}")))? {
+        let entry = entry.map_err(|e| ScanError::Io(format!("cannot read directory entry: {e}")))?;
         let path = entry.path();
-        if path.is_dir() { collect_groovy_files(&path, output)?; }
-        else if path.extension().is_some_and(|ext| ext == "groovy") { output.push(path); }
+        let metadata = fs::symlink_metadata(&path).map_err(|e| ScanError::Io(format!("cannot inspect path: {e}")))?;
+        if metadata.file_type().is_symlink() { continue; }
+        if metadata.is_dir() {
+            let canonical = path.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve directory: {e}")))?;
+            if !canonical.starts_with(checkout) { return Err(ScanError::Io("directory escaped checkout root".into())); }
+            collect_groovy_files(&canonical, checkout, depth + 1, output, total_bytes, limits)?;
+        } else if metadata.is_file() && path.extension().is_some_and(|ext| ext == "groovy") {
+            let canonical = path.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve source file: {e}")))?;
+            if !canonical.starts_with(checkout) { return Err(ScanError::Io("source file escaped checkout root".into())); }
+            if metadata.len() > limits.file_bytes { return Err(ScanError::Io(format!("{} exceeds per-file limit of {} bytes", path.display(), limits.file_bytes))); }
+            *total_bytes = (*total_bytes).saturating_add(metadata.len());
+            if *total_bytes > limits.total_bytes { return Err(ScanError::Io(format!("source files exceed aggregate limit of {} bytes", limits.total_bytes))); }
+            output.push(canonical);
+            if output.len() > limits.files { return Err(ScanError::Io(format!("source file count exceeds limit ({})", limits.files))); }
+        }
     }
     Ok(())
 }
@@ -232,6 +295,15 @@ fn scan_global(
 
 fn read_adjacent_documentation(groovy_file: &Path) -> Result<Option<String>, ScanError> {
     let documentation_file = groovy_file.with_extension("txt");
+    let metadata = match fs::symlink_metadata(&documentation_file) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
+        Ok(_) => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(ScanError::Io(format!("cannot inspect adjacent documentation: {error}"))),
+    };
+    if metadata.len() > 1_048_576 {
+        return Err(ScanError::Io("adjacent documentation exceeds 1048576 bytes".into()));
+    }
     match fs::read_to_string(&documentation_file) {
         Ok(content) => {
             let content = content.trim();
@@ -576,7 +648,6 @@ fn timestamp() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Command;
 
     fn fixture() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/library")
@@ -683,19 +754,9 @@ mod tests {
     }
 
     #[test]
-    fn scan_library_records_resolved_git_commit() {
-        let temp = tempfile::tempdir().unwrap();
-        let repo = temp.path().join("repo");
-        std::fs::create_dir(&repo).unwrap();
-        Command::new("git").args(["init", "--quiet"]).current_dir(&repo).status().unwrap();
-        std::fs::create_dir(repo.join("vars")).unwrap();
-        std::fs::write(repo.join("vars/deploy.groovy"), "def call() { }\n").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(&repo).status().unwrap();
-        Command::new("git").args(["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "fixture"]).current_dir(&repo).status().unwrap();
-        let result = scan_library(&LibraryConfig { name: "local".into(), repository: repo.to_string_lossy().into_owned(), reference: "HEAD".into() }).unwrap();
-        let sha = result.catalog["sources"][0]["revision"].as_str().unwrap();
-        assert_eq!(sha.len(), 40);
-        assert!(sha.bytes().all(|b| b.is_ascii_hexdigit()));
+    fn rejects_local_repository_paths() {
+        let config = LibraryConfig { name: "local".into(), repository: "/tmp/library".into(), reference: "main".into() };
+        assert!(matches!(scan_library(&config), Err(ScanError::InvalidConfig(_))));
     }
 
     #[test]
@@ -766,4 +827,45 @@ class Service<T> extends BaseService implements Runnable, Closeable {
     fn rejects_short_commit_sha() {
         assert!(matches!(scan_checkout(&config("main"), &fixture(), "abc"), Err(ScanError::InvalidConfig(_))));
     }
+    #[cfg(unix)]
+    #[test]
+    fn ignores_symlinked_files_and_directories() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("vars")).unwrap();
+        fs::create_dir_all(outside.path().join("vars")).unwrap();
+        fs::write(outside.path().join("vars/escaped.groovy"), "def escaped() {}").unwrap();
+        symlink(outside.path().join("vars/escaped.groovy"), temp.path().join("vars/linked.groovy")).unwrap();
+        symlink(outside.path().join("vars"), temp.path().join("vars/linked-dir")).unwrap();
+        symlink(temp.path().join("vars"), temp.path().join("vars/loop")).unwrap();
+        let result = scan_checkout(&config("main"), temp.path(), "0123456789abcdef0123456789abcdef01234567").unwrap();
+        assert!(!result.catalog["symbols"].as_array().unwrap().iter().any(|s| s["name"] == "escaped"));
+    }
+
+    #[test]
+    fn enforces_file_size_count_depth_and_aggregate_limits() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("vars");
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("a.groovy"), "12345").unwrap();
+        fs::write(root.join("nested/b.groovy"), "12345").unwrap();
+        let checkout = temp.path().canonicalize().unwrap();
+        let limits = ScanLimits { depth: 1, files: 2, file_bytes: 5, total_bytes: 10 };
+        let mut files = Vec::new();
+        let mut total = 0;
+        collect_groovy_files(&root, &checkout, 0, &mut files, &mut total, &limits).unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(total, 10);
+
+        let too_small = ScanLimits { file_bytes: 4, ..limits };
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_small).is_err());
+        let too_few = ScanLimits { files: 1, ..limits };
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_few).is_err());
+        let too_deep = ScanLimits { depth: 0, ..limits };
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_deep).is_err());
+        let too_much = ScanLimits { total_bytes: 9, ..limits };
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_much).is_err());
+    }
+
 }
