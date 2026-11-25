@@ -207,6 +207,7 @@ pub fn catalog_from_gdsl(
     Ok(catalog)
 }
 
+#[derive(Debug)]
 struct Method {
     name: String,
     signature: String,
@@ -341,6 +342,7 @@ mod tests {
     fn mock_jenkins(status: &str, body: Vec<u8>, delay: Duration) -> Url {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
+        let status = status.to_owned();
         thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0u8; 1024];
