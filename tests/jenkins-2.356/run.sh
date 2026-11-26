@@ -26,6 +26,7 @@ cleanup() {
     fi
     docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
     docker image rm "$IMAGE" >/dev/null 2>&1 || true
+    rm -f "$TOKEN_FILE" "$ENV_FILE"
     exit "$status"
 }
 trap cleanup EXIT
