@@ -306,6 +306,8 @@ pub fn validate_package_metadata(
         }
     }
 
+    reject_secret_fields(manifest, "/manifest", &mut errors);
+
     if errors.is_empty() {
         Ok(())
     } else {
@@ -419,19 +421,20 @@ fn validate_coverage_consistency(
 }
 
 fn url_has_credentials(value: &str) -> bool {
-    let Some((_, remainder)) = value.split_once("://") else {
-        return false;
-    };
-    let authority = remainder.split('/').next().unwrap_or_default();
-    if authority.contains('@') {
-        return true;
-    }
-    value.split_once('?').is_some_and(|(_, query)| {
+    let authority_has_credentials = value.split_once("://").is_some_and(|(_, remainder)| {
+        remainder
+            .split('/')
+            .next()
+            .unwrap_or_default()
+            .contains('@')
+    });
+    let query_has_secrets = value.split_once('?').is_some_and(|(_, query)| {
         query.split('&').any(|part| {
             let key = part.split('=').next().unwrap_or_default();
             is_secret_field_name(key)
         })
-    })
+    });
+    authority_has_credentials || query_has_secrets
 }
 
 fn normalized_secret_key(key: &str) -> String {
