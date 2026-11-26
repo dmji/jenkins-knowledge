@@ -28,8 +28,8 @@ if [ "$actual_sha" != "$expected_sha" ]; then
   exit 1
 fi
 
-# The legacy workspace contains pre-existing rustfmt drift. Check every Rust
-# file changed by this revision without rewriting or grandfathering new code.
+# Check new Rust files and files whose base revision is already formatted.
+# Preserve existing formatting debt instead of silently rewriting source.
 base_sha="${VALIDATION_BASE_SHA:-$(git rev-parse HEAD^)}"
 git diff --check "$base_sha" "$actual_sha"
 if grep -E 'cargo fmt' .github/workflows/rust-ci.yml scripts/validate.sh | grep -v -- '--check'; then
