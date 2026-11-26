@@ -317,6 +317,142 @@ impl std::fmt::Display for BuildError {
 }
 impl std::error::Error for BuildError {}
 
+fn runtime_api_type_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
+    let mut symbols = Vec::new();
+    let mut member_count = 0usize;
+    for api_type in runtime["apiTypes"].as_array().into_iter().flatten().take(40) {
+        let (Some(class_name), Some(name)) = (
+            api_type["className"].as_str(),
+            api_type["name"].as_str(),
+        ) else {
+            continue;
+        };
+        let class_confidence = if api_type["status"] == "available" {
+            "verified"
+        } else {
+            "unknown"
+        };
+        let class_id = format!("{source_id}:api-class:{class_name}");
+        let mut class_symbol = json!({
+            "id": class_id,
+            "name": name,
+            "kind": "class",
+            "sourceId": source_id,
+            "signature": class_name,
+            "confidence": class_confidence,
+            "provenance": ["jenkins-script-console", "api-types"],
+            "fieldEvidence": {
+                "name": class_confidence,
+                "signature": "verified"
+            },
+            "evidence": [{
+                "sourceId": source_id,
+                "kind": "controller-observed",
+                "confidence": class_confidence,
+                "provenance": "Bounded reflection of registered or explicitly configured API roots",
+                "retrievedAt": runtime["collectedAt"],
+                "location": format!("script-console/api-types/{class_name}"),
+                "sourceKind": "jenkins-controller"
+            }]
+        });
+        if let Some(plugin) = api_type["plugin"].as_str() {
+            class_symbol["namespace"] = json!(plugin);
+        }
+        for field in ["superClass", "origin"] {
+            if let Some(value) = api_type[field].as_str() {
+                class_symbol[field] = json!(value);
+                class_symbol["fieldEvidence"][field] = json!("verified");
+            }
+        }
+        if let Some(interfaces) = api_type["interfaces"].as_array() {
+            class_symbol["interfaces"] = json!(interfaces);
+            class_symbol["fieldEvidence"]["interfaces"] = json!("verified");
+        }
+        if let Some(synthetic) = api_type["synthetic"].as_bool() {
+            class_symbol["synthetic"] = json!(synthetic);
+            class_symbol["fieldEvidence"]["synthetic"] = json!("verified");
+        }
+        if let Some(properties) = api_type["properties"].as_array() {
+            class_symbol["properties"] = json!(properties);
+            if !properties.is_empty() {
+                class_symbol["fieldEvidence"]["properties"] = json!("inferred");
+            }
+        }
+        symbols.push(class_symbol);
+
+        for method in api_type["methods"].as_array().into_iter().flatten() {
+            if member_count >= 300 {
+                break;
+            }
+            let (Some(method_name), Some(signature), Some(return_type), Some(declaring_class)) = (
+                method["name"].as_str(),
+                method["signature"].as_str(),
+                method["returnType"].as_str(),
+                method["declaringClass"].as_str(),
+            ) else {
+                continue;
+            };
+            let method_confidence = if class_confidence == "verified"
+                && method["synthetic"] != true
+                && method["bridge"] != true
+            {
+                "verified"
+            } else {
+                "unknown"
+            };
+            let method_id = format!("{source_id}:api-method:{class_name}:{signature}");
+            let mut method_symbol = json!({
+                "id": method_id,
+                "name": method_name,
+                "kind": "method",
+                "sourceId": source_id,
+                "signature": signature,
+                "returnType": return_type,
+                "declaringClass": declaring_class,
+                "confidence": method_confidence,
+                "provenance": ["jenkins-script-console", "api-types", class_name],
+                "fieldEvidence": {
+                    "name": method_confidence,
+                    "signature": "verified",
+                    "returnType": "verified",
+                    "declaringClass": "verified"
+                },
+                "evidence": [{
+                    "sourceId": source_id,
+                    "kind": "controller-observed",
+                    "confidence": method_confidence,
+                    "provenance": "Java reflection metadata; method body was not executed",
+                    "retrievedAt": runtime["collectedAt"],
+                    "location": format!("script-console/api-types/{class_name}"),
+                    "sourceKind": "jenkins-controller"
+                }]
+            });
+            if let Some(plugin) = api_type["plugin"].as_str() {
+                method_symbol["namespace"] = json!(plugin);
+            }
+            if let Some(parameters) = method["parameters"].as_array() {
+                method_symbol["parameters"] = json!(parameters);
+                method_symbol["fieldEvidence"]["parameters"] = json!("verified");
+            }
+            for field in ["genericReturnType", "modifiers"] {
+                if let Some(value) = method[field].as_str() {
+                    method_symbol[field] = json!(value);
+                    method_symbol["fieldEvidence"][field] = json!("verified");
+                }
+            }
+            for field in ["synthetic", "bridge", "varargs"] {
+                if let Some(value) = method[field].as_bool() {
+                    method_symbol[field] = json!(value);
+                    method_symbol["fieldEvidence"][field] = json!("verified");
+                }
+            }
+            symbols.push(method_symbol);
+            member_count += 1;
+        }
+    }
+    symbols
+}
+
 fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
     let mut symbols = Vec::new();
     for registry in runtime["extensionRegistries"].as_array().into_iter().flatten() {
