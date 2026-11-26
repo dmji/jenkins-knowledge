@@ -114,9 +114,7 @@ fn skip_quoted_string(bytes: &[u8], start: usize) -> usize {
     while index < bytes.len() {
         if bytes[index] == b'\\' {
             index = (index + 2).min(bytes.len());
-        } else if triple
-            && bytes.get(index..index + 3) == Some(&[quote, quote, quote])
-        {
+        } else if triple && bytes.get(index..index + 3) == Some(&[quote, quote, quote]) {
             return index + 3;
         } else if !triple && bytes[index] == quote {
             return index + 1;
@@ -127,9 +125,58 @@ fn skip_quoted_string(bytes: &[u8], start: usize) -> usize {
     bytes.len()
 }
 
-/// Return the relevant open block stack before the cursor. Comments and the
-/// supported quoted-string forms are skipped; every brace still participates
-/// in nesting so closing an inner block cannot close its parent.
+fn skip_slashy_string(bytes: &[u8], start: usize) -> usize {
+    let mut index = start + 1;
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(bytes.len());
+        } else if bytes[index] == b'/' {
+            return index + 1;
+        } else {
+            index += 1;
+        }
+    }
+    bytes.len()
+}
+
+fn skip_dollar_slashy_string(bytes: &[u8], start: usize) -> usize {
+    let mut index = start + 2;
+    while index < bytes.len() {
+        if bytes[index] == b'$' && matches!(bytes.get(index + 1), Some(b'$' | b'/')) {
+            index += 2;
+        } else if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'$') {
+            return index + 2;
+        } else {
+            index += 1;
+        }
+    }
+    bytes.len()
+}
+
+fn slashy_string_can_start(bytes: &[u8], index: usize) -> bool {
+    let mut previous = index;
+    while previous > 0 && bytes[previous - 1].is_ascii_whitespace() {
+        previous -= 1;
+    }
+    if previous == 0 {
+        return true;
+    }
+    if matches!(bytes[previous - 1], b'=' | b'(' | b'[' | b'{' | b',' | b':' | b';'
+        | b'!' | b'?' | b'&' | b'|' | b'~' | b'>') {
+        return true;
+    }
+    let end = previous;
+    while previous > 0 && (bytes[previous - 1].is_ascii_alphanumeric()
+        || matches!(bytes[previous - 1], b'_' | b'$')) {
+        previous -= 1;
+    }
+    matches!(&bytes[previous..end], b"return" | b"throw" | b"case" | b"in" | b"assert")
+}
+
+/// Return the relevant Declarative block stack before the cursor. This is a
+/// bounded lexical recognizer, not a Groovy parser: it skips comments and all
+/// Groovy string literal forms and only accepts block names at statement starts
+/// outside map/list literals and ordinary Groovy closures.
 fn scan_block_contexts(source: &str) -> Option<Vec<&'static str>> {
     if source.len() > MAX_CONTEXT_SCAN_BYTES {
         return None;
@@ -138,6 +185,9 @@ fn scan_block_contexts(source: &str) -> Option<Vec<&'static str>> {
     let mut stack: Vec<Option<&'static str>> = Vec::new();
     let mut candidate = None;
     let mut parentheses = 0usize;
+    let mut brackets = 0usize;
+    let mut statement_start = true;
+    let mut last_significant = None;
     let mut index = 0usize;
 
     while index < bytes.len() {
@@ -157,34 +207,96 @@ fn scan_block_contexts(source: &str) -> Option<Vec<&'static str>> {
                 }
                 index = (index + 2).min(bytes.len());
             }
+            b'$' if bytes.get(index + 1) == Some(&b'/') => {
+                index = skip_dollar_slashy_string(bytes, index);
+                statement_start = false;
+                last_significant = Some(b'$');
+            }
             b'\'' | b'"' => {
                 index = skip_quoted_string(bytes, index);
+                statement_start = false;
+                last_significant = Some(b'"');
             }
+            b'/' if slashy_string_can_start(bytes, index) => {
+                index = skip_slashy_string(bytes, index);
+                statement_start = false;
+                last_significant = Some(b'/');
+            }
+            b'\n' => {
+                if parentheses == 0 && brackets == 0
+                    && !matches!(last_significant, Some(b'.' | b'=' | b',' | b':' | b'(' | b'['
+                        | b'+' | b'-' | b'*' | b'/' | b'&' | b'|' | b'?' | b'!')) {
+                    statement_start = true;
+                    if last_significant == Some(b')') {
+                        candidate = None;
+                    }
+                }
+                index += 1;
+            }
+            byte if byte.is_ascii_whitespace() => index += 1,
             b'{' => {
-                stack.push(candidate.take());
-                parentheses = 0;
+                let declarative_parent = stack.iter().all(|block| {
+                    block.is_some_and(|name| name != "script")
+                });
+                let opened = if declarative_parent && parentheses == 0 && brackets == 0 {
+                    candidate.take()
+                } else {
+                    None
+                };
+                stack.push(opened);
+                statement_start = true;
+                last_significant = Some(b'{');
                 index += 1;
             }
             b'}' => {
                 stack.pop();
                 candidate = None;
-                parentheses = 0;
+                statement_start = true;
+                last_significant = Some(b'}');
                 index += 1;
             }
             b'(' => {
                 parentheses = parentheses.saturating_add(1);
+                statement_start = false;
+                last_significant = Some(b'(');
                 index += 1;
             }
             b')' => {
                 parentheses = parentheses.saturating_sub(1);
+                statement_start = false;
+                last_significant = Some(b')');
+                index += 1;
+            }
+            b'[' => {
+                brackets = brackets.saturating_add(1);
+                candidate = None;
+                statement_start = false;
+                last_significant = Some(b'[');
+                index += 1;
+            }
+            b']' => {
+                brackets = brackets.saturating_sub(1);
+                candidate = None;
+                statement_start = false;
+                last_significant = Some(b']');
                 index += 1;
             }
             b';' => {
                 candidate = None;
+                statement_start = true;
+                last_significant = Some(b';');
                 index += 1;
             }
-            b'.' | b'=' if parentheses == 0 => {
+            b':' => {
                 candidate = None;
+                statement_start = false;
+                last_significant = Some(b':');
+                index += 1;
+            }
+            b'.' | b'=' | b'+' | b'-' | b'*' | b'%' | b'!' | b'?' | b'&' | b'|' | b'~' => {
+                candidate = None;
+                statement_start = false;
+                last_significant = Some(bytes[index]);
                 index += 1;
             }
             byte if byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'$') => {
@@ -196,11 +308,20 @@ fn scan_block_contexts(source: &str) -> Option<Vec<&'static str>> {
                 {
                     index += 1;
                 }
-                if parentheses == 0 {
+                let in_groovy_expression = parentheses > 0 || brackets > 0
+                    || stack.iter().any(|block| block.is_none() || *block == Some("script"));
+                if statement_start && !in_groovy_expression {
                     candidate = relevant_block(&source[start..index]);
                 }
+                statement_start = false;
+                last_significant = Some(bytes[index - 1]);
             }
-            _ => index += 1,
+            _ => {
+                candidate = None;
+                statement_start = false;
+                last_significant = Some(bytes[index]);
+                index += 1;
+            }
         }
     }
 
@@ -597,6 +718,68 @@ mod tests {
     fn context_scan_is_bounded_for_very_large_documents() {
         let source = format!("{}pipeline {{", " ".repeat(MAX_CONTEXT_SCAN_BYTES));
         assert!(scan_block_contexts(&source).is_none());
+    }
+
+    #[test]
+    fn ignores_directive_text_and_braces_in_slashy_and_dollar_slashy_strings() {
+        let source = r#"pipeline {
+    stages {
+        stage('real') {
+            steps {
+                def slashy = /script { } stage('fake') { } \\/ and // text/
+                def dollar = $/post { } pipeline { } escaped $/ slash and $$ sign /$
+                def interpolated = "value @@INTERP@@ [script: { steps { } }] }"
+                sh
+"#.replace("@@INTERP@@", "$" + "{");
+        let (_, contexts, _) = context_at_end(source);
+        for expected in ["pipeline", "stages", "stage", "steps"] {
+            assert!(contexts.iter().any(|context| context == expected), "{contexts:?}");
+        }
+        for ignored in ["script", "post"] {
+            assert!(!contexts.iter().any(|context| context == ignored), "{contexts:?}");
+        }
+    }
+
+    #[test]
+    fn map_list_literals_and_method_calls_do_not_open_declarative_contexts() {
+        let source = r#"pipeline {
+    stages {
+        stage('real') {
+            steps {
+                def map = [stage: { script { } }, nested: [post: { }]]
+                def list = [{ agent { } }, [steps: { }]]
+                def value = helper(stage: [script: { }])
+                helper.stage()
+                sh
+"#;
+        let (_, contexts, _) = context_at_end(source);
+        for expected in ["pipeline", "stages", "stage", "steps"] {
+            assert!(contexts.iter().any(|context| context == expected), "{contexts:?}");
+        }
+        for ignored in ["script", "post", "agent"] {
+            assert!(!contexts.iter().any(|context| context == ignored), "{contexts:?}");
+        }
+    }
+
+    #[test]
+    fn ordinary_closures_and_script_bodies_do_not_create_declarative_contexts() {
+        let source = r#"pipeline {
+    stages {
+        stage('real') {
+            steps {
+                def closure = {
+                    stage { script { } }
+                }
+                script {
+                    stage { steps { } }
+                }
+                sh
+"#;
+        let (_, contexts, _) = context_at_end(source);
+        for expected in ["pipeline", "stages", "stage", "steps"] {
+            assert!(contexts.iter().any(|context| context == expected), "{contexts:?}");
+        }
+        assert!(!contexts.iter().any(|context| context == "script"), "{contexts:?}");
     }
 
     #[test]
