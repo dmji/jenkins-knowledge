@@ -1,4 +1,4 @@
-use catalog_validator::validate_catalog;
+use catalog_validator::{validate_catalog, validate_package_metadata};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -207,6 +207,8 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         "checksums":{"catalog.json":hex(&Sha256::digest(catalog_bytes.as_bytes()))},
         "toolVersions":{"knowledge-builder":env!("CARGO_PKG_VERSION")}
     });
+    validate_package_metadata(&catalog, &manifest)
+        .map_err(|error| BuildError::InvalidCatalog(format!("manifest/catalog consistency failed: {error}")))?;
     let manifest_schema: Value = serde_json::from_str(include_str!("../../../schemas/manifest.schema.json"))
         .expect("bundled manifest schema");
     let manifest_validator = jsonschema::validator_for(&manifest_schema)
