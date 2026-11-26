@@ -168,7 +168,12 @@ pub fn completeness_reason_codes(outcomes: &[Value]) -> Vec<String> {
             "unavailable" => {
                 reasons.insert("optional-source-unavailable".to_owned());
             }
-            "partial" | "failed" => {
+            "partial" | "failed"
+                if !matches!(
+                    error_code,
+                    "output-truncated" | "limit-exceeded" | "response-too-large"
+                ) =>
+            {
                 reasons.insert("source-failed".to_owned());
             }
             _ => {}
@@ -917,6 +922,13 @@ pub fn validate_package_metadata(
                 }
             }
         }
+    }
+
+    if catalog.get("completeness").is_some() && manifest.get("collection").is_none() {
+        errors.push(
+            "/collection: collection outcomes are required when catalog completeness is present"
+                .into(),
+        );
     }
 
     reject_secret_fields(manifest, "/manifest", &mut errors);
