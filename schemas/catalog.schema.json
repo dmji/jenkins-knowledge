@@ -803,6 +803,7 @@
             "properties": {
               "name": {"type": "string", "minLength": 1, "maxLength": 256},
               "kind": {"enum": ["class", "interface", "enum"]},
+              "depth": {"type": "integer", "minimum": 0, "maximum": 1},
               "superclass": {"type": "string", "maxLength": 256},
               "interfaces": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 256}},
               "modifiers": {"type": "string", "maxLength": 128},
