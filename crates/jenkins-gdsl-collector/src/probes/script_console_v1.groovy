@@ -166,6 +166,13 @@ def collectDeclarativeExtensions = { registry ->
             enumeration: 'static-all'
         ],
         [
+            category: 'when',
+            className: 'org.jenkinsci.plugins.pipeline.modeldefinition.when.DeclarativeStageConditionalDescriptor',
+            contexts: ['stage'],
+            enumeration: 'static-all-invisible',
+            metadata: [invisible: true]
+        ],
+        [
             category: 'post-condition',
             className: 'org.jenkinsci.plugins.pipeline.modeldefinition.model.BuildCondition',
             contexts: ['pipeline', 'stage'],
@@ -200,6 +207,8 @@ def collectDeclarativeExtensions = { registry ->
             def extensions
             if (descriptorSpec.enumeration == 'static-all') {
                 extensions = extensionType.getMethod('all').invoke(null)
+            } else if (descriptorSpec.enumeration == 'static-all-invisible') {
+                extensions = extensionType.getMethod('allInvisible').invoke(null)
             } else if (descriptorSpec.enumeration == 'condition-methods') {
                 extensions = extensionType.getMethod('getConditionMethods').invoke(null)
             } else {
@@ -226,7 +235,7 @@ def collectDeclarativeExtensions = { registry ->
                         itemName = extension.getKlass().getSimpleName()
                         nameKind = 'implementation-class'
                     }
-                    def metadata = [:]
+                    def metadata = descriptorSpec.metadata ?: [:]
                     if (descriptorSpec.category == 'option') {
                         try { metadata.stageOnly = extension.isStageOnly() == true } catch (Throwable ignored) {}
                         try { metadata.canUseInStage = extension.canUseInStage() == true } catch (Throwable ignored) {}
