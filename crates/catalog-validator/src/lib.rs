@@ -335,7 +335,7 @@ fn evidence_compatible(evidence_kind: &str, source_kind: &str) -> bool {
         "controller-observed" => matches!(
             source_kind,
             "jenkins-controller" | "plugin" | "jenkins-core"
-        )
+        ),
         "source-scanned" => {
             matches!(source_kind, "shared-library" | "plugin" | "jenkins-core")
         }
