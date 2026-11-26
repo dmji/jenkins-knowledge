@@ -1,5 +1,5 @@
 use catalog_validator::{completeness_reason_codes, redact_sensitive_fields, source_collection_summary, stamp_catalog_identity, validate_catalog, validate_package_metadata};
-use jenkins_gdsl_collector::{CollectorError, DiscoveryError};
+use jenkins_gdsl_collector::{ApiTypeLimits, CollectorError, DiscoveryError};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -37,6 +37,8 @@ pub struct ControllerConfig {
     pub url: String,
     #[serde(default, rename = "apiRoots")]
     pub api_roots: Vec<String>,
+    #[serde(default, rename = "apiLimits")]
+    pub api_limits: ApiTypeLimits,
 }
 
 #[derive(Debug, Deserialize)]
@@ -179,6 +181,11 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
         if controller.api_roots.len() > 20 {
             return Err(BuildError::Profile(format!(
                 "jenkins.controllers[{index}].apiRoots: at most 20 explicit class roots are allowed"
+            )));
+        }
+        if !controller.api_limits.is_within_hard_limits() {
+            return Err(BuildError::Profile(format!(
+                "jenkins.controllers[{index}].apiLimits exceeds the hard safety maxima"
             )));
         }
         let mut api_roots = HashSet::new();
@@ -744,11 +751,12 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 }
             }
             if profile.collection_profile == "deep" && controller_metadata_available {
-                let mut runtime_record = jenkins_gdsl_collector::collect_script_console_with_roots(
+                let mut runtime_record = jenkins_gdsl_collector::collect_script_console_with_options(
                     &controller.url,
                     username.as_deref(),
                     api_token.as_deref(),
                     &controller.api_roots,
+                    &controller.api_limits,
                 );
                 redact_sensitive_fields(&mut runtime_record);
                 let runtime_status = runtime_record["status"].as_str().unwrap_or("unavailable");
@@ -1264,13 +1272,20 @@ mod tests {
     #[test]
     fn accepts_only_explicit_bounded_api_roots_in_profiles() {
         let profile: Profile = serde_yaml::from_str(
-            "profile: api-roots-test\ncollectionProfile: deep\njenkins:\n  controllers:\n    - id: local\n      url: https://jenkins.example.test\n      apiRoots:\n        - hudson.model.Run\n        - org.example.Outer$Inner\n"
+            "profile: api-roots-test\ncollectionProfile: deep\njenkins:\n  controllers:\n    - id: local\n      url: https://jenkins.example.test\n      apiRoots:\n        - hudson.model.Run\n        - org.example.Outer$Inner\n      apiLimits:\n        maxDepth: 1\n        maxTypes: 10\n        maxMembersPerType: 5\n        maxTotalMembers: 50\n"
         ).unwrap();
         validate_profile(&profile).unwrap();
+        assert_eq!(profile.jenkins.controllers[0].api_limits.max_depth, 1);
+        assert_eq!(profile.jenkins.controllers[0].api_limits.max_types, 10);
         let invalid: Profile = serde_yaml::from_str(
             "profile: api-roots-test\ncollectionProfile: deep\njenkins:\n  controllers:\n    - id: local\n      url: https://jenkins.example.test\n      apiRoots:\n        - java.lang.String;System.exit(0)\n"
         ).unwrap();
         assert!(validate_profile(&invalid).is_err());
+
+        let invalid_limits: Profile = serde_yaml::from_str(
+            "profile: api-roots-test\ncollectionProfile: deep\njenkins:\n  controllers:\n    - id: local\n      url: https://jenkins.example.test\n      apiLimits:\n        maxTypes: 41\n"
+        ).unwrap();
+        assert!(validate_profile(&invalid_limits).is_err());
     }
 
     #[test]
