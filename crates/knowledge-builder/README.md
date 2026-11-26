@@ -33,6 +33,8 @@ Without `fixtures`, the Builder first requires bounded Jenkins Core/controller m
 | `standard` | Jenkins Core/controller metadata | Plugin inventory, full GDSL extraction, and configured Shared Libraries are optional. Script Console is skipped. |
 | `deep` | Jenkins Core/controller metadata | Plugin inventory, full GDSL, configured Shared Libraries, and the fixed read-only Script Console probe are optional. |
 
+Java version and vendor are read from the actual JVM system properties only when the Deep Script Console probe runs. Quick/Standard record `not-collected-by-profile`; Deep distinguishes `available`, `unavailable`, and `probe-failed` per property. A missing Java property does not downgrade an otherwise successful Script Console collection. No Java value is inferred from the Jenkins Core version.
+
 The Declarative Pipeline model is generated locally for each configured controller. Controller metadata is mandatory because it establishes the identity and version anchor for controller-backed sources. A failure there aborts the build. Optional failures do not discard successful snapshots: the Builder publishes a partial package with stable status and error codes. A failed Shared Library scan is isolated to that library; other controllers/libraries remain available. The Script Console probe runs only in `deep`, uses repository-owned Groovy, and does not accept caller-supplied scripts. It discovers a bounded API type surface rooted in observed Pipeline/Declarative classes and optional per-controller `apiRoots`; it never enumerates a ClassLoader or scans packages/JARs.
 
 Retries are explicit rather than automatic to avoid multiplying controller load. Network timeouts and transient HTTP failures are safe to retry by rerunning the build.
