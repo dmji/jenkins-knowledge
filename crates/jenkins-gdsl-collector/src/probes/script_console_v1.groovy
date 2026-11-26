@@ -483,6 +483,12 @@ if (apiRoots.size() > MAX_API_TYPES) result.apiTypesTruncated = true
 
 def output = JsonOutput.toJson(result)
 if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
+    result.apiTypes = result.apiTypes.take(5)
+    result.apiTypes.each { type ->
+        type.methods = (type.methods ?: []).take(10)
+        type.properties = (type.properties ?: []).take(10)
+    }
+    result.apiTypesTruncated = true
     result.extensionRegistries.each { registry ->
         if (registry.items.size() > 10) {
             registry.items = registry.items.take(10)
