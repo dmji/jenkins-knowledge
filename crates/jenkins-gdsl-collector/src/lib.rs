@@ -207,7 +207,6 @@ pub fn catalog_from_gdsl(
         "symbols": symbols
     });
     sanitize_collected_catalog(&mut catalog);
-    catalog["symbols"].as_array_mut().unwrap().sort_by_key(|symbol| symbol["id"].as_str().unwrap_or_default().to_owned());
     stamp_catalog_identity(&mut catalog).map_err(|error| CollectorError::InvalidCatalog(error))?;
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json"))
         .map_err(|error| CollectorError::InvalidCatalog(error.to_string()))?;
