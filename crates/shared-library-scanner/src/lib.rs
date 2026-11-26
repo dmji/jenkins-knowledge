@@ -63,13 +63,8 @@ pub fn scan_library_at(config: &LibraryConfig, fetch_ref: &str) -> Result<ScanRe
     validate_config(config)?;
     validate_git_reference(fetch_ref).map_err(ScanError::InvalidConfig)?;
     let checkout_budget = git_checkout_budget_from_environment()?;
-    let checkout = GitCheckout::new(checkout_budget)?;
-    run_git(checkout.path(), &["init", "--quiet"])?;
-    run_git(checkout.path(), &["remote", "add", "origin", &config.repository])?;
-    run_git(checkout.path(), &["fetch", "--quiet", "--no-tags", "--depth", "1", "--filter=blob:limit=2m", "origin", fetch_ref])?;
-    let commit = git_output(checkout.path(), &["rev-parse", "FETCH_HEAD"])?;
-    run_git(checkout.path(), &["checkout", "--quiet", "--detach", "FETCH_HEAD"])?;
-    scan_checkout(config, checkout.path(), commit.trim())
+    let (checkout, commit) = fetch_checkout(&config.repository, fetch_ref, checkout_budget)?;
+    scan_checkout(config, checkout.path(), &commit)
 }
 
 /// Scan an already-resolved checkout. The caller supplies the resolved commit SHA
@@ -83,18 +78,35 @@ pub fn scan_checkout(
     if resolved_commit.len() != 40 || !resolved_commit.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(ScanError::InvalidConfig("resolved commit must be a full 40-character Git SHA".into()));
     }
+    let limits = ScanLimits::from_environment()?;
+    scan_checkout_with_limits(config, checkout, resolved_commit, limits)
+}
 
+fn scan_checkout_with_limits(
+    config: &LibraryConfig,
+    checkout: &Path,
+    resolved_commit: &str,
+    limits: ScanLimits,
+) -> Result<ScanResult, ScanError> {
     let source_id = format!("shared-library:{}:{}@{}", slug(&config.name), slug(&config.reference), &resolved_commit[..12]);
     let mut symbols = Vec::new();
     let mut diagnostics = Vec::new();
     let canonical_root = checkout.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve checkout root: {e}")))?;
-    let limits = ScanLimits::from_environment()?;
     let mut files = Vec::new();
     let mut total_bytes = 0u64;
+    let mut entries = 0usize;
     for directory in ["vars", "src"] {
         let root = canonical_root.join(directory);
         if root.exists() {
-            collect_groovy_files(&root, &canonical_root, 0, &mut files, &mut total_bytes, &limits)?;
+            collect_groovy_files(
+                &root,
+                &canonical_root,
+                0,
+                &mut files,
+                &mut total_bytes,
+                &mut entries,
+                &limits,
+            )?;
         }
     }
     files.sort();
@@ -102,7 +114,8 @@ pub fn scan_checkout(
     for file in files {
         let relative = file.strip_prefix(&canonical_root).map_err(|e| ScanError::Io(e.to_string()))?;
         let path = relative.to_string_lossy().replace('\\', "/");
-        let content = fs::read_to_string(&file).map_err(|e| ScanError::Io(format!("{}: {e}", file.display())))?;
+        let content = fs::read_to_string(&file)
+            .map_err(|_| ScanError::Io(format!("cannot read source file {path}")))?;
         let dynamic = has_dynamic_constructs(&content);
         if dynamic {
             push_diagnostic(
@@ -126,6 +139,12 @@ pub fn scan_checkout(
             )?;
         }
         scan_classes_and_methods(&path, &content, &source_id, confidence, &mut symbols, &mut diagnostics);
+        if symbols.len() > limits.symbols {
+            return Err(ScanError::Io(format!(
+                "generated symbol count exceeds configured limit ({})",
+                limits.symbols
+            )));
+        }
     }
 
     let generated_at = timestamp();
@@ -145,6 +164,15 @@ pub fn scan_checkout(
         "symbols": symbols
     });
     redact_sensitive_fields(&mut catalog);
+    let catalog_size = serde_json::to_vec_pretty(&catalog)
+        .map_err(|_| ScanError::InvalidCatalog("cannot serialize generated catalog".into()))?
+        .len();
+    if catalog_size > limits.catalog_bytes {
+        return Err(ScanError::InvalidCatalog(format!(
+            "generated catalog exceeds configured size limit ({} bytes)",
+            limits.catalog_bytes
+        )));
+    }
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json"))
         .map_err(|e| ScanError::InvalidCatalog(e.to_string()))?;
     catalog_validator::validate_catalog(&catalog, &schema)
@@ -176,56 +204,25 @@ fn git_checkout_budget_from_environment() -> Result<u64, ScanError> {
     }
 }
 
-/// A private tmpfs is the storage boundary: its size is enforced by the Linux
-/// filesystem for all files and all descendants, independent of Git behavior.
+/// A unique, unprivileged temporary checkout. Git is monitored while every
+/// command runs; Unix children additionally inherit an RLIMIT_FSIZE ceiling.
 struct GitCheckout {
     temp: tempfile::TempDir,
-    mounted: bool,
+    limit: u64,
 }
 
 impl GitCheckout {
     fn new(limit: u64) -> Result<Self, ScanError> {
-        #[cfg(target_os = "linux")]
-        {
-            use std::ffi::CString;
-            use std::os::unix::ffi::OsStrExt;
-
-            let page_size = unsafe { sysconf(30) };
-            if page_size <= 0 {
-                return Err(ScanError::InvalidConfig("cannot determine the Linux page size for the Git checkout quota".into()));
-            }
-            let page_size = page_size as u64;
-            let hard_limit = (limit / page_size) * page_size;
-            if hard_limit == 0 {
-                return Err(ScanError::InvalidConfig(format!(
-                    "Git checkout budget must be at least one filesystem page ({page_size} bytes)"
-                )));
-            }
-            let temp = tempfile::tempdir()
-                .map_err(|e| ScanError::Io(format!("cannot create temporary checkout mountpoint: {e}")))?;
-            let target = CString::new(temp.path().as_os_str().as_bytes())
-                .map_err(|_| ScanError::InvalidConfig("temporary checkout path contains a NUL byte".into()))?;
-            let source = CString::new("tmpfs").unwrap();
-            let filesystem = CString::new("tmpfs").unwrap();
-            let options = CString::new(format!("size={hard_limit},mode=0700,nosuid,nodev")).unwrap();
-            let result = unsafe {
-                mount(source.as_ptr(), target.as_ptr(), filesystem.as_ptr(), 2 | 4, options.as_ptr().cast())
-            };
-            if result != 0 {
-                return Err(ScanError::InvalidConfig(format!(
-                    "cannot enforce the {hard_limit}-byte aggregate Git checkout quota with a private tmpfs; Linux mount capability is required ({}); refusing an unbounded fallback",
-                    std::io::Error::last_os_error()
-                )));
-            }
-            Ok(Self { temp, mounted: true })
+        if limit == 0 {
+            return Err(ScanError::InvalidConfig(
+                "Git checkout storage budget must be a positive integer".into(),
+            ));
         }
-        #[cfg(not(target_os = "linux"))]
-        {
-            let _ = limit;
-            Err(ScanError::InvalidConfig(
-                "strict aggregate Git checkout storage quotas are currently supported only on Linux with tmpfs mount capability; refusing an unbounded fallback".into()
-            ))
-        }
+        let temp = tempfile::Builder::new()
+            .prefix("jenkins-knowledge-git-")
+            .tempdir()
+            .map_err(|_| ScanError::Io("cannot create temporary Git checkout".into()))?;
+        Ok(Self { temp, limit })
     }
 
     fn path(&self) -> &Path {
@@ -233,33 +230,79 @@ impl GitCheckout {
     }
 }
 
-impl Drop for GitCheckout {
-    fn drop(&mut self) {
-        #[cfg(target_os = "linux")]
-        if self.mounted {
-            use std::os::unix::ffi::OsStrExt;
-            if let Ok(target) = std::ffi::CString::new(self.temp.path().as_os_str().as_bytes()) {
-                unsafe { umount2(target.as_ptr(), 0); }
+fn fetch_checkout(
+    repository: &str,
+    fetch_ref: &str,
+    limit: u64,
+) -> Result<(GitCheckout, String), ScanError> {
+    let checkout = GitCheckout::new(limit)?;
+    run_git(checkout.path(), &["init", "--quiet"], checkout.limit)?;
+    run_git(
+        checkout.path(),
+        &["remote", "add", "origin", repository],
+        checkout.limit,
+    )?;
+    run_git(
+        checkout.path(),
+        &[
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--no-recurse-submodules",
+            "--depth",
+            "1",
+            "--filter=blob:limit=2m",
+            "origin",
+            fetch_ref,
+        ],
+        checkout.limit,
+    )?;
+    let commit = git_output(checkout.path(), &["rev-parse", "FETCH_HEAD"], checkout.limit)?;
+    run_git(
+        checkout.path(),
+        &["checkout", "--quiet", "--detach", "FETCH_HEAD"],
+        checkout.limit,
+    )?;
+    Ok((checkout, commit))
+}
+
+const MAX_CHECKOUT_ENTRIES: usize = 100_000;
+
+/// Measure regular-file bytes without following symlinks. Stop as soon as the
+/// budget is exceeded so an attacker cannot force an unbounded accounting pass.
+fn checkout_size(root: &Path, limit: u64) -> std::io::Result<u64> {
+    let mut pending = vec![root.to_path_buf()];
+    let mut total = 0u64;
+    let mut entries = 0usize;
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(directory)? {
+            entries += 1;
+            if entries > MAX_CHECKOUT_ENTRIES {
+                return Ok(limit.saturating_add(1));
             }
-            self.mounted = false;
+            let entry = entry?;
+            let metadata = fs::symlink_metadata(entry.path())?;
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_dir() {
+                pending.push(entry.path());
+            } else if metadata.is_file() {
+                total = total.saturating_add(metadata.len());
+                if total > limit {
+                    return Ok(total);
+                }
+            }
         }
     }
+    Ok(total)
 }
 
-#[cfg(target_os = "linux")]
-extern "C" {
-    fn mount(source: *const std::os::raw::c_char, target: *const std::os::raw::c_char,
-        filesystem: *const std::os::raw::c_char, flags: std::os::raw::c_ulong,
-        data: *const std::os::raw::c_void) -> std::os::raw::c_int;
-    fn umount2(target: *const std::os::raw::c_char, flags: std::os::raw::c_int) -> std::os::raw::c_int;
-    fn sysconf(name: std::os::raw::c_int) -> std::os::raw::c_long;
+fn run_git(directory: &Path, args: &[&str], limit: u64) -> Result<(), ScanError> {
+    run_git_inner(directory, args, limit).map(|_| ())
 }
-
-fn run_git(directory: &Path, args: &[&str]) -> Result<(), ScanError> {
-    run_git_inner(directory, args).map(|_| ())
-}
-fn git_output(directory: &Path, args: &[&str]) -> Result<String, ScanError> {
-    run_git_inner(directory, args)
+fn git_output(directory: &Path, args: &[&str], limit: u64) -> Result<String, ScanError> {
+    run_git_inner(directory, args, limit)
 }
 
 fn terminate_git(child: &mut std::process::Child) {
@@ -268,21 +311,46 @@ fn terminate_git(child: &mut std::process::Child) {
         let group = format!("-{}", child.id());
         let _ = Command::new("/bin/kill").args(["-KILL", &group]).status();
     }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
     let _ = child.kill();
     let _ = child.wait();
 }
 
-fn run_git_inner(directory: &Path, args: &[&str]) -> Result<String, ScanError> {
+fn run_git_inner(directory: &Path, args: &[&str], limit: u64) -> Result<String, ScanError> {
     let mut command = Command::new("git");
-    command.args(args).current_dir(directory)
-        .env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null())
-        .stdout(Stdio::piped()).stderr(Stdio::null());
+    command
+        .args(args)
+        .current_dir(directory)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
+        unsafe {
+            command.pre_exec(move || {
+                let file_limit = libc::rlimit {
+                    rlim_cur: limit as libc::rlim_t,
+                    rlim_max: limit as libc::rlim_t,
+                };
+                if libc::setrlimit(libc::RLIMIT_FSIZE, &file_limit) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
     }
-    let mut child = command.spawn()
+    let mut child = command
+        .spawn()
         .map_err(|_| ScanError::Git("cannot start git".into()))?;
     let started = std::time::Instant::now();
     loop {
@@ -295,28 +363,78 @@ fn run_git_inner(directory: &Path, args: &[&str]) -> Result<String, ScanError> {
         };
         match status {
             Some(status) => {
+                let size = checkout_size(directory, limit)
+                    .map_err(|_| ScanError::Git("cannot account for temporary checkout storage".into()))?;
+                if size > limit {
+                    terminate_git(&mut child);
+                    return Err(ScanError::Git("Git checkout exceeded its configured storage budget".into()));
+                }
                 if !status.success() {
+                    terminate_git(&mut child);
                     return Err(ScanError::Git("git command failed; remote details are redacted".into()));
                 }
                 let mut output = String::new();
                 if let Some(stdout) = child.stdout.take() {
                     use std::io::Read;
-                    stdout.take(4096).read_to_string(&mut output)
+                    stdout
+                        .take(4096)
+                        .read_to_string(&mut output)
                         .map_err(|_| ScanError::Git("cannot read git output".into()))?;
                 }
                 return Ok(output.trim().to_owned());
             }
             None if started.elapsed() >= GIT_TIMEOUT => {
                 terminate_git(&mut child);
-                return Err(ScanError::Git("git command timed out after 120 seconds; child process group terminated".into()));
+                return Err(ScanError::Git(
+                    "git command timed out after 120 seconds; child process tree terminated".into(),
+                ));
             }
-            None => std::thread::sleep(Duration::from_millis(10)),
+            None => {
+                match checkout_size(directory, limit) {
+                    Ok(size) if size <= limit => {}
+                    Ok(_) => {
+                        terminate_git(&mut child);
+                        return Err(ScanError::Git(
+                            "Git checkout exceeded its configured storage budget; process tree terminated".into(),
+                        ));
+                    }
+                    Err(_) => {
+                        terminate_git(&mut child);
+                        return Err(ScanError::Git(
+                            "cannot account for temporary checkout storage; Git process tree terminated".into(),
+                        ));
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
         }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-struct ScanLimits { depth: usize, files: usize, file_bytes: u64, total_bytes: u64 }
+struct ScanLimits {
+    depth: usize,
+    files: usize,
+    entries: usize,
+    file_bytes: u64,
+    total_bytes: u64,
+    symbols: usize,
+    catalog_bytes: usize,
+}
+impl Default for ScanLimits {
+    fn default() -> Self {
+        Self {
+            depth: 32,
+            files: 10_000,
+            entries: 100_000,
+            file_bytes: 1_048_576,
+            total_bytes: 33_554_432,
+            symbols: 50_000,
+            catalog_bytes: 67_108_864,
+        }
+    }
+}
+
 impl ScanLimits {
     fn from_environment() -> Result<Self, ScanError> {
         fn limit(name: &str, default: u64) -> Result<u64, ScanError> {
@@ -329,37 +447,102 @@ impl ScanLimits {
         Ok(Self {
             depth: limit("JENKINS_KNOWLEDGE_SCAN_MAX_DEPTH", 32)? as usize,
             files: limit("JENKINS_KNOWLEDGE_SCAN_MAX_FILES", 10000)? as usize,
+            entries: limit("JENKINS_KNOWLEDGE_SCAN_MAX_ENTRIES", 100000)? as usize,
             file_bytes: limit("JENKINS_KNOWLEDGE_SCAN_MAX_FILE_BYTES", 1048576)?,
             total_bytes: limit("JENKINS_KNOWLEDGE_SCAN_MAX_TOTAL_BYTES", 33554432)?,
+            symbols: limit("JENKINS_KNOWLEDGE_SCAN_MAX_SYMBOLS", 50000)? as usize,
+            catalog_bytes: limit("JENKINS_KNOWLEDGE_SCAN_MAX_CATALOG_BYTES", 67108864)? as usize,
         })
     }
 }
 
-fn collect_groovy_files(root: &Path, checkout: &Path, depth: usize, output: &mut Vec<PathBuf>,
-    total_bytes: &mut u64, limits: &ScanLimits) -> Result<(), ScanError> {
-    if depth > limits.depth { return Err(ScanError::Io(format!("scan depth exceeds limit ({})", limits.depth))); }
-    let metadata = fs::symlink_metadata(root).map_err(|e| ScanError::Io(format!("cannot inspect directory: {e}")))?;
-    if metadata.file_type().is_symlink() { return Ok(()); }
-    if !metadata.is_dir() { return Ok(()); }
-    let canonical_root = root.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve directory: {e}")))?;
-    if !canonical_root.starts_with(checkout) { return Err(ScanError::Io("directory escaped checkout root".into())); }
-    for entry in fs::read_dir(&canonical_root).map_err(|e| ScanError::Io(format!("cannot read directory: {e}")))? {
+fn collect_groovy_files(
+    root: &Path,
+    checkout: &Path,
+    depth: usize,
+    output: &mut Vec<PathBuf>,
+    total_bytes: &mut u64,
+    entry_count: &mut usize,
+    limits: &ScanLimits,
+) -> Result<(), ScanError> {
+    if depth > limits.depth {
+        return Err(ScanError::Io(format!("scan depth exceeds limit ({})", limits.depth)));
+    }
+    let metadata = fs::symlink_metadata(root)
+        .map_err(|e| ScanError::Io(format!("cannot inspect directory: {e}")))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Ok(());
+    }
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|e| ScanError::Io(format!("cannot resolve directory: {e}")))?;
+    if !canonical_root.starts_with(checkout) {
+        return Err(ScanError::Io("directory escaped checkout root".into()));
+    }
+    for entry in fs::read_dir(&canonical_root)
+        .map_err(|e| ScanError::Io(format!("cannot read directory: {e}")))?
+    {
+        *entry_count = entry_count.saturating_add(1);
+        if *entry_count > limits.entries {
+            return Err(ScanError::Io(format!(
+                "filesystem entry count exceeds limit ({})",
+                limits.entries
+            )));
+        }
         let entry = entry.map_err(|e| ScanError::Io(format!("cannot read directory entry: {e}")))?;
         let path = entry.path();
-        let metadata = fs::symlink_metadata(&path).map_err(|e| ScanError::Io(format!("cannot inspect path: {e}")))?;
-        if metadata.file_type().is_symlink() { continue; }
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|e| ScanError::Io(format!("cannot inspect path: {e}")))?;
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
         if metadata.is_dir() {
-            let canonical = path.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve directory: {e}")))?;
-            if !canonical.starts_with(checkout) { return Err(ScanError::Io("directory escaped checkout root".into())); }
-            collect_groovy_files(&canonical, checkout, depth + 1, output, total_bytes, limits)?;
-        } else if metadata.is_file() && path.extension().is_some_and(|ext| ext == "groovy") {
-            let canonical = path.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve source file: {e}")))?;
-            if !canonical.starts_with(checkout) { return Err(ScanError::Io("source file escaped checkout root".into())); }
-            if metadata.len() > limits.file_bytes { return Err(ScanError::Io(format!("{} exceeds per-file limit of {} bytes", path.display(), limits.file_bytes))); }
-            *total_bytes = (*total_bytes).saturating_add(metadata.len());
-            if *total_bytes > limits.total_bytes { return Err(ScanError::Io(format!("source files exceed aggregate limit of {} bytes", limits.total_bytes))); }
-            output.push(canonical);
-            if output.len() > limits.files { return Err(ScanError::Io(format!("source file count exceeds limit ({})", limits.files))); }
+            let canonical = path
+                .canonicalize()
+                .map_err(|e| ScanError::Io(format!("cannot resolve directory: {e}")))?;
+            if !canonical.starts_with(checkout) {
+                return Err(ScanError::Io("directory escaped checkout root".into()));
+            }
+            collect_groovy_files(
+                &canonical,
+                checkout,
+                depth + 1,
+                output,
+                total_bytes,
+                entry_count,
+                limits,
+            )?;
+        } else if metadata.is_file()
+            && path.extension().is_some_and(|ext| ext == "groovy" || ext == "txt")
+        {
+            let canonical = path
+                .canonicalize()
+                .map_err(|e| ScanError::Io(format!("cannot resolve source file: {e}")))?;
+            if !canonical.starts_with(checkout) {
+                return Err(ScanError::Io("source file escaped checkout root".into()));
+            }
+            if metadata.len() > limits.file_bytes {
+                return Err(ScanError::Io(format!(
+                    "source file exceeds per-file limit of {} bytes",
+                    limits.file_bytes
+                )));
+            }
+            *total_bytes = total_bytes.saturating_add(metadata.len());
+            if *total_bytes > limits.total_bytes {
+                return Err(ScanError::Io(format!(
+                    "source files exceed aggregate limit of {} bytes",
+                    limits.total_bytes
+                )));
+            }
+            if path.extension().is_some_and(|ext| ext == "groovy") {
+                output.push(canonical);
+                if output.len() > limits.files {
+                    return Err(ScanError::Io(format!(
+                        "source file count exceeds limit ({})",
+                        limits.files
+                    )));
+                }
+            }
         }
     }
     Ok(())
@@ -384,7 +567,7 @@ fn scan_global(
             || line.starts_with("private ") || line.starts_with("static ")
     }).unwrap_or(0);
     let (groovydoc_description, examples) = documentation(source, declaration_line);
-    let text_description = read_adjacent_documentation(file)?;
+    let text_description = read_adjacent_documentation(file, path)?;
     let description = groovydoc_description.or(text_description);
     let mut symbol = json!({
         "id": format!("{source_id}:{path}:global"),
@@ -417,17 +600,14 @@ fn scan_global(
     Ok(())
 }
 
-fn read_adjacent_documentation(groovy_file: &Path) -> Result<Option<String>, ScanError> {
+fn read_adjacent_documentation(groovy_file: &Path, relative_path: &str) -> Result<Option<String>, ScanError> {
     let documentation_file = groovy_file.with_extension("txt");
-    let metadata = match fs::symlink_metadata(&documentation_file) {
-        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
+    match fs::symlink_metadata(&documentation_file) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {},
         Ok(_) => return Ok(None),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(ScanError::Io(format!("cannot inspect adjacent documentation: {error}"))),
+        Err(_) => return Err(ScanError::Io(format!("cannot inspect adjacent documentation for {relative_path}"))),
     };
-    if metadata.len() > 1_048_576 {
-        return Err(ScanError::Io("adjacent documentation exceeds 1048576 bytes".into()));
-    }
     match fs::read_to_string(&documentation_file) {
         Ok(content) => {
             let content = content.trim();
@@ -438,7 +618,7 @@ fn read_adjacent_documentation(groovy_file: &Path) -> Result<Option<String>, Sca
             }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(ScanError::Io(format!("{}: {error}", documentation_file.display()))),
+        Err(_) => Err(ScanError::Io(format!("cannot read adjacent documentation for {relative_path}"))),
     }
 }
 
@@ -773,6 +953,8 @@ fn timestamp() -> String {
 mod tests {
     use super::*;
 
+    static GIT_CHECKOUT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn fixture() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/library")
     }
@@ -951,6 +1133,99 @@ class Service<T> extends BaseService implements Runnable, Closeable {
     fn rejects_short_commit_sha() {
         assert!(matches!(scan_checkout(&config("main"), &fixture(), "abc"), Err(ScanError::InvalidConfig(_))));
     }
+    #[test]
+    fn counts_adjacent_text_documentation_toward_total_source_budget() {
+        let temp = tempfile::tempdir().unwrap();
+        let vars = temp.path().join("vars");
+        fs::create_dir_all(&vars).unwrap();
+        fs::write(vars.join("helper.groovy"), "12345").unwrap();
+        fs::write(vars.join("helper.txt"), "67890").unwrap();
+        let checkout = temp.path().canonicalize().unwrap();
+        let limits = ScanLimits {
+            total_bytes: 9,
+            ..ScanLimits::default()
+        };
+        let mut files = Vec::new();
+        let mut total = 0;
+        let mut entries = 0;
+        assert!(collect_groovy_files(
+            &vars,
+            &checkout,
+            0,
+            &mut files,
+            &mut total,
+            &mut entries,
+            &limits,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn enforces_filesystem_entry_count_before_scanning() {
+        let temp = tempfile::tempdir().unwrap();
+        let vars = temp.path().join("vars");
+        fs::create_dir_all(&vars).unwrap();
+        fs::write(vars.join("one.groovy"), "def call() {}").unwrap();
+        fs::write(vars.join("two.txt"), "documentation").unwrap();
+        fs::write(vars.join("ignored.bin"), "other").unwrap();
+        let checkout = temp.path().canonicalize().unwrap();
+        let limits = ScanLimits {
+            entries: 2,
+            ..ScanLimits::default()
+        };
+        let mut files = Vec::new();
+        let mut total = 0;
+        let mut entries = 0;
+        assert!(collect_groovy_files(
+            &vars,
+            &checkout,
+            0,
+            &mut files,
+            &mut total,
+            &mut entries,
+            &limits,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn rejects_symbol_and_catalog_output_over_limits() {
+        let temp = tempfile::tempdir().unwrap();
+        let vars = temp.path().join("vars");
+        fs::create_dir_all(&vars).unwrap();
+        fs::write(
+            vars.join("deploy.groovy"),
+            "def call() {}\ndef helper() {}\ndef another() {}\n",
+        )
+        .unwrap();
+        let commit = "0123456789abcdef0123456789abcdef01234567";
+        let symbol_limited = ScanLimits {
+            symbols: 1,
+            ..ScanLimits::default()
+        };
+        let error = scan_checkout_with_limits(
+            &config("main"),
+            temp.path(),
+            commit,
+            symbol_limited,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("generated symbol count"));
+
+        let catalog_limited = ScanLimits {
+            catalog_bytes: 1,
+            ..ScanLimits::default()
+        };
+        let error = scan_checkout_with_limits(
+            &config("main"),
+            temp.path(),
+            commit,
+            catalog_limited,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("generated catalog exceeds"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn ignores_symlinked_files_and_directories() {
@@ -975,60 +1250,129 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         fs::write(root.join("a.groovy"), "12345").unwrap();
         fs::write(root.join("nested/b.groovy"), "12345").unwrap();
         let checkout = temp.path().canonicalize().unwrap();
-        let limits = ScanLimits { depth: 1, files: 2, file_bytes: 5, total_bytes: 10 };
+        let limits = ScanLimits {
+            depth: 1,
+            files: 2,
+            entries: 10,
+            file_bytes: 5,
+            total_bytes: 10,
+            symbols: 50,
+            catalog_bytes: 1024 * 1024,
+        };
         let mut files = Vec::new();
         let mut total = 0;
-        collect_groovy_files(&root, &checkout, 0, &mut files, &mut total, &limits).unwrap();
+        let mut entries = 0;
+        collect_groovy_files(&root, &checkout, 0, &mut files, &mut total, &mut entries, &limits).unwrap();
         assert_eq!(files.len(), 2);
         assert_eq!(total, 10);
 
         let too_small = ScanLimits { file_bytes: 4, ..limits };
-        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_small).is_err());
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &mut 0, &too_small).is_err());
         let too_few = ScanLimits { files: 1, ..limits };
-        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_few).is_err());
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &mut 0, &too_few).is_err());
         let too_deep = ScanLimits { depth: 0, ..limits };
-        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_deep).is_err());
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &mut 0, &too_deep).is_err());
         let too_much = ScanLimits { total_bytes: 9, ..limits };
-        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_much).is_err());
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &mut 0, &too_much).is_err());
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
-    fn private_tmpfs_enforces_aggregate_quota_for_concurrent_writers() {
-        use std::process::Command;
+    fn temporary_checkout_is_unprivileged_unique_and_cleans_up() {
+        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap();
+        let first = GitCheckout::new(1024 * 1024).unwrap();
+        let second = GitCheckout::new(1024 * 1024).unwrap();
+        assert_ne!(first.path(), second.path());
+        let first_path = first.path().to_path_buf();
+        fs::write(first_path.join("checkout-file"), "data").unwrap();
+        assert!(first_path.exists());
+        drop(first);
+        assert!(!first_path.exists());
+        assert!(second.path().exists());
+    }
 
-        let checkout = match GitCheckout::new(64 * 1024) {
-            Ok(checkout) => checkout,
-            Err(ScanError::InvalidConfig(message)) if message.contains("mount capability is required") => {
-                // Unprivileged CI environments must verify fail-closed behavior.
-                assert!(message.contains("refusing an unbounded fallback"));
-                return;
-            }
-            Err(error) => panic!("unexpected quota setup failure: {error}"),
-        };
-        let mut writers = Vec::new();
-        for index in 0..4 {
-            let path = checkout.path().join(format!("writer-{index}.bin"));
-            writers.push(Command::new("dd")
-                .args(["if=/dev/zero", &format!("of={}", path.display()), "bs=4096", "count=32"])
-                .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
-        }
-        let failures = writers.into_iter()
-            .map(|mut child| child.wait().expect("writer process exits"))
-            .filter(|status| !status.success())
+    fn git_for_test(directory: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(directory)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("git is installed for scanner integration tests");
+        assert!(status.success(), "git test command failed: {args:?}");
+    }
+
+    fn local_bare_remote(root: &Path, payload_bytes: usize) -> PathBuf {
+        let source = root.join("source");
+        let remote = root.join("remote.git");
+        fs::create_dir_all(source.join("vars")).unwrap();
+        git_for_test(&source, &["init", "--quiet"]);
+        git_for_test(&source, &["config", "user.name", "Scanner Test"]);
+        git_for_test(&source, &["config", "user.email", "scanner@example.test"]);
+        let mut state = 0x1234_5678_9abc_def0u64;
+        let payload: Vec<u8> = (0..payload_bytes)
+            .map(|_| {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                (state >> 32) as u8
+            })
+            .collect();
+        fs::write(source.join("vars/payload.groovy"), payload).unwrap();
+        git_for_test(&source, &["add", "--all"]);
+        git_for_test(&source, &["commit", "--quiet", "-m", "fixture"]);
+        git_for_test(root, &["init", "--bare", "--quiet", remote.to_str().unwrap()]);
+        git_for_test(&source, &["remote", "add", "origin", remote.to_str().unwrap()]);
+        git_for_test(&source, &["push", "--quiet", "origin", "HEAD:refs/heads/main"]);
+        git_for_test(&remote, &["config", "uploadpack.allowFilter", "false"]);
+        remote
+    }
+
+    #[test]
+    fn fetches_local_bare_repository_without_mount_privileges() {
+        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let remote = local_bare_remote(root.path(), 1024);
+        let (checkout, commit) =
+            fetch_checkout(remote.to_str().unwrap(), "main", 16 * 1024 * 1024).unwrap();
+        assert_eq!(commit.len(), 40);
+        assert!(checkout.path().join("vars/payload.groovy").is_file());
+    }
+
+    #[test]
+    fn aborts_when_server_ignores_blob_filter_and_checkout_budget_is_exceeded() {
+        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let remote = local_bare_remote(root.path(), 8 * 1024 * 1024);
+        let temp_root = std::env::temp_dir();
+        let before = fs::read_dir(&temp_root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("jenkins-knowledge-git-"))
             .count();
-        assert!(failures > 0, "concurrent writers unexpectedly exceeded the aggregate tmpfs quota");
-        assert!(checkout.path().join("writer-0.bin").exists()
-            || checkout.path().join("writer-1.bin").exists()
-            || checkout.path().join("writer-2.bin").exists()
-            || checkout.path().join("writer-3.bin").exists());
+
+        let result = fetch_checkout(remote.to_str().unwrap(), "main", 512 * 1024);
+        assert!(result.is_err(), "oversized ignored-filter fetch unexpectedly succeeded");
+
+        let after = fs::read_dir(&temp_root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("jenkins-knowledge-git-"))
+            .count();
+        assert_eq!(after, before, "failed fetch left a temporary checkout behind");
     }
 
-    #[cfg(not(target_os = "linux"))]
     #[test]
-    fn unsupported_platform_fails_closed_for_git_checkout_quota() {
-        assert!(matches!(GitCheckout::new(64 * 1024), Err(ScanError::InvalidConfig(message))
-            if message.contains("refusing an unbounded fallback")));
+    fn checkout_size_counts_regular_files_and_ignores_symlinks() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("a"), vec![0u8; 16]).unwrap();
+        fs::create_dir(temp.path().join("nested")).unwrap();
+        fs::write(temp.path().join("nested/b"), vec![0u8; 32]).unwrap();
+        assert_eq!(checkout_size(temp.path(), 64).unwrap(), 48);
+        assert!(checkout_size(temp.path(), 32).unwrap() > 32);
+    }
+
+    #[test]
+    fn rejects_zero_checkout_budget() {
+        assert!(matches!(GitCheckout::new(0), Err(ScanError::InvalidConfig(_))));
     }
 
     #[test]

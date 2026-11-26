@@ -54,19 +54,30 @@ The scanner validates each generated catalog against `schemas/catalog.schema.jso
 
 Only absolute HTTPS/SSH remotes and Git SCP-style remotes are accepted. Local paths, `file://`, `git://`, embedded HTTPS credentials, query strings, fragments, and unsafe Git refs are rejected by the same validation policy in Builder and the standalone scanner.
 
-Git fetches are shallow, omit tags, request blobs no larger than 2 MiB, disable terminal prompts, and each Git operation is terminated after 120 seconds. Partial-clone filters are only an optimization: servers may ignore them.
+Git fetches are shallow, omit tags and submodules, request blobs no larger than 2 MiB, disable terminal prompts, and each Git operation is terminated after 120 seconds. Partial-clone filters are only an optimization: servers may ignore them.
 
-The temporary Git checkout runs inside a private Linux `tmpfs` mount sized to the configured budget. The kernel filesystem enforces the aggregate limit across Git objects, pack/index files, checkout content, temporary files, and every helper process; concurrent writers cannot exceed the mount's capacity. The requested size is rounded down to a filesystem-page boundary so the enforced capacity never exceeds the configured byte budget. The mount is private to the scan and is unmounted by an RAII guard on success or failure. Git fetch filters remain an optimization, never a security boundary.
+Every scan uses a unique directory from the platform's standard temporary-directory facility. No mount, namespace, elevated capability, or caller working-tree modification is required. During each Git operation, the scanner polls the checkout's aggregate regular-file size and terminates the Git process tree as soon as the configured budget is crossed. On Unix, Git and its descendants also inherit `RLIMIT_FSIZE`, preventing any single file (including an unexpectedly large packfile) from exceeding the configured budget. Windows uses the aggregate watchdog and terminates the process tree with `taskkill /T`. The watchdog polls every 2 ms; aggregate accounting is therefore bounded with a small scheduling/IO overshoot rather than a kernel-enforced filesystem quota. A server that ignores the blob filter cannot cause an unbounded transfer: the fetch is stopped at the budget. Failed and successful checkouts are removed by the temporary-directory guard.
 
 | Limit | Default | Environment override |
 |---|---:|---|
 | Aggregate temporary Git checkout | 256 MiB | `JENKINS_KNOWLEDGE_GIT_MAX_CHECKOUT_BYTES` |
 | Git operation timeout | 120 seconds | fixed |
 
-The storage setting must be a positive integer number of bytes and at least one filesystem page. Strict enforcement currently requires Linux and permission to mount a private `tmpfs` (typically `CAP_SYS_ADMIN`). If the mount cannot be established, the scan fails before Git runs; there is no polling-only or unbounded fallback. Other platforms currently return an explicit unsupported/configuration error. Unix process groups are terminated on timeout, and the temporary mount is unmounted before its backing directory is removed.
+The storage setting must be a positive integer number of bytes. The scanner fails closed if it cannot create or account for its temporary checkout; there is no unbounded fallback. On Unix, a file-size limit is also applied to every Git child process. On Windows, the aggregate watchdog is the storage enforcement mechanism.
 
-The existing source traversal limits below remain independent defense in depth; they apply after checkout and do not replace the Git storage quota.
+The source traversal limits are independent defense in depth. They are applied before parsing and catalog serialization:
 
+| Limit | Default | Environment override |
+|---|---:|---|
+| Traversal depth | 32 directories | `JENKINS_KNOWLEDGE_SCAN_MAX_DEPTH` |
+| Filesystem entries inspected | 100,000 | `JENKINS_KNOWLEDGE_SCAN_MAX_ENTRIES` |
+| Groovy files | 10,000 | `JENKINS_KNOWLEDGE_SCAN_MAX_FILES` |
+| Individual Groovy or adjacent text file | 1 MiB | `JENKINS_KNOWLEDGE_SCAN_MAX_FILE_BYTES` |
+| Aggregate Groovy and text source bytes | 32 MiB | `JENKINS_KNOWLEDGE_SCAN_MAX_TOTAL_BYTES` |
+| Generated symbols | 50,000 | `JENKINS_KNOWLEDGE_SCAN_MAX_SYMBOLS` |
+| Serialized catalog | 64 MiB | `JENKINS_KNOWLEDGE_SCAN_MAX_CATALOG_BYTES` |
+
+Overrides must be positive integers. Exceeding a limit fails the scan; it does not silently truncate results. Symlinks are skipped and every candidate is resolved against the canonical checkout root.
 The scanner skips symlinks (including directory symlinks), resolves every candidate against the canonical checkout root, and enforces these defaults:
 
 | Limit | Default | Environment override |
