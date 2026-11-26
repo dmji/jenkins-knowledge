@@ -4,6 +4,7 @@
   "description": "Jenkins Pipeline and Shared Library completion backed by a Knowledge Package.",
   "version": "0.1.0",
   "publisher": "dmji",
+  "packageManager": "npm@11.20.0",
   "license": "UNLICENSED",
   "engines": {
     "vscode": "^1.85.0"
