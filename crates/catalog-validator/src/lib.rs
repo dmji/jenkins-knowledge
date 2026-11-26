@@ -216,7 +216,7 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
         reject_secret_fields(symbol, &format!("/symbols/{index}"), errors);
     }
 
-    validate_coverage_consistency(catalog, errors);
+    validate_coverage_consistency(catalog, &source_kinds, errors);
 }
 
 /// Reconcile manifest source metadata with the catalog records it describes.
@@ -329,7 +329,20 @@ fn coverage_symbol_kinds(surface: &str) -> Option<&'static [&'static str]> {
     }
 }
 
-fn validate_coverage_consistency(catalog: &Value, errors: &mut Vec<String>) {
+fn coverage_source_kinds(surface: &str) -> Option<&'static [&'static str]> {
+    let surface = surface.to_ascii_lowercase().replace('_', "-");
+    if surface.contains("pipeline-step") || surface == "steps" {
+        Some(&["jenkins-controller", "plugin", "jenkins-core"])
+    } else if surface.contains("declarative-directive") {
+        Some(&["jenkins-controller", "jenkins-core"])
+    } else if surface.contains("shared-library-var") || surface.contains("shared-library-src") {
+        Some(&["shared-library"])
+    } else {
+        None
+    }
+}
+
+fn validate_coverage_consistency(catalog: &Value, source_kinds: &HashMap<String, String>, errors: &mut Vec<String>) {
     let Some(coverage) = catalog["coverage"].as_array() else { return; };
     let Some(symbols) = catalog["symbols"].as_array() else { return; };
     for (coverage_index, entry) in coverage.iter().enumerate() {
@@ -337,6 +350,15 @@ fn validate_coverage_consistency(catalog: &Value, errors: &mut Vec<String>) {
         if status == "inspected" { continue; }
         let source_id = entry["sourceId"].as_str().unwrap_or_default();
         let surface = entry["surface"].as_str().unwrap_or_default();
+        if let Some(allowed) = coverage_source_kinds(surface) {
+            let actual = source_kinds.get(source_id).map(String::as_str).unwrap_or_default();
+            if !allowed.contains(&actual) {
+                errors.push(format!(
+                    "/coverage/{coverage_index}/surface: surface '{surface}' is incompatible with source '{source_id}' of kind '{actual}'"
+                ));
+                continue;
+            }
+        }
         let Some(kinds) = coverage_symbol_kinds(surface) else { continue; };
         for (symbol_index, symbol) in symbols.iter().enumerate() {
             if !kinds.contains(&symbol["kind"].as_str().unwrap_or_default()) { continue; }
