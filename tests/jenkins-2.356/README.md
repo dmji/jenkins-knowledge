@@ -40,13 +40,21 @@ Passwords and API tokens are generated for each run, stay inside the ephemeral c
 
 ## Run locally or in CI
 
-Requirements: Docker, Rust 1.100.0, Git, Python 3, curl, and OpenSSL.
+Requirements: Docker, Rust 1.100.0, Git, Python 3, curl, OpenSSL, Node.js 26.13.1/npm 11.20.0, and `xvfb-run`.
 
 ```sh
 bash tests/jenkins-2.356/run.sh
 ```
 
 The script builds the pinned image, waits for Jenkins, runs Quick/Standard/Deep against the live controller, and writes evidence under `target/jenkins-2.356/`. It checks Core version, profile isolation, Script Console permission boundaries, Java metadata, plugin inventory, and both successful and failed pinned Shared Library revisions.
+
+After that run, execute the VS Code extension-host acceptance:
+
+```sh
+bash tests/jenkins-2.356/run-vscode-acceptance.sh
+```
+
+It builds the real LSP binary and deterministic primary/alternate package fixtures, then launches pinned VS Code 1.85.0 with the Deep package from the live Jenkins 2.356 run. It checks completion, hover, revision-pinned navigation, unavailable-plugin diagnostics, comment/string/unknown-name negative cases, package reload/profile isolation, and ordinary Groovy behavior. The same step runs in GitHub Actions before the sanitized evidence artifact is uploaded.
 
 GitHub Actions runs this target as the `Jenkins 2.356 integration` job and uploads the sanitized package catalogs/manifests, Java version, image reference, and plugin inventory as `jenkins-2.356-integration-evidence`.
 
