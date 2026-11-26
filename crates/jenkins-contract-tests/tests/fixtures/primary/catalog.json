@@ -294,6 +294,84 @@
       "contexts": [
         "pipeline"
       ]
+    },
+    {
+      "id": "controller-fixture:api-class:hudson.model.Run",
+      "name": "hudson.model.Run",
+      "kind": "class",
+      "sourceId": "controller-fixture",
+      "signature": "hudson.model.Run",
+      "confidence": "verified",
+      "provenance": [
+        "jenkins-script-console",
+        "api-types"
+      ],
+      "fieldEvidence": {
+        "name": "verified",
+        "signature": "verified",
+        "superClass": "verified",
+        "interfaces": "verified",
+        "properties": "inferred"
+      },
+      "superClass": "hudson.model.AbstractBuild",
+      "interfaces": [
+        "hudson.model.Queue$Executable"
+      ],
+      "properties": [
+        {
+          "name": "number",
+          "readType": "int",
+          "accessors": [
+            "getNumber"
+          ],
+          "confidence": "inferred"
+        }
+      ],
+      "evidence": [
+        {
+          "sourceId": "controller-fixture",
+          "kind": "controller-observed",
+          "confidence": "verified",
+          "provenance": "Bounded reflection of registered or explicitly configured API roots",
+          "retrievedAt": "2026-01-01T00:00:00Z",
+          "location": "script-console/api-types/hudson.model.Run",
+          "sourceKind": "jenkins-controller"
+        }
+      ]
+    },
+    {
+      "id": "controller-fixture:api-method:hudson.model.Run:getNumber() -> int",
+      "name": "getNumber",
+      "kind": "method",
+      "sourceId": "controller-fixture",
+      "signature": "getNumber() -> int",
+      "returnType": "int",
+      "declaringClass": "hudson.model.Run",
+      "confidence": "verified",
+      "provenance": [
+        "jenkins-script-console",
+        "api-types",
+        "hudson.model.Run"
+      ],
+      "fieldEvidence": {
+        "name": "verified",
+        "signature": "verified",
+        "returnType": "verified",
+        "declaringClass": "verified",
+        "parameters": "verified"
+      },
+      "parameters": [],
+      "evidence": [
+        {
+          "sourceId": "controller-fixture",
+          "kind": "controller-observed",
+          "confidence": "verified",
+          "provenance": "Java reflection metadata; method body was not executed",
+          "retrievedAt": "2026-01-01T00:00:00Z",
+          "location": "script-console/api-types/hudson.model.Run",
+          "sourceKind": "jenkins-controller"
+        }
+      ]
     }
   ],
   "controller": {
@@ -345,7 +423,7 @@
     },
     "runtime": {
       "schemaVersion": "1.0.0",
-      "templateVersion": "2",
+      "templateVersion": "3",
       "source": "script-console",
       "status": "partial",
       "collectedAt": "2026-01-01T00:00:00Z",
@@ -449,6 +527,55 @@
         {
           "probe": "pipeline-steps",
           "code": "output-truncated"
+        }
+      ],
+      "apiTypeInventoryStatus": "available",
+      "configuredApiRoots": [
+        "hudson.model.Run"
+      ],
+      "apiTypes": [
+        {
+          "name": "hudson.model.Run",
+          "className": "hudson.model.Run",
+          "depth": 0,
+          "rootCategories": [
+            "configured"
+          ],
+          "status": "available",
+          "synthetic": false,
+          "superClass": "hudson.model.AbstractBuild",
+          "interfaces": [
+            "hudson.model.Queue$Executable"
+          ],
+          "plugin": "jenkins-core",
+          "origin": "jenkins.war",
+          "classLoader": "hudson.PluginFirstClassLoader",
+          "methods": [
+            {
+              "name": "getNumber",
+              "declaringClass": "hudson.model.Run",
+              "signature": "getNumber() -> int",
+              "returnType": "int",
+              "modifiers": "public",
+              "synthetic": false,
+              "bridge": false,
+              "varargs": false,
+              "parameters": [],
+              "parametersTruncated": false
+            }
+          ],
+          "properties": [
+            {
+              "name": "number",
+              "readType": "int",
+              "accessors": [
+                "getNumber"
+              ],
+              "confidence": "inferred"
+            }
+          ],
+          "methodsTruncated": false,
+          "propertiesTruncated": false
         }
       ]
     }
