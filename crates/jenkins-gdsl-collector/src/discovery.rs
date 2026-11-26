@@ -1,4 +1,4 @@
-use catalog_validator::validate_catalog;
+use catalog_validator::{sha256_hex, stamp_catalog_identity, validate_catalog};
 use reqwest::{
     blocking::{Client, Response},
     header::{HeaderMap, ACCEPT, RANGE},
@@ -299,11 +299,30 @@ fn discover_with_client(
         identity["displayName"] = json!(node_name);
     }
 
+    let capabilities = vec![
+        json!({
+            "name": "core-api",
+            "status": "available",
+            "details": "GET /api/json returned valid controller metadata"
+        }),
+        plugin_capability,
+        gdsl_capability
+    ];
+    let controller_revision_input = json!({
+        "identity": identity,
+        "coreVersion": core_version,
+        "plugins": plugins,
+        "capabilities": capabilities
+    });
+    let controller_revision_bytes = serde_json::to_vec(&controller_revision_input)
+        .map_err(|_| DiscoveryError::InvalidCatalog("cannot serialize controller revision input".into()))?;
+    let controller_revision = sha256_hex(&controller_revision_bytes);
+
     let mut sources = vec![json!({
         "id": controller_id,
         "kind": "jenkins-controller",
         "name": controller_url,
-        "revision": format!("retrieved:{completed_at}"),
+        "revision": controller_revision,
         "url": controller_url,
         "metadata": {
             "collectionProfile": "quick",
@@ -316,7 +335,7 @@ fn discover_with_client(
     })];
     sources.append(&mut plugin_sources);
 
-    let catalog = json!({
+    let mut catalog = json!({
         "schemaVersion": "1.0.0",
         "catalogId": controller_id,
         "generatedAt": completed_at,
@@ -335,15 +354,7 @@ fn discover_with_client(
             "identity": identity,
             "coreVersion": core_version,
             "plugins": plugins,
-            "capabilities": [
-                {
-                    "name": "core-api",
-                    "status": "available",
-                    "details": "GET /api/json returned valid controller metadata"
-                },
-                plugin_capability,
-                gdsl_capability
-            ],
+            "capabilities": capabilities,
             "collection": {
                 "profile": "quick",
                 "startedAt": started_at,
@@ -354,6 +365,8 @@ fn discover_with_client(
         }
     });
 
+    stamp_catalog_identity(&mut catalog)
+        .map_err(|error| DiscoveryError::InvalidCatalog(error))?;
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json"))
         .map_err(|error| DiscoveryError::InvalidCatalog(error.to_string()))?;
     validate_catalog(&catalog, &schema)
