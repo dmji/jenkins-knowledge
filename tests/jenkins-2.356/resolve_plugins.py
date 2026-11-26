@@ -198,6 +198,9 @@ def load_locked_plugins(lock_file: Path, output_dir: Path) -> dict:
             digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
         if digest != plugin["sha256"]:
             raise RuntimeError(f"SHA-256 mismatch for locked plugin {name}:{plugin['version']}")
+        root_digest = ROOT_SHA256.get((name, plugin["version"]))
+        if root_digest and digest != root_digest:
+            raise RuntimeError(f"Root plugin checksum changed for {name}:{plugin['version']}")
         manifest = parse_manifest(archive_path)
         if manifest["name"] != name or manifest["version"] != plugin["version"]:
             raise RuntimeError(f"Unexpected locked plugin identity for {name}")
