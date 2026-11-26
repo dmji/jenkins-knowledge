@@ -593,6 +593,31 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_bounded_step_parameters_and_ignores_non_scalar_defaults() {
+        let mut output = valid_probe_output();
+        output["extensionRegistries"][0]["items"][0]["displayName"] = json!("Shell");
+        output["extensionRegistries"][0]["items"][0]["parameters"] = json!([{
+            "name": "script",
+            "type": "java.lang.String",
+            "required": true,
+            "description": "Command to execute",
+            "default": "echo ok",
+            "unsafe": "must be ignored"
+        },{
+            "name": "credentials",
+            "default": {"secret": "must not leak"}
+        }]);
+        let result = normalize_probe_output(&output);
+        let step = &result["extensionRegistries"][0]["items"][0];
+        assert_eq!(step["displayName"], "Shell");
+        assert_eq!(step["parameters"][0]["type"], "java.lang.String");
+        assert_eq!(step["parameters"][0]["required"], true);
+        assert_eq!(step["parameters"][0]["default"], "echo ok");
+        assert!(step["parameters"][0].get("unsafe").is_none());
+        assert!(step["parameters"][1].get("default").is_none());
+    }
+
+    #[test]
     fn preserves_partial_results_when_one_registry_is_unavailable() {
         let mut output = valid_probe_output();
         output["extensionRegistries"][1]["status"] = json!("unavailable");
