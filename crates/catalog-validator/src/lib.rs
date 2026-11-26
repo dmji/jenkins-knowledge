@@ -719,12 +719,15 @@ mod tests {
         for source in catalog["sources"].as_array().unwrap() {
             let id = source["id"].as_str().unwrap();
             source_revisions.insert(id.into(), source["revision"].clone());
-            provenance.insert(id.into(), json!({
-                "name": source["name"],
-                "kind": source["kind"],
-                "revision": source["revision"],
-                "url": source.get("url").cloned().unwrap_or(Value::Null)
-            }));
+            provenance.insert(
+                id.into(),
+                json!({
+                    "name": source["name"],
+                    "kind": source["kind"],
+                    "revision": source["revision"],
+                    "url": source.get("url").cloned().unwrap_or(Value::Null)
+                }),
+            );
         }
         json!({"sourceRevisions": source_revisions, "provenance": provenance})
     }
@@ -739,13 +742,20 @@ mod tests {
     fn rejects_missing_and_extra_source_revision_entries() {
         let catalog = valid_catalog();
         let mut manifest = manifest_for(&catalog);
-        manifest["sourceRevisions"].as_object_mut().unwrap().remove("platform-lib");
-        assert!(validate_package_metadata(&catalog, &manifest).unwrap_err().to_string()
+        manifest["sourceRevisions"]
+            .as_object_mut()
+            .unwrap()
+            .remove("platform-lib");
+        assert!(validate_package_metadata(&catalog, &manifest)
+            .unwrap_err()
+            .to_string()
             .contains("/sourceRevisions/platform-lib: missing revision entry"));
 
         let mut manifest = manifest_for(&catalog);
         manifest["sourceRevisions"]["ghost"] = json!("revision-1");
-        assert!(validate_package_metadata(&catalog, &manifest).unwrap_err().to_string()
+        assert!(validate_package_metadata(&catalog, &manifest)
+            .unwrap_err()
+            .to_string()
             .contains("/sourceRevisions/ghost: revision entry refers to no catalog source"));
     }
 
@@ -754,7 +764,9 @@ mod tests {
         let catalog = valid_catalog();
         let mut manifest = manifest_for(&catalog);
         manifest["sourceRevisions"]["platform-lib"] = json!("wrong-revision");
-        assert!(validate_package_metadata(&catalog, &manifest).unwrap_err().to_string()
+        assert!(validate_package_metadata(&catalog, &manifest)
+            .unwrap_err()
+            .to_string()
             .contains("does not match catalog source revision"));
     }
 
@@ -762,18 +774,27 @@ mod tests {
     fn rejects_missing_extra_and_mismatched_provenance_records() {
         let catalog = valid_catalog();
         let mut manifest = manifest_for(&catalog);
-        manifest["provenance"].as_object_mut().unwrap().remove("controller");
-        assert!(validate_package_metadata(&catalog, &manifest).unwrap_err().to_string()
+        manifest["provenance"]
+            .as_object_mut()
+            .unwrap()
+            .remove("controller");
+        assert!(validate_package_metadata(&catalog, &manifest)
+            .unwrap_err()
+            .to_string()
             .contains("/provenance/controller: missing provenance record"));
 
         let mut manifest = manifest_for(&catalog);
         manifest["provenance"]["ghost"] = json!({"name":"ghost","kind":"plugin","revision":"1"});
-        assert!(validate_package_metadata(&catalog, &manifest).unwrap_err().to_string()
+        assert!(validate_package_metadata(&catalog, &manifest)
+            .unwrap_err()
+            .to_string()
             .contains("/provenance/ghost: provenance entry refers to no catalog source"));
 
         let mut manifest = manifest_for(&catalog);
         manifest["provenance"]["platform-lib"]["kind"] = json!("plugin");
-        assert!(validate_package_metadata(&catalog, &manifest).unwrap_err().to_string()
+        assert!(validate_package_metadata(&catalog, &manifest)
+            .unwrap_err()
+            .to_string()
             .contains("/provenance/platform-lib/kind"));
     }
 
@@ -789,7 +810,9 @@ mod tests {
     fn rejects_field_evidence_for_unknown_schema_attributes() {
         let mut invalid = valid_catalog();
         invalid["symbols"][0]["fieldEvidence"] = json!({"madeUpField":"verified"});
-        let error = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        let error = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("/symbols/0/fieldEvidence/madeUpField"));
         assert!(error.contains("not a schema-defined symbol attribute"));
     }
@@ -814,7 +837,9 @@ mod tests {
         invalid["symbols"][0]["evidence"][0]["sourceId"] = json!("platform-lib");
         let error = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
         assert!(error.contains("/symbols/0/evidence/0/kind"));
-        assert!(error.contains("incompatible with source 'platform-lib' of kind 'shared-library'"));
+        assert!(error.contains(
+            "incompatible with source 'platform-lib' of kind 'shared-library'"
+        ));
     }
 
     #[test]
@@ -849,14 +874,18 @@ mod tests {
             "status":"inspected"
         }]);
         let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
-        assert!(error.contains("surface 'shared-library-vars' is incompatible with source 'controller' of kind 'jenkins-controller'"));
+        assert!(error.contains(
+            "surface 'shared-library-vars' is incompatible with source 'controller' of kind 'jenkins-controller'"
+        ));
     }
 
     #[test]
     fn rejects_field_evidence_metadata_fields() {
         let mut invalid = valid_catalog();
         invalid["symbols"][0]["fieldEvidence"] = json!({"fieldEvidence":"verified"});
-        let error = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        let error = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("not a schema-defined symbol attribute"));
     }
 
