@@ -142,7 +142,7 @@ fn skip_slashy_string(bytes: &[u8], start: usize) -> usize {
 fn skip_dollar_slashy_string(bytes: &[u8], start: usize) -> usize {
     let mut index = start + 2;
     while index < bytes.len() {
-        if bytes[index] == b'$' && (bytes.get(index + 1) == Some(&b' {
+        if bytes[index] == b'$' && (bytes.get(index + 1) == Some(&b'$') || bytes.get(index + 1) == Some(&b'/')) {
             index += 2;
         } else if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'$') {
             return index + 2;
