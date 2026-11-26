@@ -228,10 +228,11 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
                 }
             }
         }
-        reject_secret_fields(symbol, &format!("/symbols/{index}"), errors);
+
     }
 
     validate_coverage_consistency(catalog, &source_kinds, errors);
+    reject_secret_fields(catalog, "", errors);
 }
 
 /// Reconcile manifest source metadata with the catalog records it describes.
@@ -465,27 +466,104 @@ fn url_has_credentials(value: &str) -> bool {
     })
 }
 
+fn normalized_secret_key(key: &str) -> String {
+    key.chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_lowercase())
+        .collect()
+}
+
+/// Shared key policy used by catalog validation and ingestion-time redaction.
+pub fn is_secret_field_name(key: &str) -> bool {
+    let normalized = normalized_secret_key(key);
+    [
+        "password",
+        "passwd",
+        "passphrase",
+        "pwd",
+        "token",
+        "secret",
+        "credential",
+        "authorization",
+        "cookie",
+        "privatekey",
+        "accesskey",
+        "session",
+        "sessionid",
+        "sessiontoken",
+        "apikey",
+        "authheader",
+        "authkey",
+        "authmaterial",
+        "basicauth",
+        "bearer",
+        "signature",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+/// Removes secret-bearing fields recursively and strips URL query/fragment modifiers.
+/// Safe metadata and non-sensitive URL origins are retained. Returns the number of changes.
+pub fn redact_sensitive_fields(value: &mut Value) -> usize {
+    match value {
+        Value::Object(fields) => {
+            let secret_keys: Vec<_> = fields
+                .keys()
+                .filter(|key| is_secret_field_name(key))
+                .cloned()
+                .collect();
+            let mut redacted = 0;
+            for key in secret_keys {
+                fields.remove(&key);
+                redacted += 1;
+            }
+            for (key, child) in fields.iter_mut() {
+                let normalized = normalized_secret_key(key);
+                let is_url = normalized == "endpoint"
+                    || normalized.ends_with("url")
+                    || normalized.ends_with("uri");
+                if is_url {
+                    if let Value::String(url) = child {
+                        let safe = url.split(['?', '#']).next().unwrap_or_default().to_owned();
+                        if *url != safe {
+                            *url = safe;
+                            redacted += 1;
+                        }
+                        continue;
+                    }
+                }
+                redacted += redact_sensitive_fields(child);
+            }
+            redacted
+        }
+        Value::Array(items) => items.iter_mut().map(redact_sensitive_fields).sum(),
+        _ => 0,
+    }
+}
+
 fn reject_secret_fields(value: &Value, path: &str, errors: &mut Vec<String>) {
     match value {
         Value::Object(fields) => {
             for (key, child) in fields {
-                let normalized = key.to_ascii_lowercase().replace(['_', '-'], "");
-                if [
-                    "password",
-                    "token",
-                    "apitoken",
-                    "authorization",
-                    "secret",
-                    "credentials",
-                    "clientsecret",
-                ]
-                .contains(&normalized.as_str())
-                {
+                let child_path = format!("{path}/{key}");
+                if is_secret_field_name(key) {
                     errors.push(format!(
-                        "{path}/{key}: secret-bearing fields are not permitted in catalogs"
+                        "{child_path}: secret-bearing fields are not permitted in catalogs"
                     ));
                 } else {
-                    reject_secret_fields(child, &format!("{path}/{key}"), errors);
+                    let normalized = normalized_secret_key(key);
+                    let is_url = normalized == "endpoint"
+                        || normalized.ends_with("url")
+                        || normalized.ends_with("uri");
+                    if is_url
+                        && child.as_str().is_some_and(url_has_credentials)
+                    {
+                        errors.push(format!(
+                            "{child_path}: URL contains embedded credentials or secret query parameters"
+                        ));
+                    }
+                    reject_secret_fields(child, &child_path, errors);
                 }
             }
         }
