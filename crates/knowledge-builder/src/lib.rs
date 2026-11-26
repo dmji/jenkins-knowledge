@@ -335,7 +335,7 @@ fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
                 symbol["namespace"] = json!(plugin);
             }
             if let Some(display_name) = item["displayName"].as_str() {
-                symbol["description"] = json!(display_name);
+                symbol["displayName"] = json!(display_name);
             }
             if let Some(parameters) = item["parameters"].as_array() {
                 symbol["parameters"] = json!(parameters);
