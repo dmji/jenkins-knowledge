@@ -378,8 +378,10 @@ fn normalize_api_type(value: &Value) -> Option<Value> {
             }
         }
     }
-    if let Some(synthetic) = value.get("synthetic").and_then(Value::as_bool) {
-        normalized["synthetic"] = json!(synthetic);
+    for field in ["synthetic", "dynamic"] {
+        if let Some(flag) = value.get(field).and_then(Value::as_bool) {
+            normalized[field] = json!(flag);
+        }
     }
     if let Some(methods) = value.get("methods").and_then(Value::as_array) {
         normalized["methods"] = json!(
@@ -415,6 +417,14 @@ fn normalize_api_method(value: &Value) -> Option<Value> {
             normalized[field] = json!(truncate(text));
         }
     }
+    for field in ["genericReturnTypeStatus"] {
+        if let Some(status) = value.get(field).and_then(Value::as_str).filter(|status| matches!(*status, "available" | "unresolved")) {
+            normalized[field] = json!(status);
+        }
+    }
+    if let Some(dynamic) = value.get("dynamic").and_then(Value::as_bool) {
+        normalized["dynamic"] = json!(dynamic);
+    }
     if let Some(parameters) = value.get("parameters").and_then(Value::as_array) {
         let values: Vec<Value> = parameters.iter().take(20).filter_map(|parameter| {
             let (Some(name), Some(parameter_type)) = (
@@ -430,6 +440,9 @@ fn normalize_api_method(value: &Value) -> Option<Value> {
             });
             if let Some(generic_type) = parameter.get("genericType").and_then(Value::as_str) {
                 item["genericType"] = json!(truncate(generic_type));
+            }
+            if let Some(status) = parameter.get("genericTypeStatus").and_then(Value::as_str).filter(|status| matches!(*status, "available" | "unresolved")) {
+                item["genericTypeStatus"] = json!(status);
             }
             Some(item)
         }).collect();
