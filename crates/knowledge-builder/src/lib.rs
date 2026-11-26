@@ -344,6 +344,14 @@ fn runtime_api_type_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
             }]
         });
         if let Some(plugin) = api_type["plugin"].as_str() { class_symbol["namespace"] = json!(plugin); }
+        if let Some(status) = api_type["status"].as_str() {
+            class_symbol["typeStatus"] = json!(status);
+            class_symbol["fieldEvidence"]["typeStatus"] = json!("verified");
+        }
+        if let Some(status) = api_type["membersStatus"].as_str() {
+            class_symbol["membersStatus"] = json!(status);
+            class_symbol["fieldEvidence"]["membersStatus"] = json!("verified");
+        }
         for field in ["depth", "rootCategories", "methodsTruncated", "propertiesTruncated", "classLoader"] {
             if let Some(value) = api_type.get(field) { class_symbol[field] = value.clone(); }
         }
