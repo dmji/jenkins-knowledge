@@ -386,9 +386,12 @@ impl Runtime {
             package_plugin_status
         };
         let target = target_environment.filter(|value| value.is_object());
-        let target_core = target.and_then(|value| value["coreVersion"].as_str());
-        let target_java = target.and_then(|value| value["javaVersion"].as_str());
-        let target_vendor = target.and_then(|value| value["javaVendor"].as_str());
+        let target_core = target.and_then(|value| value["coreVersion"].as_str())
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("unknown"));
+        let target_java = target.and_then(|value| value["javaVersion"].as_str())
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("unknown"));
+        let target_vendor = target.and_then(|value| value["javaVendor"].as_str())
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("unknown"));
         let target_plugins = target
             .and_then(|value| value["plugins"].as_array())
             .and_then(|plugins| plugin_version_map(plugins));
