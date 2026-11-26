@@ -360,6 +360,7 @@ fn run_git_inner(directory: &Path, args: &[&str], limit: u64) -> Result<String, 
                     return Err(ScanError::Git("Git checkout exceeded its configured storage budget".into()));
                 }
                 if !status.success() {
+                    terminate_git(&mut child);
                     return Err(ScanError::Git("git command failed; remote details are redacted".into()));
                 }
                 let mut output = String::new();
@@ -931,6 +932,8 @@ fn timestamp() -> String {
 mod tests {
     use super::*;
 
+    static GIT_CHECKOUT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn fixture() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/library")
     }
@@ -1161,6 +1164,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
 
     #[test]
     fn temporary_checkout_is_unprivileged_unique_and_cleans_up() {
+        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap();
         let first = GitCheckout::new(1024 * 1024).unwrap();
         let second = GitCheckout::new(1024 * 1024).unwrap();
         assert_ne!(first.path(), second.path());
@@ -1191,8 +1195,12 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         git_for_test(&source, &["init", "--quiet"]);
         git_for_test(&source, &["config", "user.name", "Scanner Test"]);
         git_for_test(&source, &["config", "user.email", "scanner@example.test"]);
+        let mut state = 0x1234_5678_9abc_def0u64;
         let payload: Vec<u8> = (0..payload_bytes)
-            .map(|index| ((index * 37 + index / 251) % 251) as u8)
+            .map(|_| {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                (state >> 32) as u8
+            })
             .collect();
         fs::write(source.join("vars/payload.groovy"), payload).unwrap();
         git_for_test(&source, &["add", "--all"]);
@@ -1206,6 +1214,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
 
     #[test]
     fn fetches_local_bare_repository_without_mount_privileges() {
+        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap();
         let root = tempfile::tempdir().unwrap();
         let remote = local_bare_remote(root.path(), 1024);
         let (checkout, commit) =
@@ -1216,6 +1225,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
 
     #[test]
     fn aborts_when_server_ignores_blob_filter_and_checkout_budget_is_exceeded() {
+        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap();
         let root = tempfile::tempdir().unwrap();
         let remote = local_bare_remote(root.path(), 8 * 1024 * 1024);
         let temp_root = std::env::temp_dir();
