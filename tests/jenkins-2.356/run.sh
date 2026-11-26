@@ -14,8 +14,8 @@ TOKEN_FILE="$RUNNER_TEMP/jenkins-knowledge-tokens.env"
 ENV_FILE="$RUNNER_TEMP/jenkins-knowledge-jenkins.env"
 
 mkdir -p "$OUT"
-rm -f "$TOKEN_FILE" "$OUT/plugin-inventory-api.json" "$OUT/plugin-inventory.json" "$OUT/environment-summary.json" "$OUT/java-version.txt" "$OUT/image.txt"
-rm -rf "$OUT/quick" "$OUT/standard" "$OUT/deep" "$OUT/deep-readonly" "$OUT/cache"
+rm -f "$TOKEN_FILE" "$OUT/plugin-inventory-api.json" "$OUT/plugin-inventory.json" "$OUT/environment-summary.json" "$OUT/java-version.txt" "$OUT/image.txt" "$OUT/plugins.lock.json"
+rm -rf "$OUT/quick" "$OUT/standard" "$OUT/deep" "$OUT/deep-readonly" "$OUT/cache" "$OUT/docker-context"
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
 cleanup() {
@@ -44,7 +44,22 @@ TEST_READER_PASSWORD=$reader_password
 EOF
 chmod 600 "$ENV_FILE"
 
-docker build --platform linux/amd64 --pull=false -f tests/jenkins-2.356/Dockerfile -t "$IMAGE" tests/jenkins-2.356
+mkdir -p "$OUT/docker-context/plugins"
+cp tests/jenkins-2.356/Dockerfile "$OUT/docker-context/Dockerfile"
+if [ -f tests/jenkins-2.356/plugins.lock.json ]; then
+    python3 tests/jenkins-2.356/resolve_plugins.py \
+        --lock-file tests/jenkins-2.356/plugins.lock.json \
+        --output "$OUT/docker-context/plugins" \
+        --lock-output "$OUT/plugins.lock.json"
+else
+    python3 tests/jenkins-2.356/resolve_plugins.py \
+        --roots-file tests/jenkins-2.356/plugins.txt \
+        --output "$OUT/docker-context/plugins" \
+        --lock-output "$OUT/plugins.lock.json"
+fi
+
+docker build --platform linux/amd64 --pull=false -t "$IMAGE" "$OUT/docker-context"
+rm -rf "$OUT/docker-context"
 docker run --detach \
     --name "$CONTAINER" \
     --publish 127.0.0.1:18080:8080 \
