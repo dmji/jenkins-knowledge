@@ -1,6 +1,6 @@
 use jsonschema::validator_for;
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ pub fn validate_catalog(catalog: &Value, schema: &Value) -> Result<(), Validatio
         .collect();
 
     if errors.is_empty() {
-        validate_semantics(catalog, &mut errors);
+        validate_semantics(catalog, schema, &mut errors);
     }
 
     if errors.is_empty() {
@@ -40,7 +40,7 @@ pub fn validate_catalog(catalog: &Value, schema: &Value) -> Result<(), Validatio
     }
 }
 
-fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
+fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>) {
     let sources = catalog["sources"]
         .as_array()
         .expect("schema validated sources");
@@ -48,13 +48,18 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
         .as_array()
         .expect("schema validated symbols");
     let mut source_ids = HashSet::new();
+    let mut source_kinds = HashMap::new();
     let mut symbol_ids = HashSet::new();
+    let symbol_fields = schema.pointer("/$defs/symbol/properties")
+        .and_then(Value::as_object)
+        .expect("schema validated symbol properties");
 
     for (index, source) in sources.iter().enumerate() {
         let id = source["id"].as_str().expect("schema validated source id");
         if !source_ids.insert(id) {
             errors.push(format!("/sources/{index}/id: duplicate source id '{id}'"));
         }
+        source_kinds.insert(id.to_owned(), source["kind"].as_str().unwrap_or_default().to_owned());
         if let Some(url) = source["url"].as_str() {
             if url_has_credentials(url) {
                 errors.push(format!(
@@ -178,6 +183,16 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
                 }
             }
         }
+        if let Some(field_evidence) = symbol["fieldEvidence"].as_object() {
+            for field in field_evidence.keys() {
+                let path = format!("/symbols/{index}/fieldEvidence/{field}");
+                if !symbol_fields.contains_key(field) || matches!(field.as_str(), "fieldEvidence" | "evidence") {
+                    errors.push(format!("{path}: field is not a schema-defined symbol attribute"));
+                } else if !symbol.get(field).is_some_and(|value| !value.is_null()) {
+                    errors.push(format!("{path}: evidence refers to a field that is absent from this symbol"));
+                }
+            }
+        }
         if let Some(evidence) = symbol["evidence"].as_array() {
             for (evidence_index, item) in evidence.iter().enumerate() {
                 let source_id = item["sourceId"]
@@ -187,10 +202,76 @@ fn validate_semantics(catalog: &Value, errors: &mut Vec<String>) {
                     errors.push(format!(
                         "/symbols/{index}/evidence/{evidence_index}/sourceId: unknown source id '{source_id}'"
                     ));
+                    continue;
+                }
+                let evidence_kind = item["kind"].as_str().expect("schema validated evidence kind");
+                let source_kind = source_kinds.get(source_id).map(String::as_str).unwrap_or_default();
+                if !evidence_compatible(evidence_kind, source_kind) {
+                    errors.push(format!(
+                        "/symbols/{index}/evidence/{evidence_index}/kind: evidence kind '{evidence_kind}' is incompatible with source '{source_id}' of kind '{source_kind}'"
+                    ));
                 }
             }
         }
         reject_secret_fields(symbol, &format!("/symbols/{index}"), errors);
+    }
+
+    validate_coverage_consistency(catalog, errors);
+}
+
+fn evidence_compatible(evidence_kind: &str, source_kind: &str) -> bool {
+    match evidence_kind {
+        "controller-observed" => matches!(source_kind, "jenkins-controller" | "plugin" | "jenkins-core"),
+        "source-scanned" => matches!(source_kind, "shared-library" | "plugin" | "jenkins-core"),
+        "static-model" => matches!(source_kind, "jenkins-controller" | "jenkins-core"),
+        "inferred" => matches!(source_kind, "jenkins-controller" | "plugin" | "shared-library" | "jenkins-core"),
+        _ => false,
+    }
+}
+
+fn coverage_symbol_kinds(surface: &str) -> Option<&'static [&'static str]> {
+    let surface = surface.to_ascii_lowercase().replace('_', "-");
+    if surface.contains("pipeline-step") || surface == "steps" {
+        Some(&["step"])
+    } else if surface.contains("declarative-directive") {
+        Some(&["declarative-directive"])
+    } else if surface.contains("shared-library-var") || surface.contains("global-variable") {
+        Some(&["global-variable"])
+    } else if surface.contains("shared-library-src") {
+        Some(&["method", "class", "property"])
+    } else if surface.contains("method") {
+        Some(&["method"])
+    } else if surface.contains("class") {
+        Some(&["class"])
+    } else if surface.contains("property") {
+        Some(&["property"])
+    } else {
+        None
+    }
+}
+
+fn validate_coverage_consistency(catalog: &Value, errors: &mut Vec<String>) {
+    let Some(coverage) = catalog["coverage"].as_array() else { return; };
+    let Some(symbols) = catalog["symbols"].as_array() else { return; };
+    for (coverage_index, entry) in coverage.iter().enumerate() {
+        let status = entry["status"].as_str().unwrap_or_default();
+        if status == "inspected" { continue; }
+        let source_id = entry["sourceId"].as_str().unwrap_or_default();
+        let surface = entry["surface"].as_str().unwrap_or_default();
+        let Some(kinds) = coverage_symbol_kinds(surface) else { continue; };
+        for (symbol_index, symbol) in symbols.iter().enumerate() {
+            if !kinds.contains(&symbol["kind"].as_str().unwrap_or_default()) { continue; }
+            let symbol_source_matches = symbol["sourceId"].as_str() == Some(source_id);
+            let evidence_source_matches = symbol["evidence"].as_array().is_some_and(|evidence| {
+                evidence.iter().any(|item| item["sourceId"].as_str() == Some(source_id))
+            });
+            if symbol_source_matches || evidence_source_matches {
+                errors.push(format!(
+                    "/coverage/{coverage_index}: status '{status}' for surface '{surface}' contradicts symbol /symbols/{symbol_index} or its evidence from source '{source_id}'"
+                ));
+                break;
+            }
+        }
     }
 }
 
