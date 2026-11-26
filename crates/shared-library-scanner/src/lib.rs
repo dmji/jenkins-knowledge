@@ -1134,6 +1134,99 @@ class Service<T> extends BaseService implements Runnable, Closeable {
     fn rejects_short_commit_sha() {
         assert!(matches!(scan_checkout(&config("main"), &fixture(), "abc"), Err(ScanError::InvalidConfig(_))));
     }
+    #[test]
+    fn counts_adjacent_text_documentation_toward_total_source_budget() {
+        let temp = tempfile::tempdir().unwrap();
+        let vars = temp.path().join("vars");
+        fs::create_dir_all(&vars).unwrap();
+        fs::write(vars.join("helper.groovy"), "12345").unwrap();
+        fs::write(vars.join("helper.txt"), "67890").unwrap();
+        let checkout = temp.path().canonicalize().unwrap();
+        let limits = ScanLimits {
+            total_bytes: 9,
+            ..ScanLimits::default()
+        };
+        let mut files = Vec::new();
+        let mut total = 0;
+        let mut entries = 0;
+        assert!(collect_groovy_files(
+            &vars,
+            &checkout,
+            0,
+            &mut files,
+            &mut total,
+            &mut entries,
+            &limits,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn enforces_filesystem_entry_count_before_scanning() {
+        let temp = tempfile::tempdir().unwrap();
+        let vars = temp.path().join("vars");
+        fs::create_dir_all(&vars).unwrap();
+        fs::write(vars.join("one.groovy"), "def call() {}").unwrap();
+        fs::write(vars.join("two.txt"), "documentation").unwrap();
+        fs::write(vars.join("ignored.bin"), "other").unwrap();
+        let checkout = temp.path().canonicalize().unwrap();
+        let limits = ScanLimits {
+            entries: 2,
+            ..ScanLimits::default()
+        };
+        let mut files = Vec::new();
+        let mut total = 0;
+        let mut entries = 0;
+        assert!(collect_groovy_files(
+            &vars,
+            &checkout,
+            0,
+            &mut files,
+            &mut total,
+            &mut entries,
+            &limits,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn rejects_symbol_and_catalog_output_over_limits() {
+        let temp = tempfile::tempdir().unwrap();
+        let vars = temp.path().join("vars");
+        fs::create_dir_all(&vars).unwrap();
+        fs::write(
+            vars.join("deploy.groovy"),
+            "def call() {}\ndef helper() {}\ndef another() {}\n",
+        )
+        .unwrap();
+        let commit = "0123456789abcdef0123456789abcdef01234567";
+        let symbol_limited = ScanLimits {
+            symbols: 1,
+            ..ScanLimits::default()
+        };
+        let error = scan_checkout_with_limits(
+            &config("main"),
+            temp.path(),
+            commit,
+            symbol_limited,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("generated symbol count"));
+
+        let catalog_limited = ScanLimits {
+            catalog_bytes: 1,
+            ..ScanLimits::default()
+        };
+        let error = scan_checkout_with_limits(
+            &config("main"),
+            temp.path(),
+            commit,
+            catalog_limited,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("generated catalog exceeds"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn ignores_symlinked_files_and_directories() {
