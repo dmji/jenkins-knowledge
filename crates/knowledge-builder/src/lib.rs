@@ -2,11 +2,12 @@ use catalog_validator::{redact_sensitive_fields, validate_catalog, validate_pack
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, env, fs, path::Path};
+use std::{collections::{BTreeMap, BTreeSet, HashSet}, env, fs, path::Path};
 
 mod source_security;
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Profile {
     pub profile: String,
     #[serde(default)]
@@ -18,14 +19,240 @@ pub struct Profile {
     #[serde(default)]
     pub package: PackageConfig,
 }
+
 #[derive(Debug, Default, Deserialize)]
-pub struct JenkinsConfig { #[serde(default)] pub controllers: Vec<ControllerConfig> }
+#[serde(deny_unknown_fields)]
+pub struct JenkinsConfig {
+    #[serde(default)]
+    pub controllers: Vec<ControllerConfig>,
+}
+
 #[derive(Debug, Deserialize)]
-pub struct ControllerConfig { pub id: String, pub url: String }
+#[serde(deny_unknown_fields)]
+pub struct ControllerConfig {
+    pub id: String,
+    pub url: String,
+}
+
 #[derive(Debug, Deserialize)]
-pub struct LibraryConfig { pub name: String, pub url: String, pub revision: String, pub commit: Option<String> }
+#[serde(deny_unknown_fields)]
+pub struct LibraryConfig {
+    pub name: String,
+    pub url: String,
+    pub revision: String,
+    pub commit: Option<String>,
+}
+
 #[derive(Debug, Default, Deserialize)]
-pub struct PackageConfig { pub id: Option<String>, #[serde(default)] pub include: Vec<String> }
+#[serde(deny_unknown_fields)]
+pub struct PackageConfig {
+    pub id: Option<String>,
+    pub include: Option<Vec<PackageSection>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PackageSection {
+    JenkinsCore,
+    Controller,
+    Plugins,
+    SharedLibraries,
+}
+
+impl PackageSection {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::JenkinsCore => "jenkins-core",
+            Self::Controller => "controller",
+            Self::Plugins => "plugins",
+            Self::SharedLibraries => "shared-libraries",
+        }
+    }
+
+    fn for_source_kind(kind: &str) -> Option<Self> {
+        match kind {
+            "jenkins-core" => Some(Self::JenkinsCore),
+            "jenkins-controller" => Some(Self::Controller),
+            "plugin" => Some(Self::Plugins),
+            "shared-library" => Some(Self::SharedLibraries),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct PackageSelection {
+    included: BTreeSet<PackageSection>,
+    explicit: bool,
+}
+
+impl PackageSelection {
+    fn includes(&self, section: PackageSection) -> bool {
+        self.included.contains(&section)
+    }
+}
+
+fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
+    if profile.profile.trim().is_empty()
+        || profile.profile.trim() != profile.profile
+        || profile.profile.chars().any(char::is_control)
+    {
+        return Err(BuildError::Profile(
+            "profile: identity must be non-empty and have no surrounding whitespace".into(),
+        ));
+    }
+    if profile.package.id.as_ref().is_some_and(|id| {
+        id.trim().is_empty() || id.trim() != id || id.chars().any(char::is_control)
+    }) {
+        return Err(BuildError::Profile(
+            "package.id: must be non-empty and have no surrounding whitespace when provided".into(),
+        ));
+    }
+
+    let fixtures_mode = !profile.fixtures.is_empty();
+    if fixtures_mode && (!profile.jenkins.controllers.is_empty() || !profile.libraries.is_empty()) {
+        return Err(BuildError::Profile(
+            "fixtures: offline fixture catalogs cannot be combined with live Jenkins controllers or Shared Libraries".into(),
+        ));
+    }
+    if !fixtures_mode && profile.jenkins.controllers.is_empty() && profile.libraries.is_empty() {
+        return Err(BuildError::Profile(
+            "configure at least one Jenkins controller, Shared Library, or fixture catalog".into(),
+        ));
+    }
+
+    let mut controller_ids = HashSet::new();
+    for (index, controller) in profile.jenkins.controllers.iter().enumerate() {
+        if controller.id.trim().is_empty()
+            || controller.id.trim() != controller.id
+            || controller.id.chars().any(char::is_control)
+        {
+            return Err(BuildError::Profile(format!(
+                "jenkins.controllers[{index}].id: must be non-empty and have no surrounding whitespace"
+            )));
+        }
+        if !controller_ids.insert(&controller.id) {
+            return Err(BuildError::Profile(format!(
+                "jenkins.controllers[{index}].id: duplicate controller id"
+            )));
+        }
+        source_security::validate_controller_url(&controller.url).map_err(|error| {
+            BuildError::Profile(format!("jenkins.controllers[{index}].url: {error}"))
+        })?;
+    }
+
+    if profile.jenkins.controllers.len() > 1 {
+        return Err(BuildError::Profile(
+            "jenkins.controllers: one controller per package is supported by the current catalog snapshot schema; build separate profiles for separate controllers".into(),
+        ));
+    }
+
+    let mut library_names = HashSet::new();
+    for (index, library) in profile.libraries.iter().enumerate() {
+        if library.name.trim().is_empty()
+            || library.name.trim() != library.name
+            || library.name.chars().any(char::is_control)
+        {
+            return Err(BuildError::Profile(format!(
+                "libraries[{index}].name: must be non-empty and have no surrounding whitespace"
+            )));
+        }
+        if !library_names.insert(&library.name) {
+            return Err(BuildError::Profile(format!(
+                "libraries[{index}].name: duplicate Shared Library name"
+            )));
+        }
+        source_security::validate_git_url(&library.url).map_err(|error| {
+            BuildError::Profile(format!("libraries[{index}].url: {error}"))
+        })?;
+        source_security::validate_git_reference(&library.revision).map_err(|error| {
+            BuildError::Profile(format!("libraries[{index}].revision: {error}"))
+        })?;
+        if let Some(commit) = &library.commit {
+            if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(BuildError::Profile(format!(
+                    "libraries[{index}].commit: must be a full 40-character SHA"
+                )));
+            }
+            if library.revision.len() == 40
+                && library.revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+                && !library.revision.eq_ignore_ascii_case(commit)
+            {
+                return Err(BuildError::Profile(format!(
+                    "libraries[{index}].commit: conflicts with the full-SHA revision"
+                )));
+            }
+        }
+    }
+
+    let mut fixtures = HashSet::new();
+    for (index, fixture) in profile.fixtures.iter().enumerate() {
+        let path = Path::new(fixture);
+        let has_windows_prefix = fixture.as_bytes().get(1) == Some(&b':');
+        if fixture.trim().is_empty()
+            || fixture.trim() != fixture
+            || path.is_absolute()
+            || fixture.starts_with("\\\\")
+            || has_windows_prefix
+            || fixture.chars().any(char::is_control)
+        {
+            return Err(BuildError::Profile(format!(
+                "fixtures[{index}]: must be a non-empty relative path without control characters"
+            )));
+        }
+        if !fixtures.insert(fixture) {
+            return Err(BuildError::Profile(format!(
+                "fixtures[{index}]: duplicate fixture path"
+            )));
+        }
+    }
+
+    let all_sections = [
+        PackageSection::JenkinsCore,
+        PackageSection::Controller,
+        PackageSection::Plugins,
+        PackageSection::SharedLibraries,
+    ];
+    let (included, explicit) = match &profile.package.include {
+        None => (all_sections.into_iter().collect(), false),
+        Some(values) if values.is_empty() => {
+            return Err(BuildError::Profile(
+                "package.include: omit the field to include all sections; an explicit empty list is invalid".into(),
+            ));
+        }
+        Some(values) => {
+            let included: BTreeSet<_> = values.iter().copied().collect();
+            if included.len() != values.len() {
+                return Err(BuildError::Profile(
+                    "package.include: duplicate section selector".into(),
+                ));
+            }
+            if !fixtures_mode {
+                for section in &included {
+                    match section {
+                        PackageSection::JenkinsCore | PackageSection::Controller | PackageSection::Plugins
+                            if profile.jenkins.controllers.is_empty() =>
+                        {
+                            return Err(BuildError::Profile(format!(
+                                "package.include: '{}' requires at least one Jenkins controller",
+                                section.as_str()
+                            )));
+                        }
+                        PackageSection::SharedLibraries if profile.libraries.is_empty() => {
+                            return Err(BuildError::Profile(
+                                "package.include: 'shared-libraries' requires at least one configured Shared Library".into(),
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            (included, true)
+        }
+    };
+
+    Ok(PackageSelection { included, explicit })
+}
 
 #[derive(Debug)]
 pub enum BuildError { Io(String), Profile(String), Source(String), InvalidCatalog(String), OutputExists(String) }
@@ -46,28 +273,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     if output.exists() { return Err(BuildError::OutputExists(output.display().to_string())); }
     let input = fs::read_to_string(profile_path).map_err(|e| BuildError::Io(format!("cannot read {}: {e}", profile_path.display())))?;
     let profile: Profile = serde_yaml::from_str(&input).map_err(|e| BuildError::Profile(e.to_string()))?;
-    if profile.profile.trim().is_empty() { return Err(BuildError::Profile("profile identity must not be empty".into())); }
-    for controller in &profile.jenkins.controllers {
-        source_security::validate_controller_url(&controller.url).map_err(|error| {
-            BuildError::Profile(format!("controller '{}' URL: {error}", controller.id))
-        })?;
-    }
-    for library in &profile.libraries {
-        source_security::validate_git_url(&library.url).map_err(|error| {
-            BuildError::Profile(format!("Shared Library '{}' URL: {error}", library.name))
-        })?;
-        source_security::validate_git_reference(&library.revision).map_err(|error| {
-            BuildError::Profile(format!("Shared Library '{}' revision: {error}", library.name))
-        })?;
-        if let Some(commit) = &library.commit {
-            if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-                return Err(BuildError::Profile(format!(
-                    "Shared Library '{}' commit must be a full 40-character SHA",
-                    library.name
-                )));
-            }
-        }
-    }
+    let selection = validate_profile(&profile)?;
     let base = profile_path.parent().unwrap_or(Path::new("."));
     let mut catalogs = Vec::new();
 
@@ -82,7 +288,34 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         for controller in &profile.jenkins.controllers {
             let catalog = jenkins_gdsl_collector::collect(&controller.url, env::var("JENKINS_USERNAME").ok().as_deref(), env::var("JENKINS_API_TOKEN").ok().as_deref())
                 .map_err(|e| BuildError::Source(format!("Jenkins controller '{}': {e}", controller.id)))?;
+            let core_version = catalog["controller"]["coreVersion"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_owned();
+            let controller_source_id = catalog["sources"][0]["id"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_owned();
             catalogs.push((format!("Jenkins controller '{}'", controller.id), catalog));
+            let core_source_id = format!("jenkins-core-{}", controller.id);
+            let core_catalog = json!({
+                "schemaVersion": "1.0.0",
+                "catalogId": core_source_id,
+                "generatedAt": build_timestamp(),
+                "sources": [{
+                    "id": core_source_id,
+                    "kind": "jenkins-core",
+                    "name": format!("Jenkins Core ({})", controller.id),
+                    "version": core_version,
+                    "revision": core_version,
+                    "metadata": {
+                        "controllerSourceId": controller_source_id,
+                        "evidence": "observed-controller-core-version"
+                    }
+                }],
+                "symbols": []
+            });
+            catalogs.push((format!("Jenkins Core for '{}'", controller.id), core_catalog));
         }
         for library in &profile.libraries {
             let config = shared_library_scanner::LibraryConfig { name: library.name.clone(), repository: library.url.clone(), reference: library.revision.clone() };
@@ -121,28 +354,44 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let mut provenance = BTreeMap::new();
     let mut controller_snapshot: Option<Value> = None;
     let mut controller_metadata: Option<Value> = None;
+    let mut included_source_counts = BTreeMap::<PackageSection, usize>::new();
     for (label, mut catalog) in catalogs {
         // Remove secret-bearing metadata before validation, merging, or serialization.
         redact_sensitive_fields(&mut catalog);
         let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
         validate_catalog(&catalog, &schema).map_err(|e| BuildError::Source(format!("{label}: {e}")))?;
-        if let Some(controller) = catalog.get("controller") {
-            let mut safe_controller = controller.clone();
-            if let Some(base_url) = safe_controller["identity"]["baseUrl"].as_str() {
-                safe_controller["identity"]["baseUrl"] = json!(source_security::redact_url(base_url));
-            }
-            if let Some(previous) = &controller_snapshot {
-                if previous != &safe_controller {
-                    return Err(BuildError::Source(format!(
-                        "{label}: controller snapshot differs from the other configured source snapshots; refusing to mix controller identities or revisions"
-                    )));
+
+        if selection.includes(PackageSection::Controller) {
+            if let Some(controller) = catalog.get("controller") {
+                let mut safe_controller = controller.clone();
+                if !selection.includes(PackageSection::Plugins) {
+                    safe_controller["plugins"] = json!([]);
                 }
-            } else {
-                controller_snapshot = Some(safe_controller.clone());
-                controller_metadata = Some(safe_controller);
+                if let Some(base_url) = safe_controller["identity"]["baseUrl"].as_str() {
+                    safe_controller["identity"]["baseUrl"] = json!(source_security::redact_url(base_url));
+                }
+                if let Some(previous) = &controller_snapshot {
+                    if previous != &safe_controller {
+                        return Err(BuildError::Source(format!(
+                            "{label}: controller snapshot differs from the other configured source snapshots; refusing to mix controller identities or revisions"
+                        )));
+                    }
+                } else {
+                    controller_snapshot = Some(safe_controller.clone());
+                    controller_metadata = Some(safe_controller);
+                }
             }
         }
+
+        let mut included_source_ids = HashSet::new();
         for source in catalog["sources"].as_array().into_iter().flatten() {
+            let kind = source["kind"].as_str().unwrap_or_default();
+            let section = PackageSection::for_source_kind(kind).ok_or_else(|| {
+                BuildError::Source(format!("{label}: source has unsupported kind"))
+            })?;
+            if !selection.includes(section) {
+                continue;
+            }
             let mut safe_source = source.clone();
             if let Some(url) = source["url"].as_str() {
                 safe_source["url"] = json!(source_security::redact_url(url));
@@ -155,6 +404,8 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     previous.0, previous.1, label, revision
                 )));
             }
+            included_source_ids.insert(id.to_owned());
+            *included_source_counts.entry(section).or_default() += 1;
             source_revisions.insert(id.to_owned(), revision.to_owned());
             provenance.insert(id.to_owned(), json!({
                 "name":safe_source["name"],
@@ -164,8 +415,58 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             }));
             sources.push(safe_source);
         }
-        symbols.extend(catalog["symbols"].as_array().into_iter().flatten().cloned());
-        coverage.extend(catalog["coverage"].as_array().into_iter().flatten().cloned());
+        for symbol in catalog["symbols"].as_array().into_iter().flatten() {
+            if !symbol["sourceId"]
+                .as_str()
+                .is_some_and(|source_id| included_source_ids.contains(source_id))
+            {
+                continue;
+            }
+            let mut safe_symbol = symbol.clone();
+            if let Some(availability) = safe_symbol
+                .get_mut("availability")
+                .and_then(Value::as_object_mut)
+            {
+                let has_empty_plugin_refs = if let Some(plugin_source_ids) =
+                    availability.get_mut("pluginSourceIds").and_then(Value::as_array_mut)
+                {
+                    plugin_source_ids.retain(|source_id| {
+                        source_id
+                            .as_str()
+                            .is_some_and(|source_id| included_source_ids.contains(source_id))
+                    });
+                    plugin_source_ids.is_empty()
+                } else {
+                    false
+                };
+                if has_empty_plugin_refs {
+                    availability.remove("pluginSourceIds");
+                }
+            }
+            symbols.push(safe_symbol);
+        }
+        coverage.extend(
+            catalog["coverage"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|entry| {
+                    entry["sourceId"]
+                        .as_str()
+                        .is_some_and(|source_id| included_source_ids.contains(source_id))
+                })
+                .cloned(),
+        );
+    }
+    if selection.explicit {
+        for section in &selection.included {
+            if included_source_counts.get(section).copied().unwrap_or_default() == 0 {
+                return Err(BuildError::Profile(format!(
+                    "package.include: selector '{}' matched no sources",
+                    section.as_str()
+                )));
+            }
+        }
     }
     sources.sort_by_key(|v| v["id"].as_str().unwrap_or("").to_owned());
     symbols.sort_by_key(|v| v["id"].as_str().unwrap_or("").to_owned());
@@ -177,7 +478,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     });
     let mut catalog = json!({
         "schemaVersion":"1.0.0",
-        "catalogId":profile.package.id.unwrap_or_else(|| profile.profile.clone()),
+        "catalogId":profile.package.id.clone().unwrap_or_else(|| profile.profile.clone()),
         "generatedAt":build_timestamp(),
         "sources":sources,
         "symbols":symbols,
@@ -244,7 +545,7 @@ fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collec
 
 #[cfg(test)]
 mod tests {
-    use super::build_package;
+    use super::{build_package, validate_profile, Profile};
     use serde_json::{json, Value};
     use std::fs;
 
@@ -347,6 +648,18 @@ mod tests {
     }
 
     #[test]
+    fn production_profile_template_matches_the_strict_profile_contract() {
+        let profile: Profile = serde_yaml::from_str(include_str!(
+            "../../../profiles/production-pipelines.yml"
+        ))
+        .unwrap();
+        let selection = validate_profile(&profile).unwrap();
+        assert_eq!(selection.included.len(), 4);
+        assert_eq!(profile.jenkins.controllers.len(), 1);
+        assert!(profile.libraries.iter().all(|library| library.commit.is_none()));
+    }
+
+    #[test]
     fn rejects_credential_bearing_controller_urls_before_collection() {
         let directory = tempfile::tempdir().unwrap();
         fs::write(
@@ -356,8 +669,6 @@ jenkins:
   controllers:
     - id: ci
       url: https://user:secret@jenkins.example.test/
-fixtures:
-  - unused.json
 "#,
         )
         .unwrap();
