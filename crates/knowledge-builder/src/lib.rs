@@ -362,6 +362,7 @@ fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
             "kind": api_type["kind"].as_str().unwrap_or("class"),
             "sourceId": source_id,
             "signature": type_name,
+            "depth": api_type["depth"].as_u64().unwrap_or(0),
             "synthetic": api_type["synthetic"].as_bool().unwrap_or(false),
             "confidence": "verified",
             "provenance": ["jenkins-script-console", "api-types"],
