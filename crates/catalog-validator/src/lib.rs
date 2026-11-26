@@ -40,7 +40,6 @@ pub fn validate_catalog(catalog: &Value, schema: &Value) -> Result<(), Validatio
     }
 }
 
-
 /// Return a lowercase SHA-256 digest with an explicit algorithm prefix.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
@@ -566,7 +565,9 @@ fn validate_completeness(catalog: &Value, sources: &[Value], errors: &mut Vec<St
         return;
     };
     let status = completeness["status"].as_str().unwrap_or_default();
-    let all_sources_reported = sources.iter().all(|source| source.get("collection").is_some());
+    let all_sources_reported = sources
+        .iter()
+        .all(|source| source.get("collection").is_some());
     let mut has_partial_source = false;
     for (index, source) in sources.iter().enumerate() {
         if let Some(collection) = source.get("collection") {
@@ -1499,7 +1500,9 @@ mod tests {
         catalog["sources"][0]["collection"]["status"] = json!("succeeded");
 
         catalog["sources"][0]["collection"]["status"] = json!("succeeded-with-truncation");
-        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        let error = validate_catalog(&catalog, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("truncation flag must agree"));
 
         catalog["sources"][0]["collection"]["status"] = json!("succeeded");
@@ -1549,8 +1552,10 @@ mod tests {
         }
         catalog["completeness"] = json!({"status":"unknown"});
         stamp_catalog_identity(&mut catalog).unwrap();
-        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
-        assert!(error.contains("unknown is invalid when every source has an explicit collection outcome"));
+        let error = validate_catalog(&catalog, &schema())
+            .unwrap_err()
+            .to_string();
+        assert!(error
+            .contains("unknown is invalid when every source has an explicit collection outcome"));
     }
-
 }
