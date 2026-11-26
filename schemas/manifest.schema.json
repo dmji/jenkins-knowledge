@@ -12,7 +12,21 @@
     "createdAt": { "type": "string", "format": "date-time" },
     "catalog": { "type": "string", "const": "catalog.json" },
     "sourceRevisions": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
-    "provenance": { "type": "object", "additionalProperties": { "type": "object" } },
+    "provenance": {
+      "type": "object",
+      "description": "One provenance record per catalog source. Known identity fields must match the source; additional properties are reserved for forward-compatible metadata.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name", "kind", "revision"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["jenkins-controller", "plugin", "shared-library", "jenkins-core"] },
+          "revision": { "type": "string", "minLength": 1 },
+          "url": { "type": ["string", "null"], "format": "uri" }
+        },
+        "additionalProperties": true
+      }
+    },
     "checksums": {
       "type": "object",
       "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
