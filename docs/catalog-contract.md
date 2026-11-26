@@ -7,6 +7,8 @@ The catalog is the canonical API representation shared by Builder, Runtime, IDE 
 - `schemaVersion`: catalog schema version. Version 1 is `1.0.0`.
 - `catalogId`: stable identifier for this catalog snapshot.
 - `generatedAt`: RFC 3339 timestamp.
+- `snapshotId` (optional for legacy catalogs): stable SHA-256 identity for the logical snapshot.
+- `completeness` (optional for legacy catalogs): package-level `complete`, `partial`, or `unknown` outcome.
 - `sources`: source snapshots from which symbols were extracted.
 - `symbols`: API symbols associated with exactly one source.
 - `coverage` (optional): per-source collection status for an inspected API surface.
@@ -28,27 +30,6 @@ The optional top-level `controller` object describes one concrete Jenkins contro
 A symbol may include `availability` and `executionConstraints`. Availability is explicitly `available`, `unavailable`, or `unknown`, with optional plugin source references. CPS and Script Security/Sandbox values distinguish positive/negative observations from `unknown` and `not-inspected`. These fields must only be populated from evidence; the presence of a method or step does not prove CPS compatibility or Sandbox approval.
 
 The optional `evidence` array attaches source identity, evidence class (`controller-observed`, `source-scanned`, `static-model`, or `inferred`), confidence, retrieval time, and an optional evidence location to an individual symbol. Evidence source IDs and plugin availability references must resolve to catalog sources. Existing `sourceId`, `provenance`, `confidence`, and `fieldEvidence` remain supported for older producers.
-
-## Package collection outcomes
-
-The manifest's optional `collection` object is the package-level execution record; catalog `coverage` remains the per-source/API-surface observation record. These are related but not interchangeable. The manifest records the selected collection profile, start/completion timestamps, package status (`complete` or `partial`), and one outcome per configured collection surface.
-
-Collection outcome statuses are:
-
-- `succeeded`: the configured surface was collected successfully.
-- `succeeded-with-truncation`: usable data was retained but a documented bound truncated the result.
-- `partial`: the surface returned usable data alongside one or more bounded probe failures.
-- `unavailable`: the endpoint or source could not be reached or is not exposed.
-- `permission-denied`: Jenkins or Git explicitly rejected access.
-- `failed`: the source was configured but its response, parsing, or collection failed.
-- `skipped-by-profile`: the selected quick/standard/deep profile or package section intentionally omitted the surface.
-- `not-configured`: the surface is not configured for this package.
-
-The package is `partial` if any outcome is truncated, partial, unavailable, permission-denied, or failed. A skipped or not-configured surface does not make the selected package incomplete. Controller metadata is mandatory in all live Jenkins profiles; failure aborts the build because no safe controller identity/version anchor exists. Plugin inventory is optional in all profiles. Quick probes GDSL availability only; standard and deep attempt full GDSL collection. Standard and deep scan configured Shared Libraries independently. Deep additionally executes the fixed repository-owned read-only Script Console probe; Script Console permission failure does not discard REST/GDSL results.
-
-Each outcome carries a stable ID, source kind, display name, surface, status, and optional catalog source ID/revision/error code. Error codes are stable machine values; raw exception strings, HTTP bodies, request headers, credentials, and response fragments are never stored. Runtime, MCP, and LSP preserve these outcomes as distinct from symbol confidence. Consumers must not infer complete coverage from successful package loading or from a symbol marked verified.
-
-Retry guidance is profile-aware and explicit: retry timeouts and transient server errors by rerunning collection; correct permissions before retrying authorization failures; investigate malformed or incompatible responses before repeating the same request. The Builder does not automatically retry because that would increase Jenkins load and make request counts nondeterministic.
 
 ## Evidence and unknown values
 
@@ -87,7 +68,7 @@ Three independent dimensions must not be conflated:
 
 - **Confidence** describes the overall strength of the symbol claim (`verified`, `inferred`, or `unknown`).
 - **Provenance** describes where the symbol evidence came from. The source ID and revision identify the source snapshot; the optional `provenance` strings record evidence locations or extraction notes.
-- **Coverage** describes what collection actually inspected. The optional top-level `coverage` array records a `sourceId`, a `surface`, and one status: `inspected`, `unavailable`, `unsupported`, or `not-collected`. Coverage entries must reference an existing source. Absence of a coverage entry is not evidence that a surface was inspected.
+- **Coverage** describes what collection actually inspected. The optional top-level `coverage` array records a `sourceId`, a `surface`, and one status: `inspected`, `succeeded`, `succeeded-with-truncation`, `unavailable`, `permission-denied`, `failed`, `skipped-by-profile`, `not-configured`, `unsupported`, or `not-collected`. Coverage entries must reference an existing source. Absence of a coverage entry is not evidence that a surface was inspected.
 
 The optional symbol `fieldEvidence` object records evidence quality independently for individual fields, using the same `verified`, `inferred`, and `unknown` values. A missing field-evidence entry means unknown; symbol-level `confidence: verified` must not be interpreted as proof that every optional attribute is verified. Producers should only mark a field verified when its value was directly observed or declared by the referenced source.
 
@@ -96,3 +77,15 @@ The optional symbol `fieldEvidence` object records evidence quality independentl
 Validation applies JSON Schema constraints and semantic rules: unique source IDs and symbol IDs, valid symbol and coverage source references, one coverage record per source/surface pair, unique parameter names within a symbol, and rejection of credential-bearing source URLs or secret-named fields. Duplicate source identities are rejected during package merge rather than overwritten. Same-name symbols from distinct sources remain distinct when their IDs and source references are distinct. Conflicts are reported with both contributing input labels and revisions.
 
 Unknown properties are rejected. The optional `coverage` and `fieldEvidence` fields are additive and do not invalidate existing 1.0.0 catalogs. Changes to required fields, enum values, or field meaning require an explicit schema version decision and migration notes. The current schema rejects unsupported schema versions rather than guessing.
+
+## Snapshot identity and source collection outcomes
+
+`catalogId` identifies the logical catalog namespace; it is not a collection-run identifier. `snapshotId` is a SHA-256 digest (`sha256:` prefix) of the canonical logical catalog. The digest is independent of JSON object-key insertion order and excludes collection timestamps (`generatedAt`, `createdAt`, `startedAt`, `completedAt`, `retrievedAt`, and `collectedAt`). Identity-bearing arrays are normalized by stable IDs or names before hashing. Any other content change changes the snapshot ID.
+
+Each source `id` identifies the logical configured source within a package and must remain stable as that source advances. `revision` identifies the source-native revision: a Shared Library uses the resolved Git commit; Jenkins controller discovery uses a digest of the observed controller snapshot; GDSL uses a digest of the retrieved DSL document; static models use their model version. Collection timestamps are never source revisions. `fingerprint` is the SHA-256 digest of the source record, its symbols, its coverage entries, and the associated controller/plugin observation after volatile timestamps are removed.
+
+Symbol IDs are deterministic within a source: source ID + symbol kind + namespace + name + normalized signature. Line numbers and retrieval timestamps belong in provenance, not identity. Source IDs remain stable for the same logical configured repository/controller and reference; a moving branch does not change source identity, while its resolved commit changes the source revision. A symbol that cites a secondary evidence source contributes to both the primary source fingerprint and the referenced evidence-source fingerprint. Different sources may expose the same name or signature; their source IDs keep those symbols distinct. Overloads remain separate when their normalized signatures differ. Duplicate symbol IDs within one catalog are invalid.
+
+An optional source `collection` object records the collection profile, outcome, timestamps, stable error code, and truncation flag. Outcomes are `succeeded`, `succeeded-with-truncation`, `unavailable`, `permission-denied`, `failed`, `skipped-by-profile`, and `not-configured`. The `truncated` flag is true exactly for `succeeded-with-truncation`. The optional package-level `completeness.status` is `complete`, `partial`, or `unknown`; `complete` requires an explicit outcome for every source and no failed, unavailable, permission-denied, or truncated source. `skipped-by-profile` and `not-configured` are expected exclusions and do not make a package partial. `partial` requires an explicit outcome for every source and at least one failed, unavailable, permission-denied, or truncated source. `unknown` is used when at least one source outcome is absent. Legacy catalogs without these additive fields remain readable and have unknown completeness.
+
+Evidence records may include `revision` and `location`. When evidence names a revision, it must match the revision of its referenced source. A symbol's `sourceId` remains its primary attribution; additional evidence may refer to compatible sources without overwriting the primary source.
