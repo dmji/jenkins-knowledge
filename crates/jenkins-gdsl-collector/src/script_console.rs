@@ -877,7 +877,8 @@ mod tests {
     fn normalizes_bounded_api_types_and_discards_untrusted_metadata() {
         let mut output = valid_probe_output();
         output["apiTypes"] = json!([{
-            "name": "org.example.DeployStep", "kind": "class",
+            "name": "org.example.DeployStep", "kind": "class", "depth": 1,
+            "dynamicStatus": "possible", "inaccessibleMethodCount": 2,
             "superclass": "java.lang.Object", "interfaces": ["java.io.Serializable"],
             "modifiers": "public", "synthetic": false, "plugin": "example-plugin",
             "methods": [{
@@ -892,6 +893,9 @@ mod tests {
         let result = normalize_probe_output(&output);
         let ty = &result["apiTypes"][0];
         assert_eq!(ty["name"], "org.example.DeployStep");
+        assert_eq!(ty["depth"], 1);
+        assert_eq!(ty["dynamicStatus"], "possible");
+        assert_eq!(ty["inaccessibleMethodCount"], 2);
         assert_eq!(ty["methods"][0]["signature"], "deploy(java.lang.String):void");
         assert_eq!(ty["properties"][0]["readable"], true);
         assert!(ty.get("unsafe").is_none());
@@ -994,6 +998,9 @@ mod tests {
         assert!(SCRIPT_TEMPLATE.contains("ParameterDefinition"));
         assert!(SCRIPT_TEMPLATE.contains("hudson.triggers.Trigger"));
         assert!(SCRIPT_TEMPLATE.contains("getKlass()"));
+        assert!(SCRIPT_TEMPLATE.contains("EXPLICIT_API_TYPE_ROOTS"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_API_TYPE_DEPTH"));
+        assert!(SCRIPT_TEMPLATE.contains("getDeclaredMethods()"));
         assert!(!SCRIPT_TEMPLATE.contains("getClazz()"));
         assert!(!SCRIPT_TEMPLATE.contains("GroovyShell"));
         assert!(!SCRIPT_TEMPLATE.contains("evaluate("));
