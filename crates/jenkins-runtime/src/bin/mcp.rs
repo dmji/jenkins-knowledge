@@ -203,4 +203,90 @@ mod tests {
             assert!(tool["inputSchema"]["required"].as_array().unwrap().iter().any(|v| v == argument));
         }
     }
+    static NEXT_PACKAGE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    fn fixture_runtime() -> Runtime {
+        use sha2::Digest;
+        use std::fs;
+        let package = std::env::temp_dir().join(format!(
+            "jenkins-mcp-test-{}-{}",
+            std::process::id(),
+            NEXT_PACKAGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&package);
+        fs::create_dir_all(&package).unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        for index in 0..12 {
+            catalog["symbols"].as_array_mut().unwrap().push(json!({
+                "id": format!("page:{index:03}"),
+                "name": format!("page-{index:03}"),
+                "kind": "step",
+                "sourceId": "controller",
+                "contexts": ["steps"],
+                "confidence": "verified",
+                "provenance": ["test"]
+            }));
+        }
+        let catalog_bytes = serde_json::to_vec(&catalog).unwrap();
+        fs::write(package.join("catalog.json"), &catalog_bytes).unwrap();
+        let checksum = sha2::Sha256::digest(&catalog_bytes)
+            .iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        fs::write(package.join("manifest.json"), json!({
+            "packageVersion": "1.0.0",
+            "catalogSchemaVersion": "1.0.0",
+            "profile": "fixture",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "catalog": "catalog.json",
+            "sourceRevisions": {},
+            "provenance": {},
+            "checksums": {"catalog.json": checksum},
+            "toolVersions": {}
+        }).to_string()).unwrap();
+        let runtime = Runtime::open(&package).unwrap();
+        fs::remove_dir_all(package).unwrap();
+        runtime
+    }
+
+    #[test]
+    fn pipeline_resource_pages_cover_all_steps_without_duplicates() {
+        let runtime = fixture_runtime();
+        let first = read_resource(&runtime, "jenkins://catalog/pipeline-steps?offset=0&limit=5").unwrap();
+        let second = read_resource(&runtime, "jenkins://catalog/pipeline-steps?offset=5&limit=5").unwrap();
+        let third = read_resource(&runtime, "jenkins://catalog/pipeline-steps?offset=10&limit=5").unwrap();
+        assert_eq!(first["total"], 13);
+        assert_eq!(first["returned"], 5);
+        assert_eq!(first["hasMore"], true);
+        assert_eq!(second["hasMore"], true);
+        assert_eq!(third["hasMore"], false);
+        let ids: Vec<_> = [first, second, third].into_iter()
+            .flat_map(|page| page["steps"].as_array().unwrap().iter()
+                .map(|step| step["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>())
+            .collect();
+        let unique: std::collections::BTreeSet<_> = ids.iter().cloned().collect();
+        assert_eq!(ids.len(), 13);
+        assert_eq!(unique.len(), 13);
+    }
+
+    #[test]
+    fn pipeline_resource_keeps_legacy_uri_and_reports_default_page_metadata() {
+        let runtime = fixture_runtime();
+        let page = read_resource(&runtime, "jenkins://catalog/pipeline-steps").unwrap();
+        assert_eq!(page["offset"], 0);
+        assert_eq!(page["limit"], DEFAULT_SEARCH_LIMIT);
+        assert_eq!(page["total"], 13);
+        assert_eq!(page["returned"], 13);
+        assert_eq!(page["hasMore"], false);
+    }
+
+    #[test]
+    fn pipeline_resource_rejects_invalid_pagination_parameters() {
+        assert!(pipeline_page("jenkins://catalog/pipeline-steps?offset=-1").is_err());
+        assert!(pipeline_page("jenkins://catalog/pipeline-steps?limit=0").is_err());
+        assert!(pipeline_page("jenkins://catalog/pipeline-steps?offset=1&offset=2").is_err());
+        assert!(pipeline_page("jenkins://catalog/pipeline-steps?cursor=bad").is_err());
+        assert!(pipeline_page(&format!("jenkins://catalog/pipeline-steps?offset={}", MAX_SEARCH_OFFSET + 1)).is_err());
+    }
+
 }
