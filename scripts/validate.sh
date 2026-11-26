@@ -61,9 +61,9 @@ cargo --locked run -p catalog-validator -- examples/catalog/catalog.json schemas
 
 rm -rf target/fixture-package target/fixture-package-repeat
 SOURCE_DATE_EPOCH=0 cargo --locked run -p knowledge-builder -- build profiles/fixture.yml target/fixture-package
-SOURCE_DATE_EPOCH=0 cargo run -p knowledge-builder -- build profiles/fixture.yml target/fixture-package-repeat
+SOURCE_DATE_EPOCH=0 cargo --locked run -p knowledge-builder -- build profiles/fixture.yml target/fixture-package-repeat
 diff -ru target/fixture-package target/fixture-package-repeat
-cargo run -p catalog-validator -- target/fixture-package/catalog.json schemas/catalog.schema.json
+cargo --locked run -p catalog-validator -- target/fixture-package/catalog.json schemas/catalog.schema.json
 cargo --locked run -p jenkins-runtime -- --package target/fixture-package search deploy
 cargo --locked build -p jenkins-runtime --bin jenkins-mcp
 cargo --locked build -p jenkins-lsp
