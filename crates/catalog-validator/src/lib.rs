@@ -40,7 +40,6 @@ pub fn validate_catalog(catalog: &Value, schema: &Value) -> Result<(), Validatio
     }
 }
 
-
 /// Return a lowercase SHA-256 digest with an explicit algorithm prefix.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
@@ -87,9 +86,11 @@ pub fn source_collection_summary(
             )
     });
     let all_skipped = !statuses.is_empty()
-        && statuses.iter().all(|status| *status == "skipped-by-profile");
-    let all_not_configured = !statuses.is_empty()
-        && statuses.iter().all(|status| *status == "not-configured");
+        && statuses
+            .iter()
+            .all(|status| *status == "skipped-by-profile");
+    let all_not_configured =
+        !statuses.is_empty() && statuses.iter().all(|status| *status == "not-configured");
 
     let status = if related.is_empty() {
         "unknown"
@@ -149,7 +150,6 @@ pub fn source_collection_summary(
     summary
 }
 
-
 /// Derive stable package-level completeness reasons from per-surface collection outcomes.
 pub fn completeness_reason_codes(outcomes: &[Value]) -> Vec<String> {
     let mut reasons = BTreeSet::new();
@@ -202,7 +202,10 @@ fn populate_symbol_evidence(catalog: &mut Value) {
             ))
         })
         .collect::<HashMap<_, _>>();
-    let retrieved_at = catalog["generatedAt"].as_str().unwrap_or_default().to_owned();
+    let retrieved_at = catalog["generatedAt"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
 
     let Some(symbols) = catalog["symbols"].as_array_mut() else {
         return;
@@ -503,7 +506,8 @@ fn validate_completeness(catalog: &Value, sources: &[Value], errors: &mut Vec<St
             "/completeness/status: complete requires explicit successful source outcomes and no partial reasons".into(),
         );
     }
-    if status == "partial" && (!all_sources_reported || (!has_partial_source && !has_reason_codes)) {
+    if status == "partial" && (!all_sources_reported || (!has_partial_source && !has_reason_codes))
+    {
         errors.push(
             "/completeness/status: partial requires explicit outcomes for every source and at least one partial reason".into(),
         );
@@ -519,8 +523,10 @@ fn validate_completeness(catalog: &Value, sources: &[Value], errors: &mut Vec<St
             let state = collection["status"].as_str().unwrap_or_default();
             let truncated = collection["truncated"].as_bool().unwrap_or(false);
             if (state == "succeeded-with-truncation" && !truncated)
-                || (matches!(state, "succeeded" | "skipped-by-profile" | "not-configured" | "unknown")
-                    && truncated)
+                || (matches!(
+                    state,
+                    "succeeded" | "skipped-by-profile" | "not-configured" | "unknown"
+                ) && truncated)
             {
                 errors.push(format!(
                     "/sources/{index}/collection: truncation flag contradicts collection status"
@@ -714,9 +720,7 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
                         "/symbols/{index}/evidence/{evidence_index}/kind: evidence kind '{evidence_kind}' is incompatible with source '{source_id}' of kind '{source_kind}'"
                     ));
                 }
-                if let Some(evidence_source_kind) =
-                    item.get("sourceKind").and_then(Value::as_str)
-                {
+                if let Some(evidence_source_kind) = item.get("sourceKind").and_then(Value::as_str) {
                     if evidence_source_kind != source_kind {
                         errors.push(format!(
                             "/symbols/{index}/evidence/{evidence_index}/sourceKind: does not match referenced source kind"
@@ -1792,7 +1796,10 @@ mod tests {
         stamp_catalog_identity(&mut second).unwrap();
 
         assert_eq!(first["snapshotId"], second["snapshotId"]);
-        assert_eq!(first["sources"][0]["fingerprint"], second["sources"][0]["fingerprint"]);
+        assert_eq!(
+            first["sources"][0]["fingerprint"],
+            second["sources"][0]["fingerprint"]
+        );
     }
 
     #[test]
@@ -1800,7 +1807,9 @@ mod tests {
         let mut catalog = valid_catalog();
         stamp_catalog_identity(&mut catalog).unwrap();
         catalog["sources"][0]["metadata"]["description"] = json!("changed");
-        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        let error = validate_catalog(&catalog, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("fingerprint"));
         assert!(error.contains("snapshotId"));
     }
@@ -1809,7 +1818,7 @@ mod tests {
     fn source_collection_summary_aggregates_surface_outcomes() {
         let outcomes = vec![
             json!({"sourceId":"controller","status":"succeeded"}),
-            json!({"sourceId":"controller","status":"permission-denied","errorCode":"permission-denied"})
+            json!({"sourceId":"controller","status":"permission-denied","errorCode":"permission-denied"}),
         ];
         let summary = source_collection_summary(
             "controller",
@@ -1826,8 +1835,14 @@ mod tests {
     #[test]
     fn stamp_adds_revision_and_location_to_symbol_evidence() {
         let mut catalog = valid_catalog();
-        catalog["symbols"][0]["evidence"][0].as_object_mut().unwrap().remove("revision");
-        catalog["symbols"][0]["evidence"][0].as_object_mut().unwrap().remove("location");
+        catalog["symbols"][0]["evidence"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("revision");
+        catalog["symbols"][0]["evidence"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("location");
         stamp_catalog_identity(&mut catalog).unwrap();
         let source_id = catalog["symbols"][0]["evidence"][0]["sourceId"]
             .as_str()
@@ -1840,7 +1855,10 @@ mod tests {
             .unwrap()["revision"]
             .as_str()
             .unwrap();
-        assert_eq!(catalog["symbols"][0]["evidence"][0]["revision"], source_revision);
+        assert_eq!(
+            catalog["symbols"][0]["evidence"][0]["revision"],
+            source_revision
+        );
         assert!(catalog["symbols"][0]["evidence"][0]["location"].is_string());
     }
 
@@ -1849,7 +1867,9 @@ mod tests {
         let mut catalog = valid_catalog();
         stamp_catalog_identity(&mut catalog).unwrap();
         catalog["symbols"][0]["evidence"][0]["revision"] = json!("stale-revision");
-        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        let error = validate_catalog(&catalog, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("evidence"));
         assert!(error.contains("revision"));
     }
@@ -1898,5 +1918,4 @@ mod tests {
         stamp_catalog_identity(&mut catalog).unwrap();
         assert!(validate_catalog(&catalog, &schema()).is_ok());
     }
-
 }
