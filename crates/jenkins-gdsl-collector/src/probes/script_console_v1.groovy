@@ -737,7 +737,40 @@ if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
         type.properties = type.properties.take(10)
         type.propertiesTruncated = true
     }
+    result.extensionRegistries.each { registry ->
+        registry.items = registry.items.take(5)
+        registry.items.each { item ->
+            if (item.parameters instanceof List && item.parameters.size() > 5) {
+                item.parameters = item.parameters.take(5)
+                item.parametersTruncated = true
+            }
+        }
+    }
+    result.apiTypes = result.apiTypes.take(5)
+    result.apiTypes.each { type ->
+        type.methods = type.methods.take(3)
+        type.methods.each { method ->
+            if (method.parameters.size() > 5) {
+                method.parameters = method.parameters.take(5)
+                method.parametersTruncated = true
+            }
+        }
+        type.properties = type.properties.take(8)
+        type.methodsTruncated = true
+        type.propertiesTruncated = true
+    }
     errors << [probe: 'output', code: 'output-truncated']
+    output = JsonOutput.toJson(result)
+}
+if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
+    result.extensionRegistries.each { registry ->
+        registry.items = registry.items.take(2)
+        registry.items.each { item -> item.remove('parameters') }
+        registry.truncated = true
+    }
+    result.apiTypes = []
+    result.errors = [[probe: 'output', code: 'output-truncated']]
+    result.status = 'partial'
     output = JsonOutput.toJson(result)
 }
 
