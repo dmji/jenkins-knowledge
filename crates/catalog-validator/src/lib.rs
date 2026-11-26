@@ -838,7 +838,9 @@ mod tests {
 
         let mut invalid = valid_catalog();
         invalid["symbols"][0]["evidence"][0]["sourceId"] = json!("platform-lib");
-        let error = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        let error = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("/symbols/0/evidence/0/kind"));
         assert!(error.contains(
             "incompatible with source 'platform-lib' of kind 'shared-library'"
@@ -853,7 +855,9 @@ mod tests {
             "surface":"pipeline-steps",
             "status":"not-collected"
         }]);
-        let error = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        let error = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("/coverage/0"));
         assert!(error.contains("contradicts symbol /symbols/0"));
     }
