@@ -332,9 +332,10 @@ pub fn validate_package_metadata(
 
 fn evidence_compatible(evidence_kind: &str, source_kind: &str) -> bool {
     match evidence_kind {
-        "controller-observed" => {
-            matches!(source_kind, "jenkins-controller" | "plugin" | "jenkins-core")
-        }
+        "controller-observed" => matches!(
+            source_kind,
+            "jenkins-controller" | "plugin" | "jenkins-core"
+        )
         "source-scanned" => {
             matches!(source_kind, "shared-library" | "plugin" | "jenkins-core")
         }
@@ -419,13 +420,11 @@ fn validate_coverage_consistency(
                 continue;
             }
             let symbol_source_matches = symbol["sourceId"].as_str() == Some(source_id);
-            let evidence_source_matches = symbol["evidence"]
-                .as_array()
-                .is_some_and(|evidence| {
-                    evidence
-                        .iter()
-                        .any(|item| item["sourceId"].as_str() == Some(source_id))
-                });
+            let evidence_source_matches = symbol["evidence"].as_array().is_some_and(|evidence| {
+                evidence
+                    .iter()
+                    .any(|item| item["sourceId"].as_str() == Some(source_id))
+            });
             if symbol_source_matches || evidence_source_matches {
                 errors.push(format!(
                     "/coverage/{coverage_index}: status '{status}' for surface '{surface}' contradicts symbol /symbols/{symbol_index} or its evidence from source '{source_id}'"
@@ -842,9 +841,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("/symbols/0/evidence/0/kind"));
-        assert!(error.contains(
-            "incompatible with source 'platform-lib' of kind 'shared-library'"
-        ));
+        assert!(error.contains("incompatible with source 'platform-lib' of kind 'shared-library'"));
     }
 
     #[test]
@@ -897,5 +894,4 @@ mod tests {
             .to_string();
         assert!(error.contains("not a schema-defined symbol attribute"));
     }
-
 }
