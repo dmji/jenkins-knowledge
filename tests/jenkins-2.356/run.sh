@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+RUNNER_TEMP="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 cd "$ROOT"
 
 OUT="$ROOT/target/jenkins-2.356"
@@ -109,3 +110,4 @@ run_build deep admin "$admin_token" deep
 run_build deep-readonly reader "$reader_token" deep-readonly
 
 python3 tests/jenkins-2.356/assert_results.py "$OUT"
+rm -rf "$OUT/cache"
