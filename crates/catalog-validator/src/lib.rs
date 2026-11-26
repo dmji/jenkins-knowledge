@@ -426,6 +426,18 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
             id.to_owned(),
             source["kind"].as_str().unwrap_or_default().to_owned(),
         );
+        if let Some(actual) = source.get("fingerprint").and_then(Value::as_str) {
+            if source_fingerprint(catalog, id).as_deref() != Ok(actual) {
+                errors.push(format!(
+                    "/sources/{index}/fingerprint: does not match the canonical source snapshot"
+                ));
+            }
+        }
+    }
+    if let Some(actual) = catalog.get("snapshotId").and_then(Value::as_str) {
+        if catalog_snapshot_id(catalog).as_deref() != Ok(actual) {
+            errors.push("/snapshotId: does not match the canonical catalog snapshot".into());
+        }
     }
 
     if let Some(coverage) = catalog["coverage"].as_array() {
@@ -570,11 +582,23 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
                         "/symbols/{index}/evidence/{evidence_index}/kind: evidence kind '{evidence_kind}' is incompatible with source '{source_id}' of kind '{source_kind}'"
                     ));
                 }
+                if let Some(revision) = item.get("revision").and_then(Value::as_str) {
+                    let expected = sources
+                        .iter()
+                        .find(|source| source["id"].as_str() == Some(source_id))
+                        .and_then(|source| source["revision"].as_str());
+                    if expected != Some(revision) {
+                        errors.push(format!(
+                            "/symbols/{index}/evidence/{evidence_index}/revision: does not match referenced source revision"
+                        ));
+                    }
+                }
             }
         }
     }
 
     validate_coverage_consistency(catalog, &source_kinds, errors);
+    validate_completeness(catalog, sources, errors);
     reject_secret_fields(catalog, "", errors);
 }
 
@@ -798,7 +822,10 @@ fn validate_coverage_consistency(
                 continue;
             }
         }
-        if status == "inspected" {
+        if matches!(
+            status,
+            "inspected" | "succeeded" | "succeeded-with-truncation" | "partial"
+        ) {
             continue;
         }
         let Some(kinds) = coverage_symbol_kinds(surface) else {
