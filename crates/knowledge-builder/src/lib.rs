@@ -371,7 +371,6 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 "kind": "plugin-inventory",
                 "name": controller.id,
                 "surface": "plugin-inventory",
-                "sourceId": controller_source_id,
                 "status": plugin_status
             });
             if let Some(code) = plugin_error {
@@ -734,14 +733,16 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         }
     }
     for outcome in &mut collection_outcomes {
-        let section = match outcome["kind"].as_str().unwrap_or_default() {
-            "controller" | "pipeline-gdsl" | "declarative-model" | "script-console" => Some(PackageSection::Controller),
-            "plugin-inventory" => Some(PackageSection::Plugins),
+        let kind = outcome["kind"].as_str().unwrap_or_default();
+        let section = match kind {
+            "controller" | "pipeline-gdsl" | "declarative-model" | "script-console" | "plugin-inventory" => Some(PackageSection::Controller),
             "jenkins-core" => Some(PackageSection::JenkinsCore),
             "shared-library" => Some(PackageSection::SharedLibraries),
             _ => None,
         };
-        if section.is_some_and(|section| !selection.includes(section)) {
+        let excluded = section.is_some_and(|section| !selection.includes(section))
+            || (kind == "plugin-inventory" && !selection.includes(PackageSection::Plugins));
+        if excluded {
             outcome["status"] = json!("skipped-by-profile");
             if let Some(fields) = outcome.as_object_mut() {
                 fields.remove("sourceId");
