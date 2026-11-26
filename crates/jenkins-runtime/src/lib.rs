@@ -1373,8 +1373,9 @@ mod tests {
         assert_eq!(report["status"], "unknown");
         assert_eq!(report["environmentComparisonStatus"], "not-compared");
         assert_eq!(report["targetEnvironment"]["status"], "not-provided");
-        assert!(report["warnings"].as_array().unwrap().iter()
-            .any(|warning| warning["code"] == "target-environment-not-provided"));
+        let warnings = report["warnings"].as_array().unwrap();
+        assert!(warnings.iter().any(|warning| warning["code"] == "target-environment-not-provided"));
+        assert!(warnings.iter().any(|warning| warning["code"] == "source-outcome-missing"));
     }
 
     #[test]
