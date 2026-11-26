@@ -70,4 +70,3 @@ jobs:
           toolchain: 1.100.0
       - name: Test Shared Library scanner
         run: cargo --locked test --manifest-path crates/shared-library-scanner/Cargo.toml --all-targets
-
