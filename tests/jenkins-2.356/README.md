@@ -12,7 +12,7 @@ This is a historical compatibility test, not a production deployment recommendat
 | Pipeline aggregator | `590.v6a_d052e5a_a_b_5`; minimum Jenkins core `2.303.3` |
 | Declarative Pipeline | `2.2114.v2654ca_721309`; minimum Jenkins core `2.332.1` |
 | Pipeline Groovy | `2759.2761.vd6e8d2a_15980`; minimum Jenkins core `2.346.1` |
-| Pipeline dependency closure | 43 transitive plugin archives, each version and SHA-256 pinned in `plugins.lock.json` |
+| Pipeline dependency closure | 43 Pipeline plugin archives (roots and dependencies), each version and SHA-256 pinned in `plugins.lock.json` |
 | Shared Library success fixture | `GSA/jenkins-shared-library-examples` at commit `7dfe2ab4bf7123b6aea29b0ec92caa2277cea5de` |
 | Shared Library failure fixture | Same repository with an intentionally nonexistent, format-valid commit SHA |
 | Rust | `1.100.0`, matching the repository validation toolchain |
