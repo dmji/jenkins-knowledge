@@ -556,7 +556,7 @@ def collectApiTypes = {
         def methodMap = new TreeMap()
         try {
             (type.getMethods() as List).each { method ->
-                methodMap[method.getName() + '(' + method.getParameterTypes().collect { it.getName() }.join(',') + ')'] = method
+                methodMap[method.getName() + '(' + method.getParameterTypes().collect { it.getName() }.join(',') + ')->' + method.getReturnType().getName()] = method
             }
             (type.getDeclaredMethods() as List).each { method ->
                 int modifiers = method.getModifiers()
@@ -660,7 +660,7 @@ def collectApiTypes = {
             }
         }
         typeItem.properties = propertyMap.values().take(20).toList()
-        if (propertyMap.size() > 20) typeItem.propertiesTruncated = true
+        if (propertyMap.size() > 20 || typeItem.methodsTruncated) typeItem.propertiesTruncated = true
         if (typeItem.methodsTruncated) {
             errors << [probe: 'api-types', code: 'type-traversal-truncated']
         }
@@ -682,9 +682,11 @@ def collectApiTypes = {
             }
         }
     }
-    if (!pending.isEmpty() || unresolvedRoots > 0) {
+    if (!pending.isEmpty() || unresolvedRoots > 0 || errors.any { it.probe == 'api-types' }) {
         result.apiTypeInventoryStatus = 'partial'
-        errors << [probe: 'api-types', code: 'type-traversal-truncated']
+        if (!errors.any { it.probe == 'api-types' && it.code == 'type-traversal-truncated' }) {
+            errors << [probe: 'api-types', code: 'type-traversal-truncated']
+        }
     } else if (!result.apiTypes.isEmpty()) {
         result.apiTypeInventoryStatus = 'available'
     } else {
