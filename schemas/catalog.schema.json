@@ -675,6 +675,14 @@
           "type": "string",
           "minLength": 1,
           "description": "Location within the source snapshot, such as endpoint/probe or file path."
+        },
+        "sourceKind": {
+          "enum": [
+            "jenkins-controller",
+            "jenkins-core",
+            "shared-library",
+            "plugin"
+          ]
         }
       }
     },
