@@ -1,9 +1,20 @@
 #!/usr/bin/env sh
 set -eu
 
+generated_lockfile=0
+if [ ! -f Cargo.lock ]; then
+  generated_lockfile=1
+fi
+cleanup() {
+  if [ "$generated_lockfile" -eq 1 ]; then
+    rm -f Cargo.lock
+  fi
+}
+trap cleanup EXIT
+
 expected_sha="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 actual_sha="$(git rev-parse HEAD)"
-printf 'Validating commit %s\\n' "$actual_sha"
+printf 'Validating commit %s\n' "$actual_sha"
 if [ "$actual_sha" != "$expected_sha" ]; then
   echo "checkout SHA does not match expected SHA $expected_sha" >&2
   exit 1
@@ -23,17 +34,17 @@ cargo run -p catalog-validator -- target/fixture-package/catalog.json schemas/ca
 cargo run -p jenkins-runtime -- --package target/fixture-package search deploy
 cargo build -p jenkins-runtime --bin jenkins-mcp
 cargo build -p jenkins-lsp
-npm --prefix editors/vscode install
+npm --prefix editors/vscode install --no-save --package-lock=false
 npm --prefix editors/vscode run compile
-
-cargo build --release -p knowledge-builder -p jenkins-runtime
-docker build --file Dockerfile.builder --tag jenkins-knowledge-builder:local .
-docker build --file Dockerfile.runtime --tag jenkins-knowledge-runtime:local .
 
 cargo build --release -p knowledge-builder -p jenkins-runtime --bins
 docker build --file Dockerfile.builder --tag jenkins-knowledge-builder:local .
 docker build --file Dockerfile.runtime --tag jenkins-knowledge-runtime:local .
 BUILDER_IMAGE=jenkins-knowledge-builder:local RUNTIME_IMAGE=jenkins-knowledge-runtime:local bash .github/scripts/container-smoke.sh
+
+# Remove Cargo's transient lockfile only when the checkout did not provide one.
+cleanup
+trap - EXIT
 
 # Validation must leave the checked-out commit untouched.
 git diff --exit-code HEAD --
