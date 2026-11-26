@@ -1,4 +1,4 @@
-use jenkins_runtime::{Runtime, SearchOptions, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_RESULTS};
+use jenkins_runtime::{Runtime, SearchOptions, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_OFFSET, MAX_SEARCH_RESULTS};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 
@@ -32,6 +32,10 @@ fn query_options(args: &Value, include_query: bool) -> Result<SearchOptions, Str
         owner: optional(args,"owner").map(str::to_owned),
         type_name: optional(args,"type").map(str::to_owned),
         confidence: optional(args,"confidence").map(str::to_owned),
+        prefix: None,
+        contexts: None,
+        kinds: None,
+        source_kind: None,
         limit,
     })
 }
@@ -51,12 +55,62 @@ fn call_tool(rt: &Runtime, name: &str, args: &Value) -> Result<Value,String> {
         _ => Err(format!("unknown tool '{name}'")),
     }
 }
+
+fn pipeline_page(uri: &str) -> Result<(usize, usize), String> {
+    let (_, query) = uri.split_once('?').unwrap_or((uri, ""));
+    let mut offset = 0usize;
+    let mut limit = DEFAULT_SEARCH_LIMIT;
+    let mut seen_offset = false;
+    let mut seen_limit = false;
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=').ok_or_else(|| "pagination parameters must use key=value".to_owned())?;
+        match key {
+            "offset" if !seen_offset => {
+                offset = value.parse().map_err(|_| "offset must be a non-negative integer".to_owned())?;
+                seen_offset = true;
+            }
+            "limit" if !seen_limit => {
+                limit = value.parse().map_err(|_| "limit must be an integer".to_owned())?;
+                seen_limit = true;
+            }
+            "offset" | "limit" => return Err(format!("duplicate pagination parameter '{key}'")),
+            _ => return Err(format!("unsupported pagination parameter '{key}'")),
+        }
+    }
+    if offset > MAX_SEARCH_OFFSET {
+        return Err(format!("offset must not exceed {MAX_SEARCH_OFFSET}"));
+    }
+    if !(1..=MAX_SEARCH_RESULTS).contains(&limit) {
+        return Err(format!("limit must be between 1 and {MAX_SEARCH_RESULTS}"));
+    }
+    Ok((offset, limit))
+}
+
 fn read_resource(rt: &Runtime, uri: &str) -> Result<Value,String> {
     match uri {
         "jenkins://catalog/manifest" => Ok(rt.manifest().clone()),
         "jenkins://catalog/coverage" => Ok(json!({"profile":rt.profile(),"coverage":rt.coverage()})),
         "jenkins://catalog/libraries" => Ok(json!({"profile":rt.profile(),"sources":rt.sources().iter().filter(|s|s["kind"]=="shared-library").collect::<Vec<_>>()})),
-        "jenkins://catalog/pipeline-steps" => Ok(json!({"profile":rt.profile(),"steps":rt.search("",Some("step"),None)})),
+        _ if uri == "jenkins://catalog/pipeline-steps" || uri.starts_with("jenkins://catalog/pipeline-steps?") => {
+            let (offset, limit) = pipeline_page(uri)?;
+            let options = SearchOptions {
+                kind: Some("step".into()),
+                limit,
+                ..SearchOptions::default()
+            };
+            let page = rt.search_page(&options, offset).map_err(|error| error.to_string())?;
+            let returned = page.results.len();
+            Ok(json!({
+                "profile": rt.profile(),
+                "steps": page.results,
+                "offset": page.offset,
+                "limit": page.limit,
+                "total": page.total,
+                "returned": returned,
+                "hasMore": page.has_more,
+                "nextOffset": if page.has_more { Some(page.offset + returned) } else { None }
+            }))
+        },
         _ if uri.starts_with("jenkins://catalog/profiles/") => {
             let profile=uri.trim_start_matches("jenkins://catalog/profiles/");
             if profile!=rt.profile() { return Err(format!("profile '{profile}' is not loaded; launch the server with that profile's package")); }
@@ -83,7 +137,7 @@ fn handle(rt: &Runtime, req: Value) -> Option<Value> {
             {"uri":"jenkins://catalog/manifest","name":"Knowledge package manifest","mimeType":"application/json"},
             {"uri":"jenkins://catalog/coverage","name":"Catalog collection coverage","mimeType":"application/json"},
             {"uri":"jenkins://catalog/libraries","name":"Shared Library sources","mimeType":"application/json"},
-            {"uri":"jenkins://catalog/pipeline-steps","name":"Jenkins Pipeline steps","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/pipeline-steps","name":"Jenkins Pipeline steps","description":"Paginated with ?offset=0&limit=50; responses include total, returned, and hasMore.","mimeType":"application/json"},
             {"uri":format!("jenkins://catalog/profiles/{}",rt.profile()),"name":"Selected profile","mimeType":"application/json"}
         ]})),
         "resources/read" => {
@@ -149,4 +203,90 @@ mod tests {
             assert!(tool["inputSchema"]["required"].as_array().unwrap().iter().any(|v| v == argument));
         }
     }
+    static NEXT_PACKAGE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    fn fixture_runtime() -> Runtime {
+        use sha2::Digest;
+        use std::fs;
+        let package = std::env::temp_dir().join(format!(
+            "jenkins-mcp-test-{}-{}",
+            std::process::id(),
+            NEXT_PACKAGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&package);
+        fs::create_dir_all(&package).unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        for index in 0..12 {
+            catalog["symbols"].as_array_mut().unwrap().push(json!({
+                "id": format!("page:{index:03}"),
+                "name": format!("page-{index:03}"),
+                "kind": "step",
+                "sourceId": "controller",
+                "contexts": ["steps"],
+                "confidence": "verified",
+                "provenance": ["test"]
+            }));
+        }
+        let catalog_bytes = serde_json::to_vec(&catalog).unwrap();
+        fs::write(package.join("catalog.json"), &catalog_bytes).unwrap();
+        let checksum = sha2::Sha256::digest(&catalog_bytes)
+            .iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        fs::write(package.join("manifest.json"), json!({
+            "packageVersion": "1.0.0",
+            "catalogSchemaVersion": "1.0.0",
+            "profile": "fixture",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "catalog": "catalog.json",
+            "sourceRevisions": {},
+            "provenance": {},
+            "checksums": {"catalog.json": checksum},
+            "toolVersions": {}
+        }).to_string()).unwrap();
+        let runtime = Runtime::open(&package).unwrap();
+        fs::remove_dir_all(package).unwrap();
+        runtime
+    }
+
+    #[test]
+    fn pipeline_resource_pages_cover_all_steps_without_duplicates() {
+        let runtime = fixture_runtime();
+        let first = read_resource(&runtime, "jenkins://catalog/pipeline-steps?offset=0&limit=5").unwrap();
+        let second = read_resource(&runtime, "jenkins://catalog/pipeline-steps?offset=5&limit=5").unwrap();
+        let third = read_resource(&runtime, "jenkins://catalog/pipeline-steps?offset=10&limit=5").unwrap();
+        assert_eq!(first["total"], 13);
+        assert_eq!(first["returned"], 5);
+        assert_eq!(first["hasMore"], true);
+        assert_eq!(second["hasMore"], true);
+        assert_eq!(third["hasMore"], false);
+        let ids: Vec<_> = [first, second, third].into_iter()
+            .flat_map(|page| page["steps"].as_array().unwrap().iter()
+                .map(|step| step["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>())
+            .collect();
+        let unique: std::collections::BTreeSet<_> = ids.iter().cloned().collect();
+        assert_eq!(ids.len(), 13);
+        assert_eq!(unique.len(), 13);
+    }
+
+    #[test]
+    fn pipeline_resource_keeps_legacy_uri_and_reports_default_page_metadata() {
+        let runtime = fixture_runtime();
+        let page = read_resource(&runtime, "jenkins://catalog/pipeline-steps").unwrap();
+        assert_eq!(page["offset"], 0);
+        assert_eq!(page["limit"], DEFAULT_SEARCH_LIMIT);
+        assert_eq!(page["total"], 13);
+        assert_eq!(page["returned"], 13);
+        assert_eq!(page["hasMore"], false);
+    }
+
+    #[test]
+    fn pipeline_resource_rejects_invalid_pagination_parameters() {
+        assert!(pipeline_page("jenkins://catalog/pipeline-steps?offset=-1").is_err());
+        assert!(pipeline_page("jenkins://catalog/pipeline-steps?limit=0").is_err());
+        assert!(pipeline_page("jenkins://catalog/pipeline-steps?offset=1&offset=2").is_err());
+        assert!(pipeline_page("jenkins://catalog/pipeline-steps?cursor=bad").is_err());
+        assert!(pipeline_page(&format!("jenkins://catalog/pipeline-steps?offset={}", MAX_SEARCH_OFFSET + 1)).is_err());
+    }
+
 }

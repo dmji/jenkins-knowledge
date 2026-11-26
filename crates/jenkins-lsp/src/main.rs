@@ -54,19 +54,101 @@ fn word_at(text: &str, line_number: usize, utf16_column: usize) -> Option<String
     (start < end).then(|| line[start..end].to_string())
 }
 
-fn supported_symbol(symbol: &Value) -> bool {
-    symbol["kind"] == "step" || symbol["source"]["kind"] == "shared-library"
+fn prefix_at(text: &str, line_number: usize, utf16_column: usize) -> String {
+    let Some(line) = text.lines().nth(line_number) else { return String::new(); };
+    let mut byte_column = 0;
+    let mut units = 0;
+    for (index, character) in line.char_indices() {
+        if units + character.len_utf16() > utf16_column { break; }
+        units += character.len_utf16();
+        byte_column = index + character.len_utf8();
+    }
+    let mut start = byte_column;
+    while start > 0 {
+        let Some((index, character)) = line[..start].char_indices().next_back() else { break; };
+        if !(character.is_alphanumeric() || matches!(character, '_' | '$')) { break; }
+        start = index;
+    }
+    line[start..byte_column].to_owned()
 }
 
-fn completion(runtime: Option<&Runtime>) -> Value {
-    let Some(runtime) = runtime else { return json!([]); };
-    let options = SearchOptions { limit: MAX_SEARCH_RESULTS, ..SearchOptions::default() };
-    let mut items: Vec<Value> = runtime.search_with_options(&options).iter()
-        .filter(|symbol| supported_symbol(symbol)).map(|symbol| {
+fn block_is_open(before: &str, block: &str) -> bool {
+    let needle = format!("{block} {{");
+    before.rfind(&needle).is_some_and(|open| {
+        before.rfind('}').is_none_or(|close| open > close)
+    })
+}
+
+fn completion_context(text: &str, line: usize, character: usize) -> (String, Vec<String>, Vec<String>) {
+    let prefix = prefix_at(text, line, character);
+    let lines: Vec<_> = text.lines().take(line).collect();
+    let mut before = lines.join("\n");
+    if let Some(current) = text.lines().nth(line) {
+        if !before.is_empty() { before.push('\n'); }
+        let byte_column = current.char_indices()
+            .scan(0usize, |units, (index, ch)| {
+                let current_units = *units;
+                *units += ch.len_utf16();
+                Some((index, ch, current_units))
+            })
+            .take_while(|(_, ch, units)| *units + ch.len_utf16() <= character)
+            .map(|(index, ch, _)| index + ch.len_utf8())
+            .last().unwrap_or(0);
+        before.push_str(&current[..byte_column]);
+    }
+
+    let in_script = block_is_open(&before, "script");
+    let in_steps = block_is_open(&before, "steps");
+    let in_stage = block_is_open(&before, "stage");
+    let declarative = before.contains("pipeline {") && !in_script;
+    let mut contexts = vec!["pipeline".to_owned()];
+    if in_steps { contexts.push("steps".into()); }
+    if in_stage { contexts.push("stage".into()); }
+    let kinds = if declarative && !in_steps {
+        vec!["step".into(), "declarative-directive".into()]
+    } else {
+        vec!["step".into()]
+    };
+    (prefix, contexts, kinds)
+}
+
+fn supported_symbol(symbol: &Value) -> bool {
+    symbol["kind"] == "step"
+        || symbol["kind"] == "declarative-directive"
+        || symbol["source"]["kind"] == "shared-library"
+}
+
+fn completion(runtime: Option<&Runtime>, text: &str, line: usize, character: usize) -> Value {
+    let Some(runtime) = runtime else { return json!({"isIncomplete": false, "items": []}); };
+    let (prefix, contexts, kinds) = completion_context(text, line, character);
+    let common = SearchOptions {
+        prefix: Some(prefix),
+        contexts: Some(contexts),
+        limit: MAX_SEARCH_RESULTS,
+        ..SearchOptions::default()
+    };
+    let primary = SearchOptions { kinds: Some(kinds), ..common.clone() };
+    let library = SearchOptions {
+        kinds: Some(vec!["global-variable".into(), "method".into(), "class".into(), "property".into()]),
+        source_kind: Some("shared-library".into()),
+        ..common
+    };
+    let primary = runtime.search_page(&primary, 0).expect("zero offset is valid");
+    let library = runtime.search_page(&library, 0).expect("zero offset is valid");
+    let total = primary.total + library.total;
+    let mut symbols = primary.results;
+    symbols.extend(library.results);
+    symbols.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str())
+        .then_with(|| left["id"].as_str().cmp(&right["id"].as_str())));
+    symbols.dedup_by(|left, right| left["id"] == right["id"]);
+    symbols.truncate(MAX_SEARCH_RESULTS);
+
+    let items: Vec<Value> = symbols.iter().filter(|symbol| supported_symbol(symbol)).map(|symbol| {
         let name = symbol["name"].as_str().unwrap_or_default();
         let kind = symbol["kind"].as_str().unwrap_or_default();
         let lsp_kind = match kind {
             "step" => 3,
+            "declarative-directive" => 14,
             "global-variable" => 6,
             "class" => 7,
             "property" => 10,
@@ -88,9 +170,7 @@ fn completion(runtime: Option<&Runtime>) -> Value {
             "data": {"id": symbol["id"], "profile": runtime.profile()}
         })
     }).collect();
-    items.sort_by(|a, b| a["label"].as_str().cmp(&b["label"].as_str())
-        .then_with(|| a["detail"].as_str().cmp(&b["detail"].as_str())));
-    Value::Array(items)
+    json!({"isIncomplete": total > items.len(), "items": items})
 }
 
 fn hover(runtime: Option<&Runtime>, word: Option<String>) -> Value {
@@ -161,7 +241,13 @@ fn handle_request(connection: &Connection, request: Request, runtime: Option<&Ru
     documents: &HashMap<String, String>) -> Result<(), Box<dyn Error>> {
     let result = match request.method.as_str() {
         "shutdown" => Value::Null,
-        "textDocument/completion" => completion(runtime),
+        "textDocument/completion" => {
+            let uri = request.params.pointer("/textDocument/uri").and_then(Value::as_str).unwrap_or_default();
+            let line = request.params.pointer("/position/line").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let character = request.params.pointer("/position/character").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let text = documents.get(uri).map(String::as_str).unwrap_or("");
+            completion(runtime, text, line, character)
+        },
         "jenkinsKnowledge/coverage" => json!({
             "profile": runtime.map(Runtime::profile),
             "coverage": runtime.map(Runtime::coverage).unwrap_or(&[])
@@ -190,6 +276,10 @@ fn handle_request(connection: &Connection, request: Request, runtime: Option<&Ru
                 owner: request.params.get("owner").and_then(Value::as_str).map(str::to_owned),
                 type_name: request.params.get("type").and_then(Value::as_str).map(str::to_owned),
                 confidence: request.params.get("confidence").and_then(Value::as_str).map(str::to_owned),
+                prefix: None,
+                contexts: None,
+                kinds: None,
+                source_kind: None,
                 limit,
             };
             json!({"profile": runtime.profile(), "limit": limit, "results": runtime.search_with_options(&options)})
@@ -241,13 +331,27 @@ mod tests {
     use sha2::Digest;
     use std::fs;
 
+    static NEXT_PACKAGE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
     fn fixture_runtime(profile: &str) -> Runtime {
-        let package = std::env::temp_dir().join(format!("jenkins-lsp-test-{}", process::id()));
+        fixture_runtime_with_symbols(profile, Vec::new())
+    }
+
+    fn fixture_runtime_with_symbols(profile: &str, extra_symbols: Vec<Value>) -> Runtime {
+        let package = std::env::temp_dir().join(format!(
+            "jenkins-lsp-test-{}-{}",
+            process::id(),
+            NEXT_PACKAGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         let _ = fs::remove_dir_all(&package);
         fs::create_dir_all(&package).unwrap();
-        let catalog = include_str!("../../../tests/fixtures/catalog-valid.json");
-        fs::write(package.join("catalog.json"), catalog).unwrap();
-        let checksum = sha2::Sha256::digest(catalog.as_bytes())
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        catalog["symbols"].as_array_mut().unwrap().extend(extra_symbols);
+        let catalog_bytes = serde_json::to_vec(&catalog).unwrap();
+        fs::write(package.join("catalog.json"), &catalog_bytes).unwrap();
+        let checksum = sha2::Sha256::digest(&catalog_bytes)
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
@@ -262,10 +366,7 @@ mod tests {
             "checksums": {"catalog.json": checksum},
             "toolVersions": {}
         }).to_string()).unwrap();
-        let previous = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&package).unwrap();
         let runtime = Runtime::open(&package).unwrap();
-        std::env::set_current_dir(previous).unwrap();
         fs::remove_dir_all(package).unwrap();
         runtime
     }
@@ -292,8 +393,8 @@ mod tests {
     #[test]
     fn completion_and_hover_use_the_selected_catalog() {
         let runtime = fixture_runtime("fixture");
-        let items = completion(Some(&runtime));
-        let labels: Vec<_> = items.as_array().unwrap().iter()
+        let items = completion(Some(&runtime), "", 0, 0);
+        let labels: Vec<_> = items["items"].as_array().unwrap().iter()
             .filter_map(|item| item["label"].as_str()).collect();
         assert!(labels.contains(&"sh"));
         assert!(labels.contains(&"deployApp"));
@@ -307,4 +408,53 @@ mod tests {
         assert!(value.contains("verified"));
         assert!(value.contains("fixture"));
     }
+    #[test]
+    fn completion_uses_prefix_and_declarative_or_scripted_context() {
+        let runtime = fixture_runtime("fixture");
+        let declarative = completion(Some(&runtime), "pipeline {\n  agent ", 1, 8);
+        let declarative_labels: Vec<_> = declarative["items"].as_array().unwrap().iter()
+            .filter_map(|item| item["label"].as_str()).collect();
+        assert!(declarative_labels.contains(&"agent"));
+
+        let scripted = completion(Some(&runtime), "node {\n  sh", 1, 4);
+        let scripted_labels: Vec<_> = scripted["items"].as_array().unwrap().iter()
+            .filter_map(|item| item["label"].as_str()).collect();
+        assert!(scripted_labels.contains(&"sh"));
+        assert!(!scripted_labels.contains(&"agent"));
+        assert!(scripted_labels.iter().all(|label| label.starts_with("sh")));
+    }
+
+    #[test]
+    fn completion_finds_prefix_matches_beyond_the_old_global_first_hundred() {
+        let mut extra = Vec::new();
+        for index in 0..120 {
+            extra.push(json!({
+                "id": format!("library:aaa-{index:03}"),
+                "name": format!("aaa-{index:03}"),
+                "kind": "global-variable",
+                "sourceId": "platform-lib",
+                "contexts": ["pipeline"],
+                "confidence": "verified",
+                "provenance": ["test"]
+            }));
+        }
+        extra.push(json!({
+            "id": "library:zzTarget",
+            "name": "zzTarget",
+            "kind": "global-variable",
+            "sourceId": "platform-lib",
+            "contexts": ["pipeline"],
+            "confidence": "verified",
+            "provenance": ["test"]
+        }));
+        let runtime = fixture_runtime_with_symbols("fixture", extra);
+        let result = completion(Some(&runtime), "node {\n  zz", 1, 4);
+        let labels: Vec<_> = result["items"].as_array().unwrap().iter()
+            .filter_map(|item| item["label"].as_str()).collect();
+        assert!(labels.contains(&"zzTarget"));
+        assert_eq!(labels.len(), 1);
+        assert_eq!(result["isIncomplete"], false);
+    }
+
+
 }

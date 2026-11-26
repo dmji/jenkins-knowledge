@@ -15,6 +15,7 @@ pub mod groovy;
 
 pub const DEFAULT_SEARCH_LIMIT: usize = 50;
 pub const MAX_SEARCH_RESULTS: usize = 100;
+pub const MAX_SEARCH_OFFSET: usize = 10_000;
 const MAX_MANIFEST_BYTES: u64 = 1_048_576;
 const MAX_CHECKSUM_ENTRIES: usize = 10_000;
 const MAX_PACKAGE_FILE_BYTES: u64 = 67_108_864;
@@ -31,6 +32,10 @@ pub struct SearchOptions {
     pub owner: Option<String>,
     pub type_name: Option<String>,
     pub confidence: Option<String>,
+    pub prefix: Option<String>,
+    pub contexts: Option<Vec<String>>,
+    pub kinds: Option<Vec<String>>,
+    pub source_kind: Option<String>,
     pub limit: usize,
 }
 
@@ -44,9 +49,22 @@ impl Default for SearchOptions {
             owner: None,
             type_name: None,
             confidence: None,
+            prefix: None,
+            contexts: None,
+            kinds: None,
+            source_kind: None,
             limit: DEFAULT_SEARCH_LIMIT,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchPage {
+    pub offset: usize,
+    pub limit: usize,
+    pub total: usize,
+    pub has_more: bool,
+    pub results: Vec<Value>,
 }
 
 #[derive(Debug)]
@@ -269,9 +287,19 @@ impl Runtime {
     }
 
     pub fn search_with_options(&self, options: &SearchOptions) -> Vec<Value> {
+        self.search_page(options, 0).expect("zero offset is always valid").results
+    }
+
+    pub fn search_page(&self, options: &SearchOptions, offset: usize) -> Result<SearchPage, RuntimeError> {
+        if offset > MAX_SEARCH_OFFSET {
+            return Err(RuntimeError(format!("search offset exceeds limit ({MAX_SEARCH_OFFSET})")));
+        }
         let query = options.query.to_lowercase();
+        let prefix = options.prefix.as_deref().map(str::to_lowercase);
         let limit = options.limit.clamp(1, MAX_SEARCH_RESULTS);
-        let mut best = BinaryHeap::<(String, String, usize)>::with_capacity(limit);
+        let selection_limit = offset + limit;
+        let mut best = BinaryHeap::<(String, String, usize)>::with_capacity(selection_limit);
+        let mut total = 0usize;
 
         for (index, symbol) in self.symbols().iter().enumerate() {
             let source_id = symbol["sourceId"].as_str().unwrap_or_default();
@@ -296,9 +324,30 @@ impl Runtime {
                     .filter_map(|key| symbol.get(key).and_then(Value::as_str))
                     .any(|value| value == type_name || value.contains(type_name))
             });
+            let matches_prefix = prefix.as_deref().is_none_or(|prefix| {
+                symbol["name"].as_str().unwrap_or_default().to_lowercase().starts_with(prefix)
+            });
+            let matches_context = options.contexts.as_ref().is_none_or(|contexts| {
+                let declared = symbol["contexts"].as_array();
+                let execution = symbol["executionConstraints"]["contexts"].as_array();
+                let has_context_metadata = declared.is_some_and(|values| !values.is_empty())
+                    || execution.is_some_and(|values| !values.is_empty());
+                !has_context_metadata || contexts.iter().any(|context| {
+                    declared.is_some_and(|values| values.iter().any(|value| value.as_str() == Some(context)))
+                        || execution.is_some_and(|values| values.iter().any(|value| value.as_str() == Some(context)))
+                })
+            });
+            let matches_kind = options.kinds.as_ref().is_none_or(|kinds| {
+                kinds.iter().any(|kind| symbol["kind"].as_str() == Some(kind))
+            });
+            let matches_source_kind = options.source_kind.as_deref().is_none_or(|kind| source_kind == kind);
             let matches = (query.is_empty() || ["name", "description", "signature", "namespace", "returnType"]
                 .iter().filter_map(|key| symbol.get(key).and_then(Value::as_str))
                 .any(|value| value.to_lowercase().contains(&query)))
+                && matches_prefix
+                && matches_context
+                && matches_kind
+                && matches_source_kind
                 && options.kind.as_deref().is_none_or(|value| symbol["kind"].as_str() == Some(value))
                 && options.source.as_deref().is_none_or(|value| source_id == value)
                 && matches_plugin
@@ -307,12 +356,13 @@ impl Runtime {
                 && options.confidence.as_deref().is_none_or(|value| symbol["confidence"].as_str() == Some(value));
 
             if matches {
+                total += 1;
                 let key = (
                     symbol["name"].as_str().unwrap_or_default().to_owned(),
                     symbol["id"].as_str().unwrap_or_default().to_owned(),
                     index,
                 );
-                if best.len() < limit {
+                if best.len() < selection_limit {
                     best.push(key);
                 } else if best.peek().is_some_and(|largest| key < *largest) {
                     best.pop();
@@ -323,9 +373,17 @@ impl Runtime {
 
         let mut selected = best.into_vec();
         selected.sort_unstable();
-        selected.into_iter()
+        let results: Vec<_> = selected.into_iter().skip(offset)
             .map(|(_, _, index)| self.enrich(&self.symbols()[index]))
-            .collect()
+            .collect();
+        let returned = results.len();
+        Ok(SearchPage {
+            offset,
+            limit,
+            total,
+            has_more: total > offset.saturating_add(returned),
+            results,
+        })
     }
 
     pub fn coverage(&self) -> &[Value] {
@@ -861,6 +919,71 @@ mod tests {
         assert_eq!(total, MAX_PACKAGE_BYTES);
         let error = add_package_bytes(&mut total, 1).unwrap_err().to_string();
         assert!(error.contains("aggregate size limit"));
+    }
+
+    #[test]
+    fn paginated_search_has_stable_order_and_no_gaps_or_duplicates() {
+        let mut runtime = runtime();
+        let symbols = runtime.catalog["symbols"].as_array_mut().unwrap();
+        for index in 0..23 {
+            symbols.push(serde_json::json!({
+                "id": format!("page:{index:03}"),
+                "name": format!("page-{index:03}"),
+                "kind": "step",
+                "sourceId": "controller",
+                "contexts": ["steps"],
+                "confidence": "verified",
+                "provenance": ["test"]
+            }));
+        }
+        let options = SearchOptions { kind: Some("step".into()), limit: 7, ..SearchOptions::default() };
+        let first = runtime.search_page(&options, 0).unwrap();
+        let second = runtime.search_page(&options, 7).unwrap();
+        let third = runtime.search_page(&options, 14).unwrap();
+        let fourth = runtime.search_page(&options, 21).unwrap();
+        assert_eq!(first.total, 24);
+        assert!(first.has_more && second.has_more && third.has_more);
+        assert!(!fourth.has_more);
+        let ids: Vec<_> = [first, second, third, fourth].into_iter()
+            .flat_map(|page| page.results.into_iter().map(|symbol| symbol["id"].as_str().unwrap().to_owned()))
+            .collect();
+        let unique: std::collections::BTreeSet<_> = ids.iter().cloned().collect();
+        assert_eq!(ids.len(), 24);
+        assert_eq!(unique.len(), 24);
+    }
+
+    #[test]
+    fn search_page_rejects_offsets_above_the_documented_ceiling() {
+        let error = runtime().search_page(&SearchOptions::default(), MAX_SEARCH_OFFSET + 1)
+            .unwrap_err().to_string();
+        assert!(error.contains("search offset exceeds limit"));
+    }
+
+    #[test]
+    fn prefix_context_kind_and_source_kind_filters_are_applied_before_pagination() {
+        let runtime = runtime();
+        let step = SearchOptions {
+            prefix: Some("sh".into()),
+            contexts: Some(vec!["steps".into()]),
+            kinds: Some(vec!["step".into()]),
+            limit: 1,
+            ..SearchOptions::default()
+        };
+        let page = runtime.search_page(&step, 0).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.results[0]["name"], "sh");
+
+        let library = SearchOptions {
+            prefix: Some("depl".into()),
+            contexts: Some(vec!["pipeline".into()]),
+            kinds: Some(vec!["global-variable".into()]),
+            source_kind: Some("shared-library".into()),
+            limit: 1,
+            ..SearchOptions::default()
+        };
+        let page = runtime.search_page(&library, 0).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.results[0]["name"], "deployApp");
     }
 
 }

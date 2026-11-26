@@ -24,3 +24,10 @@ Limits are intentionally not user-configurable: changing them changes the maximu
 Runtime builds a source-ID-to-source-position index once when opening the package. Search uses that index for plugin matching and result enrichment rather than scanning the source array for each symbol.
 
 Search still inspects catalog symbols to evaluate filters, but it maintains only the best requested results in a bounded heap. For N symbols and result limit K (1–100), selection takes O(N log K) time and O(K) result-selection memory, followed by O(K log K) ordering. Results are deterministic, ordered by symbol name and then symbol ID. This avoids collecting and sorting every match when callers request a small result page.
+
+
+## Large-catalog consumers
+
+LSP completion uses the identifier prefix at the cursor and the open document's Pipeline context. Declarative directives are suggested in Declarative Pipeline blocks, Pipeline steps in steps/scripted contexts, and Shared Library symbols are queried separately by source kind. The server returns an LSP CompletionList with isIncomplete set when more than 100 relevant items match, allowing clients to request again as the prefix becomes more specific.
+
+The MCP resource jenkins://catalog/pipeline-steps remains valid and returns its first page using the default limit of 50. Clients can request further pages with jenkins://catalog/pipeline-steps?offset=50&limit=50. Each response includes offset, limit, total, returned, hasMore, and nextOffset. Ordering is deterministic by symbol name and then symbol ID; valid offsets are 0–10,000 and page sizes are 1–100. Unknown, duplicate, malformed, or out-of-range query parameters are rejected.
