@@ -52,20 +52,20 @@ The scanner validates each generated catalog against `schemas/catalog.schema.jso
 
 ## Safety and resource limits
 
-Only absolute HTTPS/SSH remotes and Git SCP-style remotes are accepted. Local paths, `file://`, `git://`, embedded HTTPS credentials, query strings, fragments, and unsafe Git refs are rejected by the same validation policy in Builder and the standalone scanner.
+The scanner is an administrator-operated collection component. Repository URLs and revisions come from the Builder's administrator-maintained profile; LSP/MCP users cannot supply Git remotes or trigger scans. This is not a public arbitrary-repository service, so the scanner does not implement a hostile-user disk-quota system.
 
-Git fetches are shallow, omit tags and submodules, request blobs no larger than 2 MiB, disable terminal prompts, and each Git operation is terminated after 120 seconds. Partial-clone filters are only an optimization: servers may ignore them.
+Only absolute HTTPS/SSH remotes and Git SCP-style remotes are accepted. Local paths, `file://`, `git://`, embedded HTTPS credentials, query strings, fragments, and unsafe Git refs are rejected by the same validation policy in Builder and the standalone scanner. Credentials use the host's normal Git credential helper or SSH agent and are never written to catalogs, manifests, or diagnostics.
 
-Every scan uses a unique directory from the platform's standard temporary-directory facility. No mount, namespace, elevated capability, or caller working-tree modification is required. During each Git operation, the scanner polls the checkout's aggregate regular-file size and terminates the Git process tree as soon as the configured budget is crossed. On Unix, Git and its descendants also inherit `RLIMIT_FSIZE`, preventing any single file (including an unexpectedly large packfile) from exceeding the configured budget. Windows uses the aggregate watchdog and terminates the process tree with `taskkill /T`. The watchdog polls every 2 ms; aggregate accounting is therefore bounded with a small scheduling/IO overshoot rather than a kernel-enforced filesystem quota. A server that ignores the blob filter cannot cause an unbounded transfer: the fetch is stopped at the budget. Failed and successful checkouts are removed by the temporary-directory guard.
+Git fetches are shallow, omit tags and submodules, request blobs no larger than 2 MiB, disable terminal prompts, and each Git operation is terminated after 120 seconds. Partial-clone filters are an optimization; a server may ignore them. Every scan uses a unique platform temporary directory, never modifies the caller's working tree, and removes its checkout on success or failure. No mount, namespace, elevated capability, or platform-specific filesystem quota is required.
+
+After each Git operation completes, the scanner performs one bounded directory-size sanity check against the configured checkout budget. This catches unexpectedly large checkouts before proceeding to the next stage, but it is an operational guardrail—not a live limit, a hard aggregate quota, or a security boundary. There is no repeated recursive filesystem polling while Git runs.
 
 | Limit | Default | Environment override |
 |---|---:|---|
-| Aggregate temporary Git checkout | 256 MiB | `JENKINS_KNOWLEDGE_GIT_MAX_CHECKOUT_BYTES` |
+| Checkout size sanity threshold | 256 MiB | `JENKINS_KNOWLEDGE_GIT_MAX_CHECKOUT_BYTES` |
 | Git operation timeout | 120 seconds | fixed |
 
-The storage setting must be a positive integer number of bytes. The scanner fails closed if it cannot create or account for its temporary checkout; there is no unbounded fallback. On Unix, a file-size limit is also applied to every Git child process. On Windows, the aggregate watchdog is the storage enforcement mechanism.
-
-The source traversal limits are independent defense in depth. They are applied before parsing and catalog serialization:
+The source traversal limits are independent safeguards against accidental repository growth and expensive local parsing. They are applied before parsing and catalog serialization:
 
 | Limit | Default | Environment override |
 |---|---:|---|
@@ -78,14 +78,3 @@ The source traversal limits are independent defense in depth. They are applied b
 | Serialized catalog | 64 MiB | `JENKINS_KNOWLEDGE_SCAN_MAX_CATALOG_BYTES` |
 
 Overrides must be positive integers. Exceeding a limit fails the scan; it does not silently truncate results. Symlinks are skipped and every candidate is resolved against the canonical checkout root.
-The scanner skips symlinks (including directory symlinks), resolves every candidate against the canonical checkout root, and enforces these defaults:
-
-| Limit | Default | Environment override |
-|---|---:|---|
-| Traversal depth | 32 directories | `JENKINS_KNOWLEDGE_SCAN_MAX_DEPTH` |
-| Groovy files | 10,000 | `JENKINS_KNOWLEDGE_SCAN_MAX_FILES` |
-| Individual Groovy file | 1 MiB | `JENKINS_KNOWLEDGE_SCAN_MAX_FILE_BYTES` |
-| Aggregate Groovy source | 32 MiB | `JENKINS_KNOWLEDGE_SCAN_MAX_TOTAL_BYTES` |
-| Adjacent text documentation | 1 MiB per file | fixed |
-
-Overrides must be positive integers. Exceeding a limit fails the scan with a diagnostic naming the exceeded limit; it does not silently truncate results. These limits apply to source traversal; Git subprocess timeouts and shallow filtered fetches bound the preceding checkout phase.

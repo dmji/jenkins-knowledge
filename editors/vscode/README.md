@@ -31,7 +31,7 @@ Build the package before starting VS Code:
 cargo run --manifest-path crates/knowledge-builder/Cargo.toml -- build profiles/fixture.yml target/fixture-package
 ```
 
-The package path is resolved relative to the workspace. The Rust server validates the package using Runtime and rejects a configured profile mismatch. Changing `jenkinsKnowledge.packagePath` or `jenkinsKnowledge.profile` reloads the selected package; invalid configuration clears catalog results rather than retaining stale symbols.
+The package path is resolved relative to the workspace. The Rust server validates the package using Runtime and rejects a configured profile mismatch. Changing `jenkinsKnowledge.packagePath` or `jenkinsKnowledge.profile` reloads a different local package selection; it does not run Builder, contact Jenkins/Git, or refresh the package contents. Invalid configuration clears catalog results rather than retaining stale symbols.
 
 ## Features and limitations
 

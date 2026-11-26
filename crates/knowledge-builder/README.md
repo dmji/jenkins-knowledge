@@ -1,6 +1,6 @@
 # Knowledge Builder
 
-Build a versioned Knowledge Package from an explicit YAML profile.
+Build a versioned Knowledge Package from an explicit YAML profile. Builder is the administrator-operated collection stage; its profile defines the only Jenkins controllers and Git repositories that are contacted. Running Runtime, LSP, or MCP never starts or refreshes a Builder job.
 
 ## Offline fixture build
 

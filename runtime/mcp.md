@@ -1,6 +1,6 @@
 # Read-only MCP server
 
-The jenkins-mcp binary exposes one validated Knowledge Package over the Model Context Protocol (MCP) stdio transport. It reads local package files only: it never connects to Jenkins, executes Pipeline steps, accesses credentials, or writes to a controller.
+The jenkins-mcp binary exposes one validated Knowledge Package over the Model Context Protocol (MCP) stdio transport. It belongs to the user-query stage and reads the selected package only: it never connects to Jenkins or Git, starts collection, invokes Builder, accesses collection credentials, refreshes knowledge, executes Pipeline steps, or modifies package files.
 
 ## Build and launch
 

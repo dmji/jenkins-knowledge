@@ -204,8 +204,8 @@ fn git_checkout_budget_from_environment() -> Result<u64, ScanError> {
     }
 }
 
-/// A unique, unprivileged temporary checkout. Git is monitored while every
-/// command runs; Unix children additionally inherit an RLIMIT_FSIZE ceiling.
+/// A unique, unprivileged temporary checkout. Its size is checked at Git-operation
+/// boundaries as an operational guardrail, not enforced as a live disk quota.
 struct GitCheckout {
     temp: tempfile::TempDir,
     limit: u64,
@@ -268,8 +268,8 @@ fn fetch_checkout(
 
 const MAX_CHECKOUT_ENTRIES: usize = 100_000;
 
-/// Measure regular-file bytes without following symlinks. Stop as soon as the
-/// budget is exceeded so an attacker cannot force an unbounded accounting pass.
+/// Measure regular-file bytes without following symlinks at a Git-operation
+/// boundary. This is a coarse operational sanity check, not a hard quota.
 fn checkout_size(root: &Path, limit: u64) -> std::io::Result<u64> {
     let mut pending = vec![root.to_path_buf()];
     let mut total = 0u64;
@@ -353,18 +353,6 @@ fn run_git_inner(directory: &Path, args: &[&str], limit: u64) -> Result<String, 
     {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
-        unsafe {
-            command.pre_exec(move || {
-                let file_limit = libc::rlimit {
-                    rlim_cur: limit as libc::rlim_t,
-                    rlim_max: limit as libc::rlim_t,
-                };
-                if libc::setrlimit(libc::RLIMIT_FSIZE, &file_limit) != 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
     }
     let mut child = command
         .spawn()
@@ -406,24 +394,10 @@ fn run_git_inner(directory: &Path, args: &[&str], limit: u64) -> Result<String, 
                     "git command timed out after 120 seconds; child process tree terminated".into(),
                 ));
             }
-            None => {
-                match checkout_size(directory, limit) {
-                    Ok(size) if size <= limit => {}
-                    Ok(_) => {
-                        terminate_git(&mut child);
-                        return Err(ScanError::Git(
-                            "Git checkout exceeded its configured storage budget; process tree terminated".into(),
-                        ));
-                    }
-                    Err(_) => {
-                        terminate_git(&mut child);
-                        return Err(ScanError::Git(
-                            "cannot account for temporary checkout storage; Git process tree terminated".into(),
-                        ));
-                    }
-                }
-                std::thread::sleep(Duration::from_millis(2));
-            }
+            // Process completion polling is deliberately independent of filesystem
+            // accounting. The checkout size is checked once after each Git operation;
+            // no recursive directory walk runs in this wait loop.
+            None => std::thread::sleep(Duration::from_millis(50)),
         }
     }
 }
