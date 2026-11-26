@@ -71,10 +71,10 @@ pub fn source_collection_summary(
         .collect::<Vec<_>>();
     let has_success = statuses
         .iter()
-        .any(|status| matches!(**status, "succeeded" | "succeeded-with-truncation"));
+        .any(|status| matches!(*status, "succeeded" | "succeeded-with-truncation"));
     let has_failure = statuses.iter().any(|status| {
         matches!(
-            **status,
+            *status,
             "partial" | "failed" | "unavailable" | "permission-denied"
         )
     });
@@ -83,9 +83,9 @@ pub fn source_collection_summary(
             || outcome["truncated"].as_bool() == Some(true)
     });
     let all_skipped = !statuses.is_empty()
-        && statuses.iter().all(|status| **status == "skipped-by-profile");
+        && statuses.iter().all(|status| *status == "skipped-by-profile");
     let all_not_configured = !statuses.is_empty()
-        && statuses.iter().all(|status| **status == "not-configured");
+        && statuses.iter().all(|status| *status == "not-configured");
 
     let status = if related.is_empty() {
         "unknown"
