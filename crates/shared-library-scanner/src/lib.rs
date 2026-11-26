@@ -291,10 +291,8 @@ fn run_git_inner(directory: &Path, args: &[&str], budget: Option<u64>) -> Result
         };
         match status {
             Some(status) => {
-                if !status.success() {
-                    return Err(ScanError::Git("git command failed; remote details are redacted".into()));
-                }
-                // Check once more after exit to catch a final write between polls.
+                // Check once more after exit before classifying a failed write. RLIMIT_FSIZE
+                // can stop a packfile exactly at its per-file ceiling before the next poll.
                 if let Some(limit) = budget {
                     let size = directory_size(directory)?;
                     if size > limit {
@@ -302,6 +300,9 @@ fn run_git_inner(directory: &Path, args: &[&str], budget: Option<u64>) -> Result
                             "temporary Git checkout exceeded the configured storage budget of {limit} bytes"
                         )));
                     }
+                }
+                if !status.success() {
+                    return Err(ScanError::Git("git command failed; remote details are redacted".into()));
                 }
                 let mut output = String::new();
                 if let Some(stdout) = child.stdout.take() {
