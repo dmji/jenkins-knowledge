@@ -968,13 +968,14 @@ mod tests {
             "sessionId",
             "authHeader",
             "bearerToken",
-            "signature",
         ] {
             assert!(is_secret_field_name(key), "{key}");
         }
         for key in ["description", "displayName", "username", "apiBaseUrl", "repositoryUrl", "key", "signature"] {
             assert!(!is_secret_field_name(key), "{key}");
         }
+        assert!(is_secret_query_parameter("signature"));
+        assert!(is_secret_query_parameter("X-Amz-Signature"));
     }
 
     #[test]
