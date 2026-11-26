@@ -443,7 +443,10 @@ apiRoots.unique().sort().take(MAX_API_TYPES).each { rootName ->
         while (current != null && hierarchyDepth <= 8) {
             current.getDeclaredMethods().each { method ->
                 int modifiers = method.getModifiers()
-                if (!java.lang.reflect.Modifier.isPublic(modifiers) && !java.lang.reflect.Modifier.isProtected(modifiers)) {\n                    typeRecord.inaccessibleMethodCount++\n                    return\n                }
+                if (!java.lang.reflect.Modifier.isPublic(modifiers) && !java.lang.reflect.Modifier.isProtected(modifiers)) {
+                    typeRecord.inaccessibleMethodCount++
+                    return
+                }
                 String methodName = safeText(method.getName())
                 if (methodName == null) return
                 def parameterTypes = method.getGenericParameterTypes().collect { safeText(it.getTypeName()) }.findAll { it != null }.take(MAX_API_PARAMETERS)
@@ -467,7 +470,14 @@ apiRoots.unique().sort().take(MAX_API_TYPES).each { rootName ->
             if (methodName.startsWith('is') && methodName.length() > 2 && method.parameterTypes.isEmpty()) propertyName = methodName.substring(2).uncapitalize()
             if (methodName.startsWith('set') && methodName.length() > 3 && method.parameterTypes.size() == 1) propertyName = methodName.substring(3).uncapitalize()
             if (propertyName != null && propertyName.length() <= MAX_API_TEXT_LENGTH && propertyMap.size() < MAX_API_MEMBERS_PER_TYPE) {
-                def property = propertyMap[propertyName] ?: [name: propertyName, readable: false, writable: false]\n                if (methodName.startsWith('set')) {\n                    property.writable = true\n                    if (method.parameterTypes) property.type = method.parameterTypes[0]\n                } else {\n                    property.readable = true\n                    property.type = method.returnType\n                }
+                def property = propertyMap[propertyName] ?: [name: propertyName, readable: false, writable: false]
+                if (methodName.startsWith('set')) {
+                    property.writable = true
+                    if (method.parameterTypes) property.type = method.parameterTypes[0]
+                } else {
+                    property.readable = true
+                    property.type = method.returnType
+                }
                 propertyMap[propertyName] = property
             }
         }
