@@ -255,6 +255,22 @@ mod tests {
     }
 
     #[test]
+    fn keeps_inferred_static_model_when_runtime_registry_is_unavailable() {
+        let runtime = json!({
+            "extensionRegistries": [{
+                "name": "declarative-extensions",
+                "status": "unavailable",
+                "items": [],
+                "truncated": false
+            }]
+        });
+        assert!(runtime_symbols(&runtime, "controller").is_empty());
+        let fallback = catalog_symbols("controller");
+        assert!(fallback.iter().any(|symbol| symbol["name"] == "agent"));
+        assert!(fallback.iter().all(|symbol| symbol["confidence"] == "inferred"));
+    }
+
+    #[test]
     fn refuses_wrong_source_and_unknown_constructs() {
         let mut fragment = catalog_fragment("controller");
         fragment["symbols"][0]["sourceId"] = json!("another-source");
