@@ -1520,5 +1520,37 @@ mod tests {
             .to_string();
         assert!(error.contains("does not match referenced source revision"));
     }
+ 
+    #[test]
+    fn partial_completeness_requires_and_accepts_an_explicit_failed_source() {
+        let mut catalog = valid_catalog();
+        for source in catalog["sources"].as_array_mut().unwrap() {
+            source["collection"] = json!({
+                "profile":"deep",
+                "status":"succeeded",
+                "truncated":false
+            });
+        }
+        catalog["sources"][0]["collection"]["status"] = json!("permission-denied");
+        catalog["completeness"] = json!({"status":"partial"});
+        stamp_catalog_identity(&mut catalog).unwrap();
+        assert!(validate_catalog(&catalog, &schema()).is_ok());
+    }
+
+    #[test]
+    fn unknown_completeness_is_rejected_when_every_source_has_an_outcome() {
+        let mut catalog = valid_catalog();
+        for source in catalog["sources"].as_array_mut().unwrap() {
+            source["collection"] = json!({
+                "profile":"quick",
+                "status":"succeeded",
+                "truncated":false
+            });
+        }
+        catalog["completeness"] = json!({"status":"unknown"});
+        stamp_catalog_identity(&mut catalog).unwrap();
+        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        assert!(error.contains("unknown is invalid when every source has an explicit collection outcome"));
+    }
 
 }
