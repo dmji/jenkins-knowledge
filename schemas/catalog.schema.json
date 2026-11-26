@@ -262,6 +262,12 @@
         "description": {
           "type": "string"
         },
+        "genericType": {
+          "type": "string"
+        },
+        "namePresent": {
+          "type": "boolean"
+        },
         "default": {}
       }
     },
@@ -303,6 +309,43 @@
         },
         "signature": {
           "type": "string"
+        },
+        "superClass": {
+          "type": "string"
+        },
+        "interfaces": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"type": "string"}
+        },
+        "origin": {
+          "type": "string"
+        },
+        "classLoader": {
+          "type": "string"
+        },
+        "declaringClass": {
+          "type": "string"
+        },
+        "genericReturnType": {
+          "type": "string"
+        },
+        "modifiers": {
+          "type": "string"
+        },
+        "synthetic": {
+          "type": "boolean"
+        },
+        "bridge": {
+          "type": "boolean"
+        },
+        "varargs": {
+          "type": "boolean"
+        },
+        "properties": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"$ref": "#/$defs/controllerApiProperty"}
         },
         "description": {
           "type": "string"
