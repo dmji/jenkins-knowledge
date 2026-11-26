@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+jsonschema = "0.63"
 sha2 = "0.11"
-jsonschema = "0.29"
 serde_json = "1"
 url = "2"
