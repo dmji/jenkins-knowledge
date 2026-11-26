@@ -1004,9 +1004,10 @@ class Service<T> extends BaseService implements Runnable, Closeable {
 
         let checkout_path = checkout.path().to_owned();
         run_git(checkout.path(), &["init", "--quiet"]).unwrap();
+        let remote = format!("file://{}", source.path().display());
         let error = run_git_with_budget(
             checkout.path(),
-            &["fetch", "--quiet", "--no-tags", "--depth", "1", source.path().to_str().unwrap(), "HEAD"],
+            &["fetch", "--quiet", "--no-tags", "--depth", "1", &remote, "HEAD"],
             64 * 1024,
         )
         .unwrap_err()
