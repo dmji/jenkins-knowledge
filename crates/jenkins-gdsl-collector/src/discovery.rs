@@ -299,7 +299,7 @@ fn discover_with_client(
         identity["displayName"] = json!(node_name);
     }
 
-    let mut capabilities = vec![
+    let capabilities = vec![
         json!({
             "name": "core-api",
             "status": "available",
@@ -308,12 +308,20 @@ fn discover_with_client(
         plugin_capability,
         gdsl_capability
     ];
-    capabilities.sort_by_key(|capability| capability["name"].as_str().unwrap_or_default().to_owned());
+    let mut revision_plugins = plugins.clone();
+    revision_plugins.sort_by_key(|plugin| plugin["shortName"].as_str().unwrap_or_default().to_owned());
+    for plugin in &mut revision_plugins {
+        if let Some(dependencies) = plugin["dependencies"].as_array_mut() {
+            dependencies.sort_by_key(|dependency| dependency["shortName"].as_str().unwrap_or_default().to_owned());
+        }
+    }
+    let mut revision_capabilities = capabilities.clone();
+    revision_capabilities.sort_by_key(|capability| capability["name"].as_str().unwrap_or_default().to_owned());
     let controller_revision_input = json!({
         "identity": identity,
         "coreVersion": core_version,
-        "plugins": plugins,
-        "capabilities": capabilities
+        "plugins": revision_plugins,
+        "capabilities": revision_capabilities
     });
     let controller_revision_bytes = serde_json::to_vec(&controller_revision_input)
         .map_err(|_| DiscoveryError::InvalidCatalog("cannot serialize controller revision input".into()))?;
@@ -590,7 +598,7 @@ fn parse_plugin_inventory(
             .map(|version| json!(version))
             .unwrap_or(Value::Null);
 
-        let mut dependencies = match entry.get("dependencies") {
+        let dependencies = match entry.get("dependencies") {
             Some(value) => {
                 let values = value
                     .as_array()
@@ -628,8 +636,6 @@ fn parse_plugin_inventory(
             }
             None => Vec::new(),
         };
-        dependencies.sort_by_key(|dependency| dependency["shortName"].as_str().unwrap_or_default().to_owned());
-
         let source_id = format!(
             "plugin-{}",
             stable_id(&format!("{controller_id}:{short_name}"))
