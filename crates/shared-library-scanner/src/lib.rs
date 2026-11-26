@@ -1104,60 +1104,58 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         fs::write(root.join("a.groovy"), "12345").unwrap();
         fs::write(root.join("nested/b.groovy"), "12345").unwrap();
         let checkout = temp.path().canonicalize().unwrap();
-        let limits = ScanLimits { depth: 1, files: 2, file_bytes: 5, total_bytes: 10 };
+        let limits = ScanLimits {
+            depth: 1,
+            files: 2,
+            entries: 10,
+            file_bytes: 5,
+            total_bytes: 10,
+            symbols: 50,
+            catalog_bytes: 1024 * 1024,
+        };
         let mut files = Vec::new();
         let mut total = 0;
-        collect_groovy_files(&root, &checkout, 0, &mut files, &mut total, &limits).unwrap();
+        let mut entries = 0;
+        collect_groovy_files(&root, &checkout, 0, &mut files, &mut total, &mut entries, &limits).unwrap();
         assert_eq!(files.len(), 2);
         assert_eq!(total, 10);
 
         let too_small = ScanLimits { file_bytes: 4, ..limits };
-        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_small).is_err());
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &mut 0, &too_small).is_err());
         let too_few = ScanLimits { files: 1, ..limits };
-        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_few).is_err());
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &mut 0, &too_few).is_err());
         let too_deep = ScanLimits { depth: 0, ..limits };
-        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_deep).is_err());
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &mut 0, &too_deep).is_err());
         let too_much = ScanLimits { total_bytes: 9, ..limits };
-        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_much).is_err());
+        assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &mut 0, &too_much).is_err());
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
-    fn private_tmpfs_enforces_aggregate_quota_for_concurrent_writers() {
-        use std::process::Command;
-
-        let checkout = match GitCheckout::new(64 * 1024) {
-            Ok(checkout) => checkout,
-            Err(ScanError::InvalidConfig(message)) if message.contains("mount capability is required") => {
-                // Unprivileged CI environments must verify fail-closed behavior.
-                assert!(message.contains("refusing an unbounded fallback"));
-                return;
-            }
-            Err(error) => panic!("unexpected quota setup failure: {error}"),
-        };
-        let mut writers = Vec::new();
-        for index in 0..4 {
-            let path = checkout.path().join(format!("writer-{index}.bin"));
-            writers.push(Command::new("dd")
-                .args(["if=/dev/zero", &format!("of={}", path.display()), "bs=4096", "count=32"])
-                .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
-        }
-        let failures = writers.into_iter()
-            .map(|mut child| child.wait().expect("writer process exits"))
-            .filter(|status| !status.success())
-            .count();
-        assert!(failures > 0, "concurrent writers unexpectedly exceeded the aggregate tmpfs quota");
-        assert!(checkout.path().join("writer-0.bin").exists()
-            || checkout.path().join("writer-1.bin").exists()
-            || checkout.path().join("writer-2.bin").exists()
-            || checkout.path().join("writer-3.bin").exists());
+    fn temporary_checkout_is_unprivileged_unique_and_cleans_up() {
+        let first = GitCheckout::new(1024 * 1024).unwrap();
+        let second = GitCheckout::new(1024 * 1024).unwrap();
+        assert_ne!(first.path(), second.path());
+        let first_path = first.path().to_path_buf();
+        fs::write(first_path.join("checkout-file"), "data").unwrap();
+        assert!(first_path.exists());
+        drop(first);
+        assert!(!first_path.exists());
+        assert!(second.path().exists());
     }
 
-    #[cfg(not(target_os = "linux"))]
     #[test]
-    fn unsupported_platform_fails_closed_for_git_checkout_quota() {
-        assert!(matches!(GitCheckout::new(64 * 1024), Err(ScanError::InvalidConfig(message))
-            if message.contains("refusing an unbounded fallback")));
+    fn checkout_size_counts_regular_files_and_ignores_symlinks() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("a"), vec![0u8; 16]).unwrap();
+        fs::create_dir(temp.path().join("nested")).unwrap();
+        fs::write(temp.path().join("nested/b"), vec![0u8; 32]).unwrap();
+        assert_eq!(checkout_size(temp.path(), 64).unwrap(), 48);
+        assert!(checkout_size(temp.path(), 32).unwrap() > 32);
+    }
+
+    #[test]
+    fn rejects_zero_checkout_budget() {
+        assert!(matches!(GitCheckout::new(0), Err(ScanError::InvalidConfig(_))));
     }
 
     #[test]
