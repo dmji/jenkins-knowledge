@@ -290,6 +290,8 @@
             "global-variable",
             "method",
             "class",
+            "interface",
+            "enum",
             "property",
             "declarative-directive"
           ]
