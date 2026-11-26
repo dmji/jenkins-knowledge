@@ -4,64 +4,99 @@
   "title": "Knowledge Package Manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["packageVersion", "catalogSchemaVersion", "profile", "createdAt", "catalog", "sourceRevisions", "provenance", "checksums", "toolVersions"],
+  "required": [
+    "packageVersion",
+    "catalogSchemaVersion",
+    "profile",
+    "createdAt",
+    "catalog",
+    "sourceRevisions",
+    "provenance",
+    "checksums",
+    "toolVersions"
+  ],
   "properties": {
-    "packageVersion": { "type": "string", "minLength": 1 },
-    "catalogSchemaVersion": { "type": "string", "const": "1.0.0" },
-    "profile": { "type": "string", "minLength": 1 },
-    "createdAt": { "type": "string", "format": "date-time" },
-    "catalog": { "type": "string", "const": "catalog.json" },
-    "sourceRevisions": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+    "packageVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "catalogSchemaVersion": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "catalog": {
+      "type": "string",
+      "const": "catalog.json"
+    },
+    "sourceRevisions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "provenance": {
       "type": "object",
       "description": "One provenance record per catalog source. Known identity fields must match the source; additional properties are reserved for forward-compatible metadata.",
       "additionalProperties": {
         "type": "object",
-        "required": ["name", "kind", "revision"],
+        "required": [
+          "name",
+          "kind",
+          "revision"
+        ],
         "properties": {
-          "name": { "type": "string", "minLength": 1 },
-          "kind": { "enum": ["jenkins-controller", "plugin", "shared-library", "jenkins-core"] },
-          "revision": { "type": "string", "minLength": 1 },
-          "url": { "type": ["string", "null"], "format": "uri" }
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "jenkins-controller",
+              "plugin",
+              "shared-library",
+              "jenkins-core"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
         },
         "additionalProperties": true
       }
     },
     "checksums": {
       "type": "object",
-      "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
     },
     "toolVersions": {
       "type": "object",
-      "additionalProperties": { "type": "string", "minLength": 1 }
-    },
-    "collection": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["status", "profile", "startedAt", "completedAt", "sources"],
-      "properties": {
-        "status": { "enum": ["complete", "partial"] },
-        "profile": { "enum": ["quick", "standard", "deep", "custom"] },
-        "startedAt": { "type": "string", "format": "date-time" },
-        "completedAt": { "type": "string", "format": "date-time" },
-        "sources": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["id", "kind", "name", "surface", "status"],
-            "properties": {
-              "id": { "type": "string", "minLength": 1 },
-              "kind": { "enum": ["fixture", "controller", "plugin", "plugin-inventory", "pipeline-gdsl", "jenkins-core", "declarative-model", "script-console", "shared-library"] },
-              "name": { "type": "string", "minLength": 1 },
-              "surface": { "type": "string", "minLength": 1 },
-              "sourceId": { "type": "string", "minLength": 1 },
-              "revision": { "type": "string", "minLength": 1 },
-              "status": { "enum": ["succeeded", "succeeded-with-truncation", "partial", "unavailable", "permission-denied", "failed", "skipped-by-profile", "not-configured"] },
-              "errorCode": { "enum": ["permission-denied", "http-unavailable", "request-timeout", "response-too-large", "invalid-encoding", "limit-exceeded", "empty-response", "malformed-response", "invalid-catalog", "invalid-controller-url", "request-failed", "collection-failed", "invalid-response", "missing-outcome", "credentials-must-be-paired", "endpoint-unavailable", "http-error", "incompatible-probe-output", "probe-failed", "jenkins-unavailable", "extension-type-unavailable", "enumeration-failed", "output-truncated"] }
-            }
-          }
-        }
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
       }
     }
   }
