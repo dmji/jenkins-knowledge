@@ -681,6 +681,22 @@
         "requestCount": {
           "type": "integer",
           "minimum": 0
+        },
+        "javaVersionStatus": {
+          "enum": [
+            "available",
+            "not-collected-by-profile",
+            "unavailable",
+            "probe-failed"
+          ]
+        },
+        "javaVendorStatus": {
+          "enum": [
+            "available",
+            "not-collected-by-profile",
+            "unavailable",
+            "probe-failed"
+          ]
         }
       }
     },
