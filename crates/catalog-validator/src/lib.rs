@@ -74,7 +74,10 @@ pub fn source_fingerprint(catalog: &Value, source_id: &str) -> Result<String, St
     let mut source = source.clone();
     if let Some(object) = source.as_object_mut() { object.remove("fingerprint"); }
     let mut symbols = catalog["symbols"].as_array().cloned().unwrap_or_default().into_iter()
-        .filter(|symbol| symbol["sourceId"].as_str() == Some(source_id)).collect::<Vec<_>>();
+        .filter(|symbol| {
+            symbol["sourceId"].as_str() == Some(source_id)
+                || symbol["evidence"].as_array().is_some_and(|evidence| evidence.iter().any(|item| item["sourceId"].as_str() == Some(source_id)))
+        }).collect::<Vec<_>>();
     symbols.sort_by_key(|symbol| symbol["id"].as_str().unwrap_or_default().to_owned());
     let mut coverage = catalog["coverage"].as_array().cloned().unwrap_or_default().into_iter()
         .filter(|entry| entry["sourceId"].as_str() == Some(source_id)).collect::<Vec<_>>();
