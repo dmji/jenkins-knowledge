@@ -1,3 +1,4 @@
+use catalog_validator::redact_sensitive_fields;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
