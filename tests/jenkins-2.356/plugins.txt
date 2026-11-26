@@ -1,0 +1,2 @@
+# Matrix authorization is pinned so the test can enforce Overall/Read versus Overall/Administer.
+matrix-auth:2.6.11
