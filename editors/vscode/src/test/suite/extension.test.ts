@@ -155,7 +155,8 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
         );
         assert.ok(hover.includes('Fixture Shared Library'));
         assert.ok(hover.includes('verified'));
-
+        const definitions = await definitionUris(document, new vscode.Position(3, 5));
+        assert.strictEqual(definitions.length, 0, 'non-GitHub fixture URLs must not become navigation targets');
     });
 
     test('package reload switches the completion catalog and ordinary Groovy files stay out of Jenkins context', async () => {
