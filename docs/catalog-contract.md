@@ -47,7 +47,8 @@ Collection outcome statuses are:
 - `failed`: the source was configured but its response, parsing, or collection failed.
 - `skipped-by-profile`: the selected quick/standard/deep profile or package section intentionally omitted the surface.
 - `not-configured`: the surface is not configured for this package.
-- `unknown`: no explicit outcome is available for the source; this must not be interpreted as success.
+
+`manifest.collection.status: unknown` is a package-level state used when at least one catalog source has no explicit collection outcome; `unknown` is not a per-surface outcome status and must never be treated as success.
 
 The package is `partial` if any outcome is truncated, partial, unavailable, permission-denied, or failed. A skipped or not-configured surface does not make the selected package incomplete. Controller metadata is mandatory in all live Jenkins profiles; failure aborts the build because no safe controller identity/version anchor exists. Plugin inventory is optional in all profiles. Quick probes GDSL availability only; standard and deep attempt full GDSL collection. Standard and deep scan configured Shared Libraries independently. Deep additionally executes the fixed repository-owned read-only Script Console probe; Script Console permission failure does not discard REST/GDSL results.
 
