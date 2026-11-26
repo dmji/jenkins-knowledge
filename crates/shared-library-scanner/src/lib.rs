@@ -1418,4 +1418,21 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         assert_eq!(catalog["sources"][0]["metadata"]["repositoryUrl"], "https://github.example.test/team/repo.git");
     }
 
+    #[test]
+    fn source_identity_is_stable_when_the_same_reference_moves_to_a_new_commit() {
+        let first = scan_checkout(
+            &config("main"),
+            &fixture(),
+            "0123456789abcdef0123456789abcdef01234567",
+        ).unwrap();
+        let second = scan_checkout(
+            &config("main"),
+            &fixture(),
+            "89abcdef0123456789abcdef0123456789abcdef",
+        ).unwrap();
+
+        assert_eq!(first.catalog["sources"][0]["id"], second.catalog["sources"][0]["id"]);
+        assert_ne!(first.catalog["sources"][0]["revision"], second.catalog["sources"][0]["revision"]);
+    }
+
 }
