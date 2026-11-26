@@ -415,6 +415,21 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     plugin_outcome["errorCode"] = json!(code);
                 }
                 collection_outcomes.push(plugin_outcome);
+                if plugin_status == "succeeded" {
+                    for source in catalog["sources"].as_array().into_iter().flatten()
+                        .filter(|source| source["kind"] == "plugin")
+                    {
+                        collection_outcomes.push(json!({
+                            "id": format!("plugin:{}", source["id"].as_str().unwrap_or_default()),
+                            "kind": "plugin",
+                            "name": source["name"],
+                            "surface": "plugin-metadata",
+                            "sourceId": source["id"],
+                            "revision": source["revision"],
+                            "status": "succeeded"
+                        }));
+                    }
+                }
             } else {
                 collection_outcomes.push(json!({
                     "id": format!("controller:{}:plugin-inventory", controller.id),
