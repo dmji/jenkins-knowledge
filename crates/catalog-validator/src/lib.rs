@@ -145,6 +145,34 @@ pub fn source_collection_summary(
     summary
 }
 
+
+/// Derive stable package-level completeness reasons from per-surface collection outcomes.
+pub fn completeness_reason_codes(outcomes: &[Value]) -> Vec<String> {
+    let mut reasons = BTreeSet::new();
+    for outcome in outcomes {
+        let status = outcome["status"].as_str().unwrap_or_default();
+        let error_code = outcome["errorCode"].as_str().unwrap_or_default();
+        if status == "succeeded-with-truncation"
+            || matches!(error_code, "output-truncated" | "limit-exceeded" | "response-too-large")
+        {
+            reasons.insert("source-truncated".to_owned());
+        }
+        match status {
+            "permission-denied" => {
+                reasons.insert("permission-denied".to_owned());
+            }
+            "unavailable" => {
+                reasons.insert("optional-source-unavailable".to_owned());
+            }
+            "partial" | "failed" => {
+                reasons.insert("source-failed".to_owned());
+            }
+            _ => {}
+        }
+    }
+    reasons.into_iter().collect()
+}
+
 /// Add deterministic source fingerprints and a catalog snapshot ID.
 pub fn stamp_catalog_identity(catalog: &mut Value) -> Result<(), String> {
     if catalog.get("completeness").is_none() {
@@ -659,6 +687,17 @@ pub fn validate_package_metadata(
                         )),
                     }
                 }
+                if let Some(expected_fingerprint) =
+                    source.get("fingerprint").and_then(Value::as_str)
+                {
+                    if record.get("fingerprint").and_then(Value::as_str)
+                        != Some(expected_fingerprint)
+                    {
+                        errors.push(format!(
+                            "/provenance/{id}/fingerprint: fingerprint does not match catalog source /sources/{index}/fingerprint"
+                        ));
+                    }
+                }
                 let expected_url = source.get("url").and_then(Value::as_str);
                 let actual_url = record.get("url").and_then(Value::as_str);
                 match expected_url {
@@ -694,7 +733,6 @@ pub fn validate_package_metadata(
     if let Some(collection) = manifest.get("collection") {
         if let Some(outcomes) = collection.get("sources").and_then(Value::as_array) {
             let mut outcome_ids = HashSet::new();
-            let mut expected_partial = false;
             for (index, outcome) in outcomes.iter().enumerate() {
                 if let Some(id) = outcome.get("id").and_then(Value::as_str) {
                     if !outcome_ids.insert(id) {
@@ -708,28 +746,86 @@ pub fn validate_package_metadata(
                         errors.push(format!(
                             "/collection/sources/{index}/sourceId: unknown catalog source id '{source_id}'"
                         ));
+                    } else if let Some(revision) = outcome.get("revision").and_then(Value::as_str) {
+                        let expected = sources
+                            .iter()
+                            .find(|source| source["id"].as_str() == Some(source_id))
+                            .and_then(|source| source["revision"].as_str());
+                        if expected != Some(revision) {
+                            errors.push(format!(
+                                "/collection/sources/{index}/revision: does not match catalog source revision"
+                            ));
+                        }
                     }
                 }
-                if matches!(
-                    outcome.get("status").and_then(Value::as_str),
-                    Some(
-                        "succeeded-with-truncation"
-                            | "partial"
-                            | "unavailable"
-                            | "permission-denied"
-                            | "failed"
-                    )
-                ) {
-                    expected_partial = true;
-                }
             }
-            let declared_partial =
-                collection.get("status").and_then(Value::as_str) == Some("partial");
-            if declared_partial != expected_partial {
-                errors.push(
-                    "/collection/status: package completeness does not match per-source outcomes"
-                        .into(),
-                );
+
+            if let Some(completeness) = catalog.get("completeness") {
+                let catalog_status = completeness["status"].as_str().unwrap_or_default();
+                let manifest_status = collection["status"].as_str().unwrap_or_default();
+                if catalog_status != manifest_status {
+                    errors.push(
+                        "/collection/status: does not match catalog /completeness/status".into(),
+                    );
+                }
+                let expected_reasons = completeness_reason_codes(outcomes);
+                let actual_reasons = completeness["reasonCodes"]
+                    .as_array()
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_owned)
+                            .collect::<BTreeSet<_>>()
+                    })
+                    .unwrap_or_default();
+                if actual_reasons != expected_reasons.into_iter().collect() {
+                    errors.push(
+                        "/completeness/reasonCodes: does not match collection outcome reasons"
+                            .into(),
+                    );
+                }
+                let profile = collection["profile"].as_str().unwrap_or_default();
+                let started_at = collection["startedAt"].as_str().unwrap_or_default();
+                let completed_at = collection["completedAt"].as_str().unwrap_or_default();
+                for (index, source) in sources.iter().enumerate() {
+                    let Some(source_id) = source["id"].as_str() else {
+                        continue;
+                    };
+                    let expected = source_collection_summary(
+                        source_id,
+                        outcomes,
+                        profile,
+                        started_at,
+                        completed_at,
+                    );
+                    if source.get("collection") != Some(&expected) {
+                        errors.push(format!(
+                            "/sources/{index}/collection: does not match Manifest collection outcomes"
+                        ));
+                    }
+                }
+            } else {
+                // Backward compatibility for packages created before catalog completeness existed.
+                let expected_partial = outcomes.iter().any(|outcome| {
+                    matches!(
+                        outcome["status"].as_str(),
+                        Some(
+                            "succeeded-with-truncation"
+                                | "partial"
+                                | "unavailable"
+                                | "permission-denied"
+                                | "failed"
+                        )
+                    )
+                });
+                let declared_partial = collection["status"].as_str() == Some("partial");
+                if declared_partial != expected_partial {
+                    errors.push(
+                        "/collection/status: package completeness does not match per-source outcomes"
+                            .into(),
+                    );
+                }
             }
         }
     }
