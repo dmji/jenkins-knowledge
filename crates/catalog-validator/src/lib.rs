@@ -825,7 +825,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("/symbols/0/fieldEvidence/examples"));
-        assert!(error.contains("field is absent"));
+        assert!(error.contains("absent from this symbol"));
     }
 
     #[test]
