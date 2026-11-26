@@ -44,7 +44,11 @@ fn lsp_read(reader: &mut BufReader<ChildStdout>) -> Value {
     let mut content_length = None;
     loop {
         let mut line = String::new();
-        assert_ne!(reader.read_line(&mut line).unwrap(), 0, "LSP closed stdout unexpectedly");
+        assert_ne!(
+            reader.read_line(&mut line).unwrap(),
+            0,
+            "LSP closed stdout unexpectedly"
+        );
         if line == "\r\n" || line == "\n" {
             break;
         }
@@ -83,7 +87,11 @@ fn mcp_request(
     .unwrap();
     writer.flush().unwrap();
     let mut line = String::new();
-    assert_ne!(reader.read_line(&mut line).unwrap(), 0, "MCP closed stdout unexpectedly");
+    assert_ne!(
+        reader.read_line(&mut line).unwrap(),
+        0,
+        "MCP closed stdout unexpectedly"
+    );
     let response: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(response["id"], id);
     response
@@ -188,9 +196,11 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
     );
     let collection = lsp_response(&mut reader, 5);
     assert_eq!(collection["result"]["status"], "partial");
-    assert!(collection["result"]["sources"].as_array().unwrap().iter().any(
-        |source| source["status"] == "succeeded-with-truncation"
-    ));
+    assert!(collection["result"]["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|source| source["status"] == "succeeded-with-truncation"));
 
     lsp_write(
         &mut writer,
@@ -213,7 +223,10 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
         }),
     );
     let after_switch = lsp_response(&mut reader, 6);
-    assert!(after_switch["result"]["results"].as_array().unwrap().is_empty());
+    assert!(after_switch["result"]["results"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 
     lsp_write(
         &mut writer,
@@ -226,7 +239,10 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
     );
     let alternate_result = lsp_response(&mut reader, 7);
     assert_eq!(alternate_result["result"]["profile"], "contract-alternate");
-    assert_eq!(alternate_result["result"]["results"][0]["name"], "alternateOnly");
+    assert_eq!(
+        alternate_result["result"]["results"][0]["name"],
+        "alternateOnly"
+    );
 
     lsp_write(
         &mut writer,
@@ -254,7 +270,10 @@ fn run_mcp(package: &Path, expected: &Value) {
     let mut reader = BufReader::new(child.stdout.take().unwrap());
 
     let initialized = mcp_request(&mut writer, &mut reader, 1, "initialize", json!({}));
-    assert_eq!(initialized["result"]["serverInfo"]["name"], "jenkins-knowledge");
+    assert_eq!(
+        initialized["result"]["serverInfo"]["name"],
+        "jenkins-knowledge"
+    );
 
     let tools = mcp_request(&mut writer, &mut reader, 2, "tools/list", json!({}));
     let tool_names: Vec<_> = tools["result"]["tools"]
@@ -289,7 +308,10 @@ fn run_mcp(package: &Path, expected: &Value) {
     );
     let details = &details["result"]["structuredContent"];
     assert_eq!(details["source"]["id"], expected["source"]["id"]);
-    assert_eq!(details["evidence"][0]["revision"], expected["evidence"][0]["revision"]);
+    assert_eq!(
+        details["evidence"][0]["revision"],
+        expected["evidence"][0]["revision"]
+    );
     assert_eq!(details["confidence"], "verified");
 
     let ambiguous = mcp_request(
@@ -308,12 +330,16 @@ fn run_mcp(package: &Path, expected: &Value) {
         "resources/read",
         json!({"uri":"jenkins://catalog/collection"}),
     );
-    let collection_text = collection["result"]["contents"][0]["text"].as_str().unwrap();
+    let collection_text = collection["result"]["contents"][0]["text"]
+        .as_str()
+        .unwrap();
     let collection: Value = serde_json::from_str(collection_text).unwrap();
     assert_eq!(collection["status"], "partial");
-    assert!(collection["sources"].as_array().unwrap().iter().any(
-        |source| source["status"] == "permission-denied"
-    ));
+    assert!(collection["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|source| source["status"] == "permission-denied"));
 
     let type_query = mcp_request(
         &mut writer,
@@ -369,10 +395,19 @@ fn one_builder_package_keeps_contracts_across_runtime_lsp_and_mcp() {
         "0123456789012345678901234567890123456789"
     );
 
-    assert!(runtime.get("build").unwrap_err().to_string().contains("ambiguous"));
+    assert!(runtime
+        .get("build")
+        .unwrap_err()
+        .to_string()
+        .contains("ambiguous"));
     assert_eq!(runtime.search("build", Some("step"), None).len(), 2);
     assert_eq!(runtime.get("maybeStep").unwrap()["confidence"], "unknown");
-    assert_eq!(runtime.search("deploy", Some("method"), Some("shared-library-fixture")).len(), 2);
+    assert_eq!(
+        runtime
+            .search("deploy", Some("method"), Some("shared-library-fixture"))
+            .len(),
+        2
+    );
 
     let type_members = runtime.search_with_options(&SearchOptions {
         query: "getInstance".into(),
@@ -389,8 +424,14 @@ fn one_builder_package_keeps_contracts_across_runtime_lsp_and_mcp() {
     run_lsp(&primary_package, &alternate_package, &deploy);
     run_mcp(&primary_package, &deploy);
 
-    assert_eq!(fs::read(primary_package.join("catalog.json")).unwrap(), catalog_before);
-    assert_eq!(fs::read(primary_package.join("manifest.json")).unwrap(), manifest_before);
+    assert_eq!(
+        fs::read(primary_package.join("catalog.json")).unwrap(),
+        catalog_before
+    );
+    assert_eq!(
+        fs::read(primary_package.join("manifest.json")).unwrap(),
+        manifest_before
+    );
 
     match probe.accept() {
         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
@@ -409,8 +450,7 @@ fn builder_rejects_a_fixture_with_a_dangling_symbol_source() {
     copy_fixture("primary", &fixture, None);
 
     let catalog_path = fixture.join("catalog.json");
-    let mut catalog: Value =
-        serde_json::from_slice(&fs::read(&catalog_path).unwrap()).unwrap();
+    let mut catalog: Value = serde_json::from_slice(&fs::read(&catalog_path).unwrap()).unwrap();
     catalog["symbols"][4]["sourceId"] = json!("missing-source");
     fs::write(&catalog_path, serde_json::to_vec_pretty(&catalog).unwrap()).unwrap();
 
