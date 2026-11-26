@@ -306,16 +306,44 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             let path = base.join(fixture);
             let text = fs::read_to_string(&path).map_err(|e| BuildError::Source(format!("fixture {}: {e}", path.display())))?;
             let catalog: Value = serde_json::from_str(&text).map_err(|e| BuildError::Source(format!("fixture {} is invalid JSON: {e}", path.display())))?;
-            for source in catalog["sources"].as_array().into_iter().flatten() {
-                collection_outcomes.push(json!({
-                    "id": format!("fixture:{fixture}:{}", source["id"].as_str().unwrap_or_default()),
-                    "kind": "fixture",
-                    "name": fixture,
-                    "surface": "catalog",
-                    "sourceId": source["id"],
-                    "revision": source["revision"],
-                    "status": "succeeded"
-                }));
+            let fixture_manifest_path = path
+                .parent()
+                .unwrap_or(base)
+                .join("manifest.json");
+            let fixture_outcomes = if fixture_manifest_path.is_file() {
+                let manifest_text = fs::read_to_string(&fixture_manifest_path).map_err(|error| {
+                    BuildError::Source(format!(
+                        "fixture manifest {}: {error}",
+                        fixture_manifest_path.display()
+                    ))
+                })?;
+                let manifest: Value = serde_json::from_str(&manifest_text).map_err(|error| {
+                    BuildError::Source(format!(
+                        "fixture manifest {} is invalid JSON: {error}",
+                        fixture_manifest_path.display()
+                    ))
+                })?;
+                manifest
+                    .pointer("/collection/sources")
+                    .and_then(Value::as_array)
+                    .cloned()
+            } else {
+                None
+            };
+            if let Some(outcomes) = fixture_outcomes {
+                collection_outcomes.extend(outcomes);
+            } else {
+                for source in catalog["sources"].as_array().into_iter().flatten() {
+                    collection_outcomes.push(json!({
+                        "id": format!("fixture:{fixture}:{}", source["id"].as_str().unwrap_or_default()),
+                        "kind": "fixture",
+                        "name": fixture,
+                        "surface": "catalog",
+                        "sourceId": source["id"],
+                        "revision": source["revision"],
+                        "status": "succeeded"
+                    }));
+                }
             }
             catalogs.push((fixture.clone(), catalog));
         }
