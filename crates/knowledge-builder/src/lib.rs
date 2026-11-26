@@ -331,7 +331,7 @@ fn runtime_api_type_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
         let (Some(class_name), Some(name)) = (api_type["className"].as_str(), api_type["name"].as_str()) else { continue; };
         let class_confidence = if api_type["status"] == "available" && api_type["synthetic"] != true && api_type["dynamic"] != true { "verified" } else { "unknown" };
         let mut class_symbol = json!({
-            "id": format!("{source_id}:api-class:{class_name}"),
+            "id": format!("{source_id}:api-class:{}", hex(&Sha256::digest(class_name.as_bytes()))),
             "name": name, "kind": "class", "sourceId": source_id, "signature": class_name,
             "confidence": class_confidence, "provenance": ["jenkins-script-console", "api-types"],
             "fieldEvidence": {"name": class_confidence, "signature": "verified"},
@@ -386,8 +386,9 @@ fn runtime_api_type_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
                 method["returnType"].as_str(), method["declaringClass"].as_str()
             ) else { continue; };
             let confidence = if class_confidence == "verified" && method["synthetic"] != true && method["bridge"] != true && method["dynamic"] != true { "verified" } else { "unknown" };
+            let method_identity = format!("{class_name}\0{signature}");
             let mut method_symbol = json!({
-                "id": format!("{source_id}:api-method:{class_name}:{signature}"),
+                "id": format!("{source_id}:api-method:{}", hex(&Sha256::digest(method_identity.as_bytes()))),
                 "name": method_name, "kind": "method", "sourceId": source_id,
                 "signature": signature, "returnType": return_type, "declaringClass": declaring_class,
                 "confidence": confidence, "provenance": ["jenkins-script-console", "api-types", class_name],
