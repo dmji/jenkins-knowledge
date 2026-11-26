@@ -1,4 +1,4 @@
-use catalog_validator::{validate_catalog, validate_package_metadata};
+use catalog_validator::{redact_sensitive_fields, validate_catalog, validate_package_metadata};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -121,7 +121,9 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let mut provenance = BTreeMap::new();
     let mut controller_snapshot: Option<Value> = None;
     let mut controller_metadata: Option<Value> = None;
-    for (label, catalog) in catalogs {
+    for (label, mut catalog) in catalogs {
+        // Remove secret-bearing metadata before validation, merging, or serialization.
+        redact_sensitive_fields(&mut catalog);
         let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
         validate_catalog(&catalog, &schema).map_err(|e| BuildError::Source(format!("{label}: {e}")))?;
         if let Some(controller) = catalog.get("controller") {
