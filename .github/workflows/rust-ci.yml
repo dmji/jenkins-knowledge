@@ -69,40 +69,5 @@ jobs:
         with:
           toolchain: 1.100.0
       - name: Test Shared Library scanner
-        run: cargo test --manifest-path crates/shared-library-scanner/Cargo.toml --all-targets
+        run: cargo --locked test --manifest-path crates/shared-library-scanner/Cargo.toml --all-targets
 
-  lockfile-bootstrap:
-    name: Temporary lockfile bootstrap
-    if: github.event_name == 'pull_request' && github.head_ref == 'build/77-reproducible-dependencies'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
-        with:
-          toolchain: 1.100.0
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 26.13.1
-      - name: Generate dependency lockfiles
-        run: |
-          cargo generate-lockfile
-          npm --prefix editors/vscode install --package-lock-only --ignore-scripts --no-audit --no-fund
-      - name: Print lockfiles for the one-time migration
-        run: |
-          echo '---CARGO_LOCK_BEGIN---'
-          cat Cargo.lock
-          echo '---CARGO_LOCK_END---'
-          echo '---NPM_LOCK_BEGIN---'
-          cat editors/vscode/package-lock.json
-          echo '---NPM_LOCK_END---'
-      - name: Upload lockfile bootstrap artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: dependency-lockfile-bootstrap
-          path: |
-            Cargo.lock
-            editors/vscode/package-lock.json
-          if-no-files-found: error
