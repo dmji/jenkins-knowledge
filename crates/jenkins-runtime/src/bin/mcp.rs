@@ -55,7 +55,7 @@ fn query_options(args: &Value, include_query: bool) -> Result<(SearchOptions, us
         kinds: None,
         source_kind: None,
         limit,
-    }, offset)
+    }, offset))
 }
 
 fn next_offset(offset: usize, returned: usize, has_more: bool) -> Option<usize> {
