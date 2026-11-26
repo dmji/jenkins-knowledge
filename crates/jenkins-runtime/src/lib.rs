@@ -539,6 +539,9 @@ impl Runtime {
             "packageEnvironment":{
                 "status":environment_status,
                 "controller":controller.and_then(|value| value.get("identity")).cloned(),
+                "controllerSource":self.source_details().into_iter()
+                    .find(|source| source["kind"].as_str() == Some("jenkins-controller")),
+                "controllerCollection":controller_collection.cloned(),
                 "jenkinsCore":{"status":if core_version.is_some() {"available"} else {"unknown"},"version":core_version},
                 "java":{
                     "versionStatus":java_version_status,
@@ -546,7 +549,7 @@ impl Runtime {
                     "vendorStatus":java_vendor_status,
                     "vendor":java_vendor
                 },
-                "plugins":{"status":plugin_status,"count":self.plugin_inventory().len()}
+                "plugins":{"status":plugin_status,"count":self.plugin_inventory().len(),"items":self.plugins()}
             },
             "targetEnvironment":{
                 "status":if target_provided {"provided"} else {"not-provided"},
