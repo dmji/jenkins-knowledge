@@ -32,6 +32,12 @@ cp Cargo.lock target/lockfile-bootstrap/Cargo.lock
 cp editors/vscode/package.json target/lockfile-bootstrap/vscode/package.json
 npm --prefix target/lockfile-bootstrap/vscode install --package-lock-only --ignore-scripts --no-audit --no-fund
 cp target/lockfile-bootstrap/vscode/package-lock.json target/lockfile-bootstrap/package-lock.json
+printf '%s\n' '---CARGO_LOCK_BEGIN---'
+cat Cargo.lock
+printf '%s\n' '---CARGO_LOCK_END---'
+printf '%s\n' '---NPM_LOCK_BEGIN---'
+cat target/lockfile-bootstrap/package-lock.json
+printf '%s\n' '---NPM_LOCK_END---'
 if [ "$actual_sha" != "$expected_sha" ]; then
   echo "checkout SHA does not match expected SHA $expected_sha" >&2
   exit 1
