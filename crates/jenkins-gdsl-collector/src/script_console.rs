@@ -873,6 +873,9 @@ mod tests {
             "javaVersion": "17.0.12",
             "javaVendor": "Eclipse Adoptium",
             "jenkinsCoreVersion": "2.479.1",
+            "apiTypeInventoryStatus": "available",
+            "configuredApiRoots": [],
+            "apiTypes": [],
             "extensionRegistries": [
                 {
                     "name": "pipeline-steps",
@@ -1178,7 +1181,7 @@ mod tests {
         assert!(!SCRIPT_TEMPLATE.contains("evaluate("));
         // Formatting reflection metadata is safe; reject instance toString calls on plugin objects.
         let without_modifier_formatting =
-            SCRIPT_TEMPLATE.replace("java.lang.reflect.Modifier.toString(", "");
+            SCRIPT_TEMPLATE.replace("Modifier.toString(", "");
         assert!(!without_modifier_formatting.contains(".toString("));
     }
 
