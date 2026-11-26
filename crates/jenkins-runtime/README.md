@@ -43,6 +43,14 @@ Runtime exposes the optional manifest `collection` object through `Runtime::coll
 
 The controller details returned by the `controller` command, LSP controller request, and MCP `get_controller_inventory` preserve the controller collection's `javaVersionStatus` and `javaVendorStatus` fields alongside optional `runtime.javaVersion` and `runtime.javaVendor`. Consumers should display the status rather than treating a missing Java value as a compatibility failure.
 
+## Package compatibility report
+
+`Runtime::compatibility_report(target_environment)` describes the environment recorded by the package, package completeness, and known collection limitations. The `compatibility` CLI command and MCP `jenkins://catalog/compatibility` resource return the report without a target; its comparison status is `not-compared` and its compatibility status is `unknown`. This is intentional: Runtime is offline and does not infer a current Jenkins installation from its own host.
+
+The MCP `get_package_compatibility` tool optionally accepts a caller-supplied `targetEnvironment` object with `coreVersion`, `javaVersion`, `javaVendor`, and a complete `plugins` array of records containing `shortName` and `version`. The comparison is exact and offline. A known difference is reported as `environment-different`, not as proof that the package cannot run. If all fields match and package completeness is `complete`, the report returns `not-proven`: matching Core, Java, and plugin versions still do not prove API, configuration, or Pipeline compatibility. Missing target/package metadata or partial package completeness keeps the assessment `unknown`.
+
+The report separates structural validity (enforced by `Runtime::open`), package completeness, recorded package environment, target comparison, and warnings. Per-surface outcomes identify skipped, unavailable, permission-denied, failed, and truncated collection. Missing Java or plugin inventory is reported with its explicit status; it is never treated as an incompatibility or silently inferred. No Jenkins/Git connection, credentials, or package mutation is introduced.
+
 ## Controller-aware queries and details
 
 Runtime search/list filters apply across the symbols in the selected package: `--source` selects an exact source ID, `--controller` selects the package controller by ID, display name, base URL, or controller source ID, `--source-kind` selects `jenkins-controller`, `plugin`, `jenkins-core`, or `shared-library`, `--plugin` selects symbols supplied by or explicitly dependent on a plugin, `--kind` selects a symbol kind, `--context` selects an explicitly declared Pipeline/Declarative context, and `--confidence` filters `verified`, `inferred`, or `unknown` evidence. A context filter does not match symbols with missing context metadata.
