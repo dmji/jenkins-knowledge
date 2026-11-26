@@ -49,7 +49,7 @@ Run the complete local validation from the repository root:
 sh scripts/validate.sh
 ```
 
-The script checks formatting, tests, Clippy, catalog schemas, a deterministic fixture package, Runtime package loading, the MCP server, Jenkins LSP, VS Code extension compilation, and both container image builds. Cargo outputs are written under `target/`; the fixture package is `target/fixture-package/`.
+The script checks formatting without rewriting source, tests, Clippy, catalog schemas, deterministic fixture generation (two consecutive builds are compared), Runtime package loading, the MCP server, Jenkins LSP, VS Code extension compilation, both container image builds, and the Builder-to-Runtime handoff. It verifies the checked-out commit SHA and fails if validation changes tracked or untracked working-tree files. Run it from a clean checkout. Cargo outputs are written under `target/`; the fixture package is `target/fixture-package/`.
 
 Individual workspace commands:
 
