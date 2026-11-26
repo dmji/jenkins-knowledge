@@ -423,20 +423,23 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 continue;
             }
             let mut safe_symbol = symbol.clone();
-            let has_empty_plugin_refs = if let Some(plugin_source_ids) =
-                safe_symbol["availability"]["pluginSourceIds"].as_array_mut()
+            if let Some(availability) = safe_symbol
+                .get_mut("availability")
+                .and_then(Value::as_object_mut)
             {
-                plugin_source_ids.retain(|source_id| {
-                    source_id
-                        .as_str()
-                        .is_some_and(|source_id| included_source_ids.contains(source_id))
-                });
-                plugin_source_ids.is_empty()
-            } else {
-                false
-            };
-            if has_empty_plugin_refs {
-                if let Some(availability) = safe_symbol["availability"].as_object_mut() {
+                let has_empty_plugin_refs = if let Some(plugin_source_ids) =
+                    availability.get_mut("pluginSourceIds").and_then(Value::as_array_mut)
+                {
+                    plugin_source_ids.retain(|source_id| {
+                        source_id
+                            .as_str()
+                            .is_some_and(|source_id| included_source_ids.contains(source_id))
+                    });
+                    plugin_source_ids.is_empty()
+                } else {
+                    false
+                };
+                if has_empty_plugin_refs {
                     availability.remove("pluginSourceIds");
                 }
             }
