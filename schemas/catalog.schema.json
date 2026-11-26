@@ -354,6 +354,12 @@
         "returnType": {
           "type": "string"
         },
+        "readable": {"type": "boolean"},
+        "writable": {"type": "boolean"},
+        "modifiers": {"type": "string"},
+        "synthetic": {"type": "boolean"},
+        "superclass": {"type": "string"},
+        "interfaces": {"type": "array", "maxItems": 16, "items": {"type": "string"}},
         "overloads": {
           "type": "array",
           "items": {
@@ -931,6 +937,7 @@
                 "minLength": 1,
                 "maxLength": 256
               },
+              "apiTypeRoot": {"type": "string", "minLength": 1, "maxLength": 256},
               "contexts": {
                 "type": "array",
                 "uniqueItems": true,
