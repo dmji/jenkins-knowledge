@@ -1508,7 +1508,9 @@ mod tests {
         catalog["sources"][0]["collection"]["status"] = json!("succeeded");
         catalog["sources"][0]["collection"]["truncated"] = json!(false);
         catalog["completeness"]["status"] = json!("partial");
-        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        let error = validate_catalog(&catalog, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(
             error.contains("partial requires at least one failed, unavailable, permission-denied, or truncated source")
         );
