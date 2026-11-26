@@ -139,6 +139,71 @@ fn controller_selection_keeps_snapshot_but_excludes_unselected_plugin_inventory(
 }
 
 #[test]
+fn omitted_include_selects_all_available_sections() {
+    let directory = tempfile::tempdir().unwrap();
+    write_fixture(directory.path());
+    let profile = write_profile(
+        directory.path(),
+        "profile: all-sections\\nfixtures: [fixture.json]\\n",
+    );
+    let output = directory.path().join("package");
+    build_package(&profile, &output).unwrap();
+
+    let catalog: Value =
+        serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
+    let source_ids: Vec<_> = catalog["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|source| source["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        source_ids,
+        vec![
+            "controller",
+            "jenkins-core-fixture",
+            "platform-lib",
+            "workflow-basic-steps"
+        ]
+    );
+    assert_eq!(catalog["controller"]["plugins"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn jenkins_core_selection_is_independent_of_controller_snapshot() {
+    let directory = tempfile::tempdir().unwrap();
+    write_fixture(directory.path());
+    let profile = write_profile(
+        directory.path(),
+        "profile: core-only\\nfixtures: [fixture.json]\\npackage:\\n  include: [jenkins-core]\\n",
+    );
+    let output = directory.path().join("package");
+    build_package(&profile, &output).unwrap();
+
+    let catalog: Value =
+        serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
+    assert_eq!(catalog["sources"].as_array().unwrap().len(), 1);
+    assert_eq!(catalog["sources"][0]["kind"], "jenkins-core");
+    assert!(catalog.get("controller").is_none());
+    assert!(catalog["symbols"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn rejects_invalid_profile_defaults_and_absolute_fixture_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let empty = write_profile(directory.path(), "profile: empty\\njenkins: {}\\n");
+    let error = build_package(&empty, &directory.path().join("empty-package")).unwrap_err();
+    assert!(error.to_string().contains("configure at least one"));
+
+    let absolute = write_profile(
+        directory.path(),
+        "profile: absolute\\nfixtures: [/tmp/outside.json]\\n",
+    );
+    let error = build_package(&absolute, &directory.path().join("absolute-package")).unwrap_err();
+    assert!(error.to_string().contains("relative path"));
+}
+
+#[test]
 fn unmatched_explicit_selector_is_an_error() {
     let directory = tempfile::tempdir().unwrap();
     let mut catalog = fixture_catalog();
