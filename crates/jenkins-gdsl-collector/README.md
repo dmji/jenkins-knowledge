@@ -126,3 +126,60 @@ symbol generation.
     cargo fmt --manifest-path crates/jenkins-gdsl-collector/Cargo.toml -- --check
     cargo test --manifest-path crates/jenkins-gdsl-collector/Cargo.toml --all-targets
     cargo clippy --manifest-path crates/jenkins-gdsl-collector/Cargo.toml --all-targets -- -D warnings
+
+## Deep Script Console discovery (explicit opt-in)
+
+The `deep` profile first performs the same three bounded, sequential REST
+requests as `quick`, then sends one repository-owned Groovy probe to the
+authenticated `/scriptText` endpoint. It is never selected by default and is
+not used by `quick`, `gdsl`, or ordinary Builder collection.
+
+Inspect the exact request plan without contacting Jenkins:
+
+```sh
+cargo run --manifest-path crates/jenkins-gdsl-collector/Cargo.toml -- \
+  https://jenkins.example.test/jenkins ./deep-plan.json --profile deep --dry-run
+```
+
+Only after reviewing the plan, explicitly confirm Script Console execution:
+
+```sh
+JENKINS_USERNAME=jenkins-admin JENKINS_API_TOKEN="$JENKINS_API_TOKEN" \
+  cargo run --manifest-path crates/jenkins-gdsl-collector/Cargo.toml -- \
+  https://jenkins.example.test/jenkins ./deep-catalog.json \
+  --profile deep --confirm-script-console
+```
+
+The confirmation flag is mandatory for a real `deep` run. The probe source is
+versioned in `src/probes/script_console_v1.groovy`; callers cannot supply
+Groovy source. It reads only Groovy/JVM/Jenkins Core version metadata and the
+registered Pipeline `StepDescriptor` and `GlobalVariable` extension lists.
+It records item names, implementation class names, and plugin attribution when
+available. Each registry is capped at 100 entries and each text field at 256
+characters. The script also caps its JSON output; the client accepts at most
+512 KiB and validates the probe/schema version before retaining any result.
+
+The Script Console phase is one sequential POST request. It performs no
+configuration writes, job/build execution, plugin installation, credential
+access, filesystem scans, or network calls from Groovy. It does not enumerate
+the ClassLoader or inspect arbitrary plugin classes. Missing extension types
+and individual probe failures remain explicit in the runtime snapshot; the
+collector does not replace them with static or inferred values. A denied
+Script Console request is recorded as unavailable while preserving the
+successful REST snapshot.
+
+**Permissions and operational risk:** Jenkins Script Console access normally
+requires the administrator-level `Overall/Administer` permission. Grant it
+only to a dedicated, trusted account and only when this collection is
+approved. Even a read-only Groovy script executes with the controller's
+privileges; review the checked-in probe before running it. The client uses a
+15-second request timeout and a bounded response, but an HTTP client timeout
+does not guarantee that Jenkins has terminated a script already executing on
+the controller. Run deep discovery deliberately, not as a scheduled or
+background operation. Use HTTPS and inject credentials through an environment
+or secret manager; credentials and script contents are never written to the
+catalog or diagnostics.
+
+The runtime record is stored separately under `controller.runtime`, with
+schema version, template version, collection status, metadata, bounded
+extension registries, and machine-readable partial-failure codes.
