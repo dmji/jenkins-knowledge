@@ -1020,7 +1020,7 @@ method(name: 'real')
     name: 'sh',
     type: 'Object',
     params: [
-        script: 'Description with \\'quoted\\', ] and )',
+        script: 'Description with \'quoted\', ] and )',
         options: [mode: 'safe', nested: [label: 'a,b:c']],
         after: "tail ] )"
     ],
