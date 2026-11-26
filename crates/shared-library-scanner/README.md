@@ -79,14 +79,3 @@ The source traversal limits are independent defense in depth. They are applied b
 | Serialized catalog | 64 MiB | `JENKINS_KNOWLEDGE_SCAN_MAX_CATALOG_BYTES` |
 
 Overrides must be positive integers. Exceeding a limit fails the scan; it does not silently truncate results. Symlinks are skipped and every candidate is resolved against the canonical checkout root.
-The scanner skips symlinks (including directory symlinks), resolves every candidate against the canonical checkout root, and enforces these defaults:
-
-| Limit | Default | Environment override |
-|---|---:|---|
-| Traversal depth | 32 directories | `JENKINS_KNOWLEDGE_SCAN_MAX_DEPTH` |
-| Groovy files | 10,000 | `JENKINS_KNOWLEDGE_SCAN_MAX_FILES` |
-| Individual Groovy file | 1 MiB | `JENKINS_KNOWLEDGE_SCAN_MAX_FILE_BYTES` |
-| Aggregate Groovy source | 32 MiB | `JENKINS_KNOWLEDGE_SCAN_MAX_TOTAL_BYTES` |
-| Adjacent text documentation | 1 MiB per file | fixed |
-
-Overrides must be positive integers. Exceeding a limit fails the scan with a diagnostic naming the exceeded limit; it does not silently truncate results. These limits apply to source traversal; Git subprocess timeouts and shallow filtered fetches bound the preceding checkout phase.
