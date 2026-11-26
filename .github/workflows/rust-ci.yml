@@ -52,12 +52,7 @@ jobs:
           path: target/fixture-package/
           if-no-files-found: error
 
-      - name: Upload temporary dependency lockfile bootstrap
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: dependency-lockfile-bootstrap
-          path: target/lockfile-bootstrap/
-          if-no-files-found: error
+
 
   scanner-portability:
     name: Shared Library scanner portability (${{ matrix.os }})
@@ -75,3 +70,39 @@ jobs:
           toolchain: 1.100.0
       - name: Test Shared Library scanner
         run: cargo test --manifest-path crates/shared-library-scanner/Cargo.toml --all-targets
+
+  lockfile-bootstrap:
+    name: Temporary lockfile bootstrap
+    if: github.event_name == 'pull_request' && github.head_ref == 'build/77-reproducible-dependencies'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: 1.100.0
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 26.13.1
+      - name: Generate dependency lockfiles
+        run: |
+          cargo generate-lockfile
+          npm --prefix editors/vscode install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Print lockfiles for the one-time migration
+        run: |
+          printf '%s\\n' '---CARGO_LOCK_BEGIN---'
+          cat Cargo.lock
+          printf '%s\\n' '---CARGO_LOCK_END---'
+          printf '%s\\n' '---NPM_LOCK_BEGIN---'
+          cat editors/vscode/package-lock.json
+          printf '%s\\n' '---NPM_LOCK_END---'
+      - name: Upload lockfile bootstrap artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dependency-lockfile-bootstrap
+          path: |
+            Cargo.lock
+            editors/vscode/package-lock.json
+          if-no-files-found: error
