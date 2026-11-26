@@ -49,7 +49,7 @@ Run the complete local validation from the repository root:
 sh scripts/validate.sh
 ```
 
-The script checks formatting without rewriting source (all Rust files changed since the validation base are checked; legacy formatting drift in untouched files is not silently rewritten), tests, Clippy, catalog schemas, deterministic fixture generation (two consecutive builds are compared), Runtime package loading, the MCP server, Jenkins LSP, VS Code extension compilation, both container image builds, and the Builder-to-Runtime handoff. It verifies the checked-out commit SHA and fails if validation changes tracked or untracked working-tree files. Run it from a clean checkout. Cargo outputs are written under `target/`; the fixture package is `target/fixture-package/`.
+The script checks formatting without rewriting source. New Rust files and changed files whose base revision is already formatted are checked; pre-existing formatting drift in a legacy file is reported and preserved rather than silently rewritten. A deliberately unformatted fixture verifies that the read-only formatter check fails. The script also runs tests, Clippy, catalog schemas, deterministic fixture generation (two consecutive builds are compared), Runtime package loading, the MCP server, Jenkins LSP, VS Code extension compilation, both container image builds, and the Builder-to-Runtime handoff. It verifies the checked-out commit SHA and fails if validation changes tracked or untracked working-tree files. Run it from a clean checkout. Cargo outputs are written under `target/`; the fixture package is `target/fixture-package/`.
 
 Individual workspace commands:
 
