@@ -355,14 +355,26 @@ mod tests {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
+        let mut source_revisions = serde_json::Map::new();
+        let mut provenance = serde_json::Map::new();
+        for source in catalog["sources"].as_array().into_iter().flatten() {
+            let Some(id) = source["id"].as_str() else { continue; };
+            source_revisions.insert(id.into(), source["revision"].clone());
+            provenance.insert(id.into(), json!({
+                "name": source["name"],
+                "kind": source["kind"],
+                "revision": source["revision"],
+                "url": source.get("url").cloned().unwrap_or(Value::Null)
+            }));
+        }
         fs::write(package.join("manifest.json"), json!({
             "packageVersion": "1.0.0",
             "catalogSchemaVersion": "1.0.0",
             "profile": profile,
             "createdAt": "2026-01-01T00:00:00Z",
             "catalog": "catalog.json",
-            "sourceRevisions": {},
-            "provenance": {},
+            "sourceRevisions": source_revisions,
+            "provenance": provenance,
             "checksums": {"catalog.json": checksum},
             "toolVersions": {}
         }).to_string()).unwrap();
