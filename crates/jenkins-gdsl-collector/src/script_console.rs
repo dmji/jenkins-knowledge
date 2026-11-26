@@ -1121,6 +1121,7 @@ mod tests {
         assert!(script.contains(r#"['hudson.model.Run','java.lang.String','org.example.Outer$Inner']"#));
         assert!(!script.contains("__JENKINS_KNOWLEDGE_API_ROOTS__"));
         assert!(!valid_api_roots(&["java.lang.String;System.exit(0)".to_owned()]));
+        assert!(!valid_api_roots(&["groovy.lang.Closure".to_owned()]));
         assert!(!valid_api_roots(&["java.lang.String".to_owned(), "java.lang.String".to_owned()]));
         assert!(!valid_api_roots(&vec!["a.B".to_owned(); 21]));
     }
