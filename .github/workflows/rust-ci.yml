@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -32,34 +34,15 @@ jobs:
       - name: Cache Cargo registry, git dependencies, and build artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Check formatting
-        run: |
-          cargo fmt --manifest-path crates/catalog-validator/Cargo.toml -- --check
-          cargo fmt --all
-          cargo fmt --all -- --check
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-      - name: Run tests
-        run: cargo test --workspace --all-targets
-
-      - name: Run Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Validate example catalog
-        run: cargo run -p catalog-validator -- examples/catalog/catalog.json schemas/catalog.schema.json
-
-      - name: Build fixture Knowledge Package
-        run: |
-          rm -rf target/fixture-package
-          SOURCE_DATE_EPOCH=0 cargo run -p knowledge-builder -- build profiles/fixture.yml target/fixture-package
-          cargo run -p catalog-validator -- target/fixture-package/catalog.json schemas/catalog.schema.json
-
-      - name: Smoke-test Runtime against fixture package
-        run: cargo run -p jenkins-runtime -- --package target/fixture-package search deploy
-
-      - name: Build MCP server and Jenkins LSP
-        run: |
-          cargo build -p jenkins-runtime --bin jenkins-mcp
-          cargo build -p jenkins-lsp
+      - name: Validate clean checkout and all project contracts
+        env:
+          VALIDATION_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: sh scripts/validate.sh
 
       - name: Upload fixture Knowledge Package
         uses: actions/upload-artifact@v4
@@ -67,24 +50,3 @@ jobs:
           name: knowledge-package-fixture
           path: target/fixture-package/
           if-no-files-found: error
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Compile VS Code extension
-        working-directory: editors/vscode
-        run: npm install && npm run compile
-
-      - name: Build release binaries for container images
-        run: cargo build --release -p knowledge-builder -p catalog-validator -p jenkins-runtime --bins
-
-      - name: Build Builder image
-        run: docker build --file Dockerfile.builder --tag jenkins-knowledge-builder:ci .
-
-      - name: Build Runtime image
-        run: docker build --file Dockerfile.runtime --tag jenkins-knowledge-runtime:ci .
-
-      - name: Smoke-test Builder to Runtime package handoff
-        run: bash .github/scripts/container-smoke.sh
