@@ -507,7 +507,7 @@ mod tests {
                     "safeLabel": "preserve",
                     "apiKey": "collector-secret-api",
                     "nested": [{"Authorization": "collector-secret-auth"}],
-                    "endpoint": "https://jenkins.example.test/api?token=collector-secret-token"
+                    "endpoint": "https://collector:collector-secret-user@jenkins.example.test/api?token=collector-secret-token"
                 }
             }]
         });
