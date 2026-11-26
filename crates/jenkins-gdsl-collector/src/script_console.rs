@@ -16,7 +16,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_SCRIPT_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_ITEMS_PER_REGISTRY: usize = 100;
 const MAX_TEXT_LENGTH: usize = 256;
-const TEMPLATE_VERSION: &str = "1";
+const TEMPLATE_VERSION: &str = "2";
 const SCRIPT_TEMPLATE: &str = include_str!("probes/script_console_v1.groovy");
 
 /// Describe every network operation in the deep profile without contacting Jenkins.
@@ -71,7 +71,7 @@ pub fn script_console_plan() -> Value {
         "totalTimeoutSeconds": REQUEST_TIMEOUT.as_secs() * 4,
         "scriptConsole": {
             "readOnly": true,
-            "registries": ["pipeline-steps", "pipeline-globals"],
+            "registries": ["pipeline-steps", "pipeline-globals", "declarative-extensions"],
             "maxItemsPerRegistry": MAX_ITEMS_PER_REGISTRY,
             "maxTextLength": MAX_TEXT_LENGTH,
             "maxResponseBytes": MAX_SCRIPT_RESPONSE_BYTES,
@@ -232,7 +232,7 @@ fn normalize_probe_output(value: &Value) -> Value {
         .expect("registry array was checked");
     let mut available_registries = 0;
     let mut registry_results = Vec::with_capacity(2);
-    for name in ["pipeline-steps", "pipeline-globals"] {
+    for name in ["pipeline-steps", "pipeline-globals", "declarative-extensions"] {
         let raw = raw_registries
             .iter()
             .find(|registry| registry.get("name").and_then(Value::as_str) == Some(name));
@@ -261,7 +261,7 @@ fn normalize_probe_output(value: &Value) -> Value {
     }
 
     let status = if metadata_count == metadata_fields.len()
-        && available_registries == 2
+        && available_registries == 3
         && errors.is_empty()
     {
         "collected"
@@ -326,6 +326,48 @@ fn normalize_registry(
                 normalized["plugin"] = json!(truncate(plugin));
             }
             if let Some(value) = item
+                .get("category")
+                .and_then(Value::as_str)
+                .filter(|value| matches!(*value, "agent" | "option" | "when" | "post-condition" | "trigger" | "parameter"))
+            {
+                normalized["category"] = json!(value);
+            }
+            if let Some(value) = item
+                .get("nameKind")
+                .and_then(Value::as_str)
+                .filter(|value| matches!(*value, "dsl-token" | "implementation-class"))
+            {
+                normalized["nameKind"] = json!(value);
+            }
+            if let Some(value) = item
+                .get("descriptorClass")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                normalized["descriptorClass"] = json!(truncate(value));
+            }
+            if let Some(contexts) = item.get("contexts").and_then(Value::as_array) {
+                let values: Vec<&str> = contexts
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter(|value| matches!(*value, "pipeline" | "stage"))
+                    .take(2)
+                    .collect();
+                if !values.is_empty() {
+                    normalized["contexts"] = json!(values);
+                }
+            }
+            for field in ["stageOnly", "canUseInStage", "invisible"] {
+                if let Some(value) = item.get(field).and_then(Value::as_bool) {
+                    normalized[field] = json!(value);
+                }
+            }
+            if let Some(value) = item.get("allowedChildrenCount").and_then(Value::as_i64) {
+                if (-1..=100).contains(&value) {
+                    normalized["allowedChildrenCount"] = json!(value);
+                }
+            }
+            if let Some(value) = item
                 .get("displayName")
                 .and_then(Value::as_str)
                 .filter(|value| !value.trim().is_empty())
@@ -387,6 +429,7 @@ fn allowed_probe(value: &str) -> bool {
             | "jenkins-core-version"
             | "pipeline-steps"
             | "pipeline-globals"
+            | "declarative-extensions"
             | "output"
     )
 }
@@ -543,7 +586,7 @@ mod tests {
     fn valid_probe_output() -> Value {
         json!({
             "schemaVersion": "1.0.0",
-            "templateVersion": "1",
+            "templateVersion": "2",
             "groovyVersion": "4.0.24",
             "javaVersion": "17.0.12",
             "javaVendor": "Eclipse Adoptium",
@@ -566,6 +609,20 @@ mod tests {
                         "name": "env",
                         "className": "org.jenkinsci.plugins.workflow.cps.EnvActionImpl",
                         "plugin": "workflow-cps"
+                    }],
+                    "truncated": false
+                },
+                {
+                    "name": "declarative-extensions",
+                    "status": "available",
+                    "items": [{
+                        "category": "agent",
+                        "name": "any",
+                        "nameKind": "dsl-token",
+                        "className": "org.jenkinsci.plugins.pipeline.modeldefinition.agent.impl.Any",
+                        "descriptorClass": "org.jenkinsci.plugins.pipeline.modeldefinition.agent.impl.Any.DescriptorImpl",
+                        "contexts": ["pipeline", "stage"],
+                        "plugin": "pipeline-model-definition"
                     }],
                     "truncated": false
                 }
@@ -623,6 +680,39 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_declarative_extension_categories_and_context_metadata() {
+        let mut output = valid_probe_output();
+        output["extensionRegistries"][2]["items"] = json!([
+            {
+                "category": "agent",
+                "name": "kubernetes",
+                "nameKind": "dsl-token",
+                "className": "org.example.KubernetesAgent",
+                "descriptorClass": "org.example.KubernetesAgentDescriptor",
+                "contexts": ["pipeline", "stage"],
+                "plugin": "kubernetes",
+                "unsafe": "discard"
+            },
+            {
+                "category": "parameter",
+                "name": "StringParameterDefinition",
+                "nameKind": "implementation-class",
+                "className": "hudson.model.StringParameterDefinition",
+                "contexts": ["pipeline"],
+                "allowedChildrenCount": 999
+            }
+        ]);
+        let result = normalize_probe_output(&output);
+        let items = &result["extensionRegistries"][2]["items"];
+        assert_eq!(items[0]["category"], "agent");
+        assert_eq!(items[0]["nameKind"], "dsl-token");
+        assert_eq!(items[0]["contexts"][1], "stage");
+        assert_eq!(items[0]["descriptorClass"], "org.example.KubernetesAgentDescriptor");
+        assert!(items[0].get("unsafe").is_none());
+        assert!(items[1].get("allowedChildrenCount").is_none());
+    }
+
+    #[test]
     fn preserves_partial_results_when_one_registry_is_unavailable() {
         let mut output = valid_probe_output();
         output["extensionRegistries"][1]["status"] = json!("unavailable");
@@ -638,6 +728,23 @@ mod tests {
         assert_eq!(result["extensionRegistries"][0]["items"][0]["name"], "sh");
         assert_eq!(result["extensionRegistries"][1]["status"], "unavailable");
         assert_eq!(result["errors"][0]["code"], "extension-type-unavailable");
+    }
+
+    #[test]
+    fn preserves_step_and_global_results_when_declarative_plugin_is_unavailable() {
+        let mut output = valid_probe_output();
+        output["extensionRegistries"][2]["status"] = json!("unavailable");
+        output["extensionRegistries"][2]["items"] = json!([]);
+        output["extensionRegistries"][2]["errorCode"] = json!("extension-type-unavailable");
+        output["errors"] = json!([{
+            "probe": "declarative-extensions",
+            "code": "extension-type-unavailable"
+        }]);
+        let result = normalize_probe_output(&output);
+        assert_eq!(result["status"], "partial");
+        assert_eq!(result["extensionRegistries"][0]["status"], "available");
+        assert_eq!(result["extensionRegistries"][1]["status"], "available");
+        assert_eq!(result["extensionRegistries"][2]["status"], "unavailable");
     }
 
     #[test]
@@ -758,6 +865,14 @@ mod tests {
     fn fixed_probe_source_does_not_accept_or_evaluate_caller_groovy() {
         assert!(SCRIPT_TEMPLATE.contains("StepDescriptor"));
         assert!(SCRIPT_TEMPLATE.contains("GlobalVariable"));
+        assert!(SCRIPT_TEMPLATE.contains("DeclarativeAgentDescriptor"));
+        assert!(SCRIPT_TEMPLATE.contains("DeclarativeOptionDescriptor"));
+        assert!(SCRIPT_TEMPLATE.contains("DeclarativeStageConditionalDescriptor"));
+        assert!(SCRIPT_TEMPLATE.contains("BuildCondition"));
+        assert!(SCRIPT_TEMPLATE.contains("ParameterDefinition"));
+        assert!(SCRIPT_TEMPLATE.contains("hudson.triggers.Trigger"));
+        assert!(SCRIPT_TEMPLATE.contains("getKlass()"));
+        assert!(!SCRIPT_TEMPLATE.contains("getClazz()"));
         assert!(!SCRIPT_TEMPLATE.contains("GroovyShell"));
         assert!(!SCRIPT_TEMPLATE.contains("evaluate("));
         assert!(!SCRIPT_TEMPLATE.contains(".toString("));
@@ -779,6 +894,7 @@ mod tests {
         assert_eq!(plan["networkRequests"][3]["path"], "/scriptText");
         assert_eq!(plan["networkRequests"][3]["responseCapBytes"], MAX_SCRIPT_RESPONSE_BYTES);
         assert_eq!(plan["scriptConsole"]["registries"][0], "pipeline-steps");
+        assert_eq!(plan["scriptConsole"]["registries"][2], "declarative-extensions");
         assert_eq!(plan["scriptConsole"]["serverSideTerminationGuaranteed"], false);
         assert!(plan["scriptConsole"]["timeoutBehavior"].as_str().unwrap().contains("may continue"));
     }

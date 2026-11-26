@@ -318,7 +318,7 @@ fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
                 "provenance": ["jenkins-script-console", registry_name],
                 "fieldEvidence": {
                     "name": "verified",
-                    "implementationClass": "verified",
+                    "signature": "verified",
                     "parameters": "unknown"
                 },
                 "evidence": [{
@@ -659,6 +659,10 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     _ => 4
                 });
             }
+            let declarative_runtime = catalog
+                .get("controller")
+                .and_then(|value| value.get("runtime"))
+                .cloned();
             catalogs.push((format!("Jenkins controller '{}'", controller.id), catalog));
 
             if controller_metadata_available {
@@ -698,6 +702,9 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             for symbol in &mut model_symbols {
                 let local_id = symbol["id"].as_str().unwrap_or("unknown").to_owned();
                 symbol["id"] = json!(format!("{source_id}:{local_id}"));
+            }
+            if let Some(runtime) = declarative_runtime.as_ref() {
+                model_symbols.extend(declarative_model::runtime_symbols(runtime, &source_id));
             }
             let model_catalog = json!({
                 "schemaVersion":"1.0.0","catalogId":source_id,"generatedAt":build_timestamp(),

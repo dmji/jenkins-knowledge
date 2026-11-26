@@ -9,7 +9,9 @@
       "name": "Offline Jenkins Controller",
       "revision": "2.500",
       "url": "http://127.0.0.1:9/",
-      "metadata": {"snapshot": "sanitized-controller-fixture"}
+      "metadata": {
+        "snapshot": "sanitized-controller-fixture"
+      }
     },
     {
       "id": "plugin-a",
@@ -17,7 +19,9 @@
       "name": "Plugin A",
       "version": "1.0.0",
       "revision": "1.0.0",
-      "metadata": {"shortName": "plugin-a"}
+      "metadata": {
+        "shortName": "plugin-a"
+      }
     },
     {
       "id": "plugin-b",
@@ -25,7 +29,9 @@
       "name": "Plugin B",
       "version": "2.0.0",
       "revision": "2.0.0",
-      "metadata": {"shortName": "plugin-b"}
+      "metadata": {
+        "shortName": "plugin-b"
+      }
     },
     {
       "id": "declarative-model-fixture",
@@ -57,11 +63,27 @@
       "sourceId": "plugin-a",
       "signature": "sh(String script)",
       "description": "Runs a shell command.",
-      "parameters": [{"name": "script", "type": "String", "required": true}],
-      "contexts": ["pipeline", "scripted"],
+      "parameters": [
+        {
+          "name": "script",
+          "type": "String",
+          "required": true
+        }
+      ],
+      "contexts": [
+        "pipeline",
+        "scripted"
+      ],
       "confidence": "verified",
-      "provenance": ["pipeline-gdsl:steps/sh"],
-      "availability": {"status": "available", "pluginSourceIds": ["plugin-a"]}
+      "provenance": [
+        "pipeline-gdsl:steps/sh"
+      ],
+      "availability": {
+        "status": "available",
+        "pluginSourceIds": [
+          "plugin-a"
+        ]
+      }
     },
     {
       "id": "plugin-a:step:build",
@@ -70,9 +92,13 @@
       "sourceId": "plugin-a",
       "signature": "build(String job)",
       "description": "Builds a downstream job.",
-      "contexts": ["pipeline"],
+      "contexts": [
+        "pipeline"
+      ],
       "confidence": "verified",
-      "provenance": ["plugin-a:step-descriptor"]
+      "provenance": [
+        "plugin-a:step-descriptor"
+      ]
     },
     {
       "id": "plugin-b:step:build",
@@ -81,9 +107,13 @@
       "sourceId": "plugin-b",
       "signature": "build(Map options)",
       "description": "Builds using plugin B options.",
-      "contexts": ["pipeline"],
+      "contexts": [
+        "pipeline"
+      ],
       "confidence": "inferred",
-      "provenance": ["plugin-b:groovy-type-metadata"]
+      "provenance": [
+        "plugin-b:groovy-type-metadata"
+      ]
     },
     {
       "id": "plugin-b:step:maybeStep",
@@ -91,9 +121,13 @@
       "kind": "step",
       "sourceId": "plugin-b",
       "description": "A step whose exact availability is not known.",
-      "contexts": ["pipeline"],
+      "contexts": [
+        "pipeline"
+      ],
       "confidence": "unknown",
-      "provenance": ["groovy-type-metadata:maybeStep"]
+      "provenance": [
+        "groovy-type-metadata:maybeStep"
+      ]
     },
     {
       "id": "shared-library-fixture:global:deployApp",
@@ -102,10 +136,17 @@
       "sourceId": "shared-library-fixture",
       "signature": "deployApp(Map options)",
       "description": "Deploys an application from a Shared Library.",
-      "contexts": ["pipeline"],
+      "contexts": [
+        "pipeline"
+      ],
       "confidence": "verified",
-      "provenance": ["vars/deployApp.groovy:1"],
-      "fieldEvidence": {"description": "verified", "signature": "verified"}
+      "provenance": [
+        "vars/deployApp.groovy:1"
+      ],
+      "fieldEvidence": {
+        "description": "verified",
+        "signature": "verified"
+      }
     },
     {
       "id": "shared-library-fixture:method:deploy-string",
@@ -114,10 +155,18 @@
       "sourceId": "shared-library-fixture",
       "namespace": "com.example.Deployer",
       "signature": "deploy(String environment)",
-      "parameters": [{"name": "environment", "type": "String", "required": true}],
+      "parameters": [
+        {
+          "name": "environment",
+          "type": "String",
+          "required": true
+        }
+      ],
       "returnType": "void",
       "confidence": "verified",
-      "provenance": ["src/com/example/Deployer.groovy:12"]
+      "provenance": [
+        "src/com/example/Deployer.groovy:12"
+      ]
     },
     {
       "id": "shared-library-fixture:method:deploy-map",
@@ -126,10 +175,18 @@
       "sourceId": "shared-library-fixture",
       "namespace": "com.example.Deployer",
       "signature": "deploy(Map options)",
-      "parameters": [{"name": "options", "type": "Map", "required": true}],
+      "parameters": [
+        {
+          "name": "options",
+          "type": "Map",
+          "required": true
+        }
+      ],
       "returnType": "void",
       "confidence": "inferred",
-      "provenance": ["src/com/example/Deployer.groovy:20"]
+      "provenance": [
+        "src/com/example/Deployer.groovy:20"
+      ]
     },
     {
       "id": "shared-library-fixture:class:DeployRequest",
@@ -139,7 +196,9 @@
       "namespace": "com.example",
       "description": "Request type from sanitized Groovy type metadata.",
       "confidence": "verified",
-      "provenance": ["src/com/example/DeployRequest.groovy:1"]
+      "provenance": [
+        "src/com/example/DeployRequest.groovy:1"
+      ]
     },
     {
       "id": "declarative-model-fixture:directive:agent",
@@ -147,9 +206,13 @@
       "kind": "declarative-directive",
       "sourceId": "declarative-model-fixture",
       "description": "Selects the execution agent for a Declarative Pipeline.",
-      "contexts": ["declarative"],
+      "contexts": [
+        "declarative"
+      ],
       "confidence": "verified",
-      "provenance": ["declarative-descriptors:agent"]
+      "provenance": [
+        "declarative-descriptors:agent"
+      ]
     },
     {
       "id": "jenkins-core-fixture:method:getInstance",
@@ -160,7 +223,77 @@
       "signature": "getInstance()",
       "returnType": "jenkins.model.Jenkins",
       "confidence": "verified",
-      "provenance": ["groovy-type-metadata:jenkins.model.Jenkins"]
+      "provenance": [
+        "groovy-type-metadata:jenkins.model.Jenkins"
+      ]
+    },
+    {
+      "id": "declarative-model-fixture:runtime:agent:kubernetes:org.csanchez.jenkins.plugins.kubernetes.pipeline.KubernetesDeclarativeAgent:0",
+      "name": "kubernetes",
+      "kind": "declarative-directive",
+      "sourceId": "declarative-model-fixture",
+      "signature": "org.csanchez.jenkins.plugins.kubernetes.pipeline.KubernetesDeclarativeAgent",
+      "confidence": "verified",
+      "provenance": [
+        "jenkins-script-console",
+        "declarative-extensions",
+        "agent"
+      ],
+      "fieldEvidence": {
+        "name": "verified",
+        "signature": "verified"
+      },
+      "extensionCategory": "agent",
+      "nameKind": "dsl-token",
+      "evidence": [
+        {
+          "sourceId": "declarative-model-fixture",
+          "kind": "controller-observed",
+          "confidence": "verified",
+          "provenance": "Registered Declarative or Jenkins descriptor",
+          "retrievedAt": "2026-01-01T00:00:00Z",
+          "location": "script-console/declarative-extensions/agent",
+          "sourceKind": "jenkins-controller"
+        }
+      ],
+      "namespace": "kubernetes",
+      "contexts": [
+        "pipeline",
+        "stage"
+      ]
+    },
+    {
+      "id": "declarative-model-fixture:runtime:parameter:StringParameterDefinition:hudson.model.StringParameterDefinition:0",
+      "name": "StringParameterDefinition",
+      "kind": "declarative-directive",
+      "sourceId": "declarative-model-fixture",
+      "signature": "hudson.model.StringParameterDefinition",
+      "confidence": "unknown",
+      "provenance": [
+        "jenkins-script-console",
+        "declarative-extensions",
+        "parameter"
+      ],
+      "fieldEvidence": {
+        "name": "unknown",
+        "signature": "verified"
+      },
+      "extensionCategory": "parameter",
+      "nameKind": "implementation-class",
+      "evidence": [
+        {
+          "sourceId": "declarative-model-fixture",
+          "kind": "controller-observed",
+          "confidence": "unknown",
+          "provenance": "Registered Declarative or Jenkins descriptor",
+          "retrievedAt": "2026-01-01T00:00:00Z",
+          "location": "script-console/declarative-extensions/parameter",
+          "sourceKind": "jenkins-controller"
+        }
+      ],
+      "contexts": [
+        "pipeline"
+      ]
     }
   ],
   "controller": {
@@ -189,9 +322,21 @@
       }
     ],
     "capabilities": [
-      {"name": "plugin-inventory", "status": "unknown", "details": "The fixture represents a partial inventory."},
-      {"name": "pipeline-gdsl", "status": "available", "details": "The fixture includes bounded GDSL symbols."},
-      {"name": "script-console", "status": "unavailable", "details": "Permission denied in the fixture."}
+      {
+        "name": "plugin-inventory",
+        "status": "unknown",
+        "details": "The fixture represents a partial inventory."
+      },
+      {
+        "name": "pipeline-gdsl",
+        "status": "available",
+        "details": "The fixture includes bounded GDSL symbols."
+      },
+      {
+        "name": "script-console",
+        "status": "unavailable",
+        "details": "Permission denied in the fixture."
+      }
     ],
     "collection": {
       "profile": "deep",
@@ -200,7 +345,7 @@
     },
     "runtime": {
       "schemaVersion": "1.0.0",
-      "templateVersion": "1",
+      "templateVersion": "2",
       "source": "script-console",
       "status": "partial",
       "collectedAt": "2026-01-01T00:00:00Z",
@@ -226,11 +371,85 @@
           "status": "unavailable",
           "items": [],
           "truncated": false
+        },
+        {
+          "name": "declarative-extensions",
+          "status": "available",
+          "truncated": false,
+          "items": [
+            {
+              "category": "agent",
+              "name": "kubernetes",
+              "nameKind": "dsl-token",
+              "className": "org.csanchez.jenkins.plugins.kubernetes.pipeline.KubernetesDeclarativeAgent",
+              "descriptorClass": "org.csanchez.jenkins.plugins.kubernetes.pipeline.KubernetesDeclarativeAgent$DescriptorImpl",
+              "contexts": [
+                "pipeline",
+                "stage"
+              ],
+              "plugin": "kubernetes"
+            },
+            {
+              "category": "option",
+              "name": "timeout",
+              "nameKind": "dsl-token",
+              "className": "org.jenkinsci.plugins.pipeline.modeldefinition.options.impl.Timeout",
+              "contexts": [
+                "pipeline",
+                "stage"
+              ],
+              "canUseInStage": true
+            },
+            {
+              "category": "when",
+              "name": "branch",
+              "nameKind": "dsl-token",
+              "className": "org.jenkinsci.plugins.pipeline.modeldefinition.when.impl.BranchConditional",
+              "contexts": [
+                "stage"
+              ],
+              "allowedChildrenCount": 0
+            },
+            {
+              "category": "post-condition",
+              "name": "always",
+              "nameKind": "dsl-token",
+              "className": "org.jenkinsci.plugins.pipeline.modeldefinition.model.conditions.Always",
+              "contexts": [
+                "pipeline",
+                "stage"
+              ]
+            },
+            {
+              "category": "trigger",
+              "name": "TimerTrigger",
+              "nameKind": "implementation-class",
+              "className": "hudson.triggers.TimerTrigger",
+              "contexts": [
+                "pipeline"
+              ]
+            },
+            {
+              "category": "parameter",
+              "name": "StringParameterDefinition",
+              "nameKind": "implementation-class",
+              "className": "hudson.model.StringParameterDefinition",
+              "contexts": [
+                "pipeline"
+              ]
+            }
+          ]
         }
       ],
       "errors": [
-        {"probe": "script-console", "code": "permission-denied"},
-        {"probe": "pipeline-steps", "code": "output-truncated"}
+        {
+          "probe": "script-console",
+          "code": "permission-denied"
+        },
+        {
+          "probe": "pipeline-steps",
+          "code": "output-truncated"
+        }
       ]
     }
   }
