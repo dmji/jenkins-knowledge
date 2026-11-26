@@ -988,6 +988,7 @@
             "pipeline-steps",
             "pipeline-globals",
             "declarative-extensions",
+            "api-types",
             "output"
           ]
         },
@@ -1007,6 +1008,7 @@
             "jenkins-unavailable",
             "extension-type-unavailable",
             "enumeration-failed",
+            "type-unresolved",
             "output-truncated"
           ]
         }
