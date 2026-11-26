@@ -526,6 +526,90 @@ mod tests {
         assert_eq!(word_at("first\nsecond", 1, 3).as_deref(), Some("second"));
     }
 
+    fn context_at_end(text: &str) -> (String, Vec<String>, Vec<String>) {
+        let line = text.lines().count().saturating_sub(1);
+        let character = text.lines().last().unwrap_or_default().encode_utf16().count();
+        completion_context(text, line, character)
+    }
+
+    #[test]
+    fn nested_closures_do_not_close_their_declarative_parent_context() {
+        let source = "pipeline {\\n stages {\\n stage('build') {\\n steps {\\n script {\\n sh 'inside'\\n }\\n sh";
+        let (_, contexts, kinds) = context_at_end(source);
+        assert!(contexts.iter().any(|context| context == "pipeline"));
+        assert!(contexts.iter().any(|context| context == "stages"));
+        assert!(contexts.iter().any(|context| context == "stage"));
+        assert!(contexts.iter().any(|context| context == "steps"));
+        assert!(!contexts.iter().any(|context| context == "script"));
+        assert_eq!(kinds, vec!["step"]);
+    }
+
+    #[test]
+    fn ignores_block_like_text_in_comments_and_quoted_strings() {
+        let source = r#"pipeline {
+    // script { steps {
+    /* post { stage('fake') { } } */
+    stages {
+        stage('real') {
+            steps {
+                def single = 'script { }'
+                def double = "post { }"
+                def tripleSingle = '''agent { }'''
+                def tripleDouble = """environment { }"""
+                sh
+"#;
+        let (_, contexts, _) = context_at_end(source);
+        for expected in ["pipeline", "stages", "stage", "steps"] {
+            assert!(contexts.iter().any(|context| context == expected), "{contexts:?}");
+        }
+        for ignored in ["script", "post", "agent", "environment"] {
+            assert!(!contexts.iter().any(|context| context == ignored), "{contexts:?}");
+        }
+    }
+
+    #[test]
+    fn escaped_quotes_do_not_end_strings_early() {
+        let source = r#"pipeline {
+    def double = "steps { \\\" stage { }"
+    def single = 'script { \\' post { }'
+    steps {
+        sh
+"#;
+        let (_, contexts, _) = context_at_end(source);
+        assert!(contexts.iter().any(|context| context == "steps"));
+        assert!(!contexts.iter().any(|context| context == "stage"));
+        assert!(!contexts.iter().any(|context| context == "script"));
+        assert!(!contexts.iter().any(|context| context == "post"));
+    }
+
+    #[test]
+    fn incomplete_blocks_and_unbalanced_closers_are_handled_safely() {
+        let source = "pipeline {\\n stages {\\n stage('unfinished') {\\n steps {\\n sh";
+        let (_, contexts, kinds) = context_at_end(source);
+        assert!(contexts.iter().any(|context| context == "steps"));
+        assert_eq!(kinds, vec!["step"]);
+
+        let (_, contexts, _) = context_at_end("}}}} pipeline {");
+        assert!(contexts.iter().any(|context| context == "pipeline"));
+    }
+
+    #[test]
+    fn context_scan_is_bounded_for_very_large_documents() {
+        let source = format!("{}pipeline {{", " ".repeat(MAX_CONTEXT_SCAN_BYTES));
+        assert!(scan_block_contexts(&source).is_none());
+    }
+
+    #[test]
+    fn nested_completion_keeps_step_symbols_and_excludes_declarative_directives() {
+        let runtime = fixture_runtime("fixture");
+        let source = "pipeline {\\n stages {\\n stage('build') {\\n steps {\\n script {\\n sh 'inside'\\n }\\n sh";
+        let result = completion(Some(&runtime), source, 7, 2);
+        let labels: Vec<_> = result["items"].as_array().unwrap().iter()
+            .filter_map(|item| item["label"].as_str()).collect();
+        assert!(labels.contains(&"sh"));
+        assert!(!labels.contains(&"agent"));
+    }
+
     #[test]
     fn catalog_scope_includes_steps_and_shared_library_symbols_only() {
         assert!(supported_symbol(&json!({"kind":"step"})));
