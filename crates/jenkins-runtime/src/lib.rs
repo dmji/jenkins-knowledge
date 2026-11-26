@@ -378,8 +378,13 @@ impl Runtime {
         let java_vendor_status = controller_collection
             .and_then(|value| value["javaVendorStatus"].as_str())
             .unwrap_or(if java_vendor.is_some() { "available" } else { "unknown" });
-        let plugin_status = self.plugin_inventory_status();
+        let package_plugin_status = self.plugin_inventory_status();
         let package_plugins = plugin_version_map(self.plugin_inventory());
+        let plugin_status = if package_plugin_status == "available" && package_plugins.is_none() {
+            "unknown"
+        } else {
+            package_plugin_status
+        };
         let target = target_environment.filter(|value| value.is_object());
         let target_core = target.and_then(|value| value["coreVersion"].as_str());
         let target_java = target.and_then(|value| value["javaVersion"].as_str());
@@ -449,7 +454,9 @@ impl Runtime {
             "unknown"
         } else if core_version.is_some()
             && java_version_status == "available"
+            && java_version.is_some()
             && java_vendor_status == "available"
+            && java_vendor.is_some()
             && plugin_status == "available"
             && package_plugins.is_some()
         {
@@ -908,6 +915,9 @@ impl Runtime {
 
 
 fn plugin_version_map(plugins: &[Value]) -> Option<BTreeMap<String, String>> {
+    if plugins.is_empty() {
+        return None;
+    }
     let mut versions = BTreeMap::new();
     for plugin in plugins {
         let short_name = plugin["shortName"].as_str().filter(|value| !value.is_empty())?;
