@@ -9,7 +9,7 @@ From the repository root:
 ```sh
 cargo build --release --manifest-path crates/jenkins-lsp/Cargo.toml
 cd editors/vscode
-npm install
+npm ci
 npm run compile
 ```
 
@@ -36,6 +36,18 @@ cargo run --manifest-path crates/knowledge-builder/Cargo.toml -- build profiles/
 ```
 
 The package path is resolved relative to the workspace. The Rust server validates the package using Runtime and rejects a configured profile mismatch. Changing `jenkinsKnowledge.packagePath` or `jenkinsKnowledge.profile` reloads a different local package selection; it does not run Builder, contact Jenkins/Git, or refresh the package contents. Use **Jenkins Knowledge: Reload Knowledge Package** to explicitly reload the selected local package/profile. Invalid configuration clears catalog results and diagnostics rather than retaining stale symbols.
+
+## Extension-host acceptance
+
+The reproducible acceptance suite launches a pinned VS Code 1.85.0 extension host with the real `jenkins-lsp` binary. It consumes the Deep package produced by the live Jenkins 2.356 integration job plus deterministic primary/alternate fixture packages.
+
+From the repository root, after `tests/jenkins-2.356/run.sh` has completed:
+
+```sh
+bash tests/jenkins-2.356/run-vscode-acceptance.sh
+```
+
+The suite verifies GDSL completion and a revision-pinned Shared Library definition against the live package; positive hover/navigation and an explicit unavailable-plugin diagnostic against the primary fixture; comment/string/unknown-name negative cases; package reload/profile isolation against the alternate fixture; and no Jenkins-specific completion in ordinary Groovy files. It runs without a public Jenkins service or credentials. The integration workflow runs it automatically after the live Jenkins matrix.
 
 ## Features and limitations
 
