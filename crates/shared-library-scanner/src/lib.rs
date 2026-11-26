@@ -1013,9 +1013,10 @@ class Service<T> extends BaseService implements Runnable, Closeable {
                 .args(["if=/dev/zero", &format!("of={}", path.display()), "bs=4096", "count=32"])
                 .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
         }
-        let failures = writers.into_iter().filter(|mut child| {
-            !child.wait().expect("writer process exits").success()
-        }).count();
+        let failures = writers.into_iter()
+            .map(|mut child| child.wait().expect("writer process exits"))
+            .filter(|status| !status.success())
+            .count();
         assert!(failures > 0, "concurrent writers unexpectedly exceeded the aggregate tmpfs quota");
         assert!(checkout.path().join("writer-0.bin").exists()
             || checkout.path().join("writer-1.bin").exists()
