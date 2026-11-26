@@ -1,9 +1,9 @@
 use catalog_validator::{completeness_reason_codes, redact_sensitive_fields, source_collection_summary, stamp_catalog_identity, validate_catalog, validate_package_metadata};
 use jenkins_gdsl_collector::{ApiTypeLimits, CollectorError, DiscoveryError};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::{BTreeMap, BTreeSet, HashSet}, env, fs, path::Path};
+use std::{collections::{BTreeMap, BTreeSet, HashSet}, env, fs, path::{Path, PathBuf}};
 
 mod source_security;
 
@@ -100,7 +100,7 @@ impl PackageSelection {
 }
 
 fn default_collection_profile() -> String {
-    "standard".into()
+    "quick".into()
 }
 
 fn valid_api_class_name(value: &str) -> bool {
@@ -149,17 +149,6 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
             "configure at least one Jenkins controller, Shared Library, or fixture catalog".into(),
         ));
     }
-    if !fixtures_mode && profile.collection_profile == "quick" && profile.jenkins.controllers.is_empty() {
-        return Err(BuildError::Profile(
-            "collectionProfile: quick requires a Jenkins controller".into(),
-        ));
-    }
-    if !fixtures_mode && profile.collection_profile == "deep" && profile.jenkins.controllers.is_empty() {
-        return Err(BuildError::Profile(
-            "collectionProfile: deep requires a Jenkins controller".into(),
-        ));
-    }
-
     let mut controller_ids = HashSet::new();
     for (index, controller) in profile.jenkins.controllers.iter().enumerate() {
         if controller.id.trim().is_empty()
@@ -312,6 +301,13 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
             (included, true)
         }
     };
+
+    if !fixtures_mode && matches!(profile.collection_profile.as_str(), "quick" | "deep") && profile.jenkins.controllers.is_empty() {
+        return Err(BuildError::Profile(format!(
+            "collectionProfile: {} requires a Jenkins controller",
+            profile.collection_profile
+        )));
+    }
 
     Ok(PackageSelection { included, explicit })
 }
@@ -492,7 +488,99 @@ fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
     symbols
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ControllerCacheSnapshot {
+    fingerprint: String,
+    catalogs: Vec<(String, Value)>,
+    outcomes: Vec<Value>,
+}
+
+fn cache_root(profile_dir: &Path) -> PathBuf {
+    if let Some(path) = env::var_os("JENKINS_KNOWLEDGE_CACHE_DIR") {
+        return PathBuf::from(path).join("controller-snapshots");
+    }
+    env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        .unwrap_or_else(|| profile_dir.join(".cache"))
+        .join("jenkins-knowledge")
+        .join("controller-snapshots")
+}
+
+fn controller_cache_path(base: &Path, controller: &ControllerConfig, profile: &Profile) -> Result<PathBuf, BuildError> {
+    let identity = json!({
+        "id": controller.id,
+        "url": source_security::redact_url(&controller.url),
+        "collectionProfile": profile.collection_profile,
+        "apiRoots": controller.api_roots,
+        "apiLimits": {
+            "maxDepth": controller.api_limits.max_depth,
+            "maxTypes": controller.api_limits.max_types,
+            "maxMembersPerType": controller.api_limits.max_members_per_type,
+            "maxTotalMembers": controller.api_limits.max_total_members,
+        },
+    });
+    let bytes = serde_json::to_vec(&identity).map_err(|error| BuildError::Io(error.to_string()))?;
+    let key = hex(&Sha256::digest(bytes));
+    Ok(cache_root(base).join(format!("{key}.json")))
+}
+
+fn controller_fingerprint(catalog: &Value) -> Result<String, BuildError> {
+    let controller = catalog.get("controller").ok_or_else(|| BuildError::Source(
+        "controller discovery returned no metadata for fingerprinting".into()
+    ))?;
+    let identity = json!({
+        "coreVersion": controller.get("coreVersion"),
+        "plugins": controller.get("plugins"),
+        "capabilities": controller.get("capabilities"),
+        "identity": controller.get("identity"),
+    });
+    let bytes = serde_json::to_vec(&identity).map_err(|error| BuildError::Io(error.to_string()))?;
+    Ok(hex(&Sha256::digest(bytes)))
+}
+
+fn read_controller_cache(path: &Path, fingerprint: &str) -> Option<ControllerCacheSnapshot> {
+    let contents = fs::read(path).ok()?;
+    let cached: ControllerCacheSnapshot = serde_json::from_slice(&contents).ok()?;
+    (cached.fingerprint == fingerprint).then_some(cached)
+}
+
+fn write_controller_cache(path: &Path, snapshot: &ControllerCacheSnapshot) -> Result<(), BuildError> {
+    let parent = path.parent().ok_or_else(|| BuildError::Io("cache path has no parent".into()))?;
+    fs::create_dir_all(parent).map_err(|error| BuildError::Io(format!("cannot create controller cache: {error}")))?;
+    let staging = tempfile::Builder::new().prefix(".controller-cache-").tempdir_in(parent)
+        .map_err(|error| BuildError::Io(format!("cannot stage controller cache: {error}")))?;
+    let bytes = serde_json::to_vec_pretty(snapshot).map_err(|error| BuildError::Io(error.to_string()))?;
+    fs::write(staging.path().join("snapshot.json"), bytes)
+        .map_err(|error| BuildError::Io(format!("cannot write controller cache: {error}")))?;
+    fs::rename(staging.path().join("snapshot.json"), path)
+        .map_err(|error| BuildError::Io(format!("cannot publish controller cache: {error}")))?;
+    Ok(())
+}
+
+pub fn invalidate_cache(profile_path: &Path) -> Result<usize, BuildError> {
+    let input = fs::read_to_string(profile_path)
+        .map_err(|error| BuildError::Io(format!("cannot read {}: {error}", profile_path.display())))?;
+    let profile: Profile = serde_yaml::from_str(&input).map_err(|error| BuildError::Profile(error.to_string()))?;
+    validate_profile(&profile)?;
+    let base = profile_path.parent().unwrap_or(Path::new("."));
+    let mut removed = 0;
+    for controller in &profile.jenkins.controllers {
+        let path = controller_cache_path(base, controller, &profile)?;
+        match fs::remove_file(path) {
+            Ok(()) => removed += 1,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+            Err(error) => return Err(BuildError::Io(format!("cannot invalidate controller cache: {error}"))),
+        }
+    }
+    Ok(removed)
+}
+
 pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildError> {
+    build_package_with_options(profile_path, output, false)
+}
+
+pub fn build_package_with_options(profile_path: &Path, output: &Path, refresh: bool) -> Result<(), BuildError> {
     if output.exists() { return Err(BuildError::OutputExists(output.display().to_string())); }
     let input = fs::read_to_string(profile_path).map_err(|e| BuildError::Io(format!("cannot read {}: {e}", profile_path.display())))?;
     let profile: Profile = serde_yaml::from_str(&input).map_err(|e| BuildError::Profile(e.to_string()))?;
@@ -553,6 +641,9 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         let username = env::var("JENKINS_USERNAME").ok();
         let api_token = env::var("JENKINS_API_TOKEN").ok();
         for controller in &profile.jenkins.controllers {
+            let controller_cache = controller_cache_path(base, controller, &profile)?;
+            let cached_catalog_start = catalogs.len();
+            let cached_outcome_start = collection_outcomes.len();
             // Core controller metadata is mandatory. Optional inventories and GDSL
             // are recorded independently so their failure cannot discard valid data.
             let gdsl_only_profile = selection.explicit
@@ -588,6 +679,21 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     )));
                 }
             };
+            let fingerprint = if controller_metadata_available {
+                Some(controller_fingerprint(&catalog)?)
+            } else {
+                None
+            };
+            if !refresh {
+                if let Some(fingerprint) = fingerprint.as_deref() {
+                    if let Some(cached) = read_controller_cache(&controller_cache, fingerprint) {
+                        eprintln!("controller snapshot cache hit: {}", controller.id);
+                        catalogs.extend(cached.catalogs);
+                        collection_outcomes.extend(cached.outcomes);
+                        continue;
+                    }
+                }
+            }
             let controller_source_id = catalog["sources"][0]["id"]
                 .as_str()
                 .ok_or_else(|| BuildError::Source("controller collection returned no source identity".into()))?
@@ -870,6 +976,21 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 "status": "succeeded"
             }));
             catalogs.push((format!("Declarative model for '{}'", controller.id), model_catalog));
+
+            // Do not cache partial results: failed optional surfaces are retried next time.
+            let cacheable = collection_outcomes[cached_outcome_start..].iter().all(|outcome|
+                matches!(outcome["status"].as_str(), Some("succeeded" | "skipped-by-profile" | "not-configured"))
+            );
+            if cacheable {
+                if let Some(fingerprint) = fingerprint {
+                    let snapshot = ControllerCacheSnapshot {
+                        fingerprint,
+                        catalogs: catalogs[cached_catalog_start..].to_vec(),
+                        outcomes: collection_outcomes[cached_outcome_start..].to_vec(),
+                    };
+                    write_controller_cache(&controller_cache, &snapshot)?;
+                }
+            }
         }
         for library in &profile.libraries {
             if profile.collection_profile == "quick" {
@@ -1640,8 +1761,12 @@ fixtures:
                 "profile: gdsl-only\ncollectionProfile: standard\njenkins:\n  controllers:\n    - id: ci\n      url: http://{address}/\npackage:\n  include:\n    - controller\n"
             ),
         ).unwrap();
+        let profile_path = directory.path().join("profile.yml");
         let output = directory.path().join("package");
-        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        build_package(&profile_path, &output).unwrap();
+        let profile: Profile = serde_yaml::from_str(&fs::read_to_string(&profile_path).unwrap()).unwrap();
+        let cache_path = super::controller_cache_path(directory.path(), &profile.jenkins.controllers[0], &profile).unwrap();
+        assert!(!cache_path.exists(), "partial controller snapshots must not be cached");
         server.join().unwrap();
 
         let catalog: Value = serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
@@ -1728,5 +1853,87 @@ fixtures:
         assert!(!manifest.to_string().contains("authorization"));
     }
 
+
+
+    #[test]
+    fn controller_cache_round_trips_and_rejects_changed_fingerprints() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("snapshot.json");
+        let snapshot = super::ControllerCacheSnapshot {
+            fingerprint: "fingerprint-a".into(),
+            catalogs: vec![("controller".into(), serde_json::json!({"catalogId":"snapshot-a"}))],
+            outcomes: vec![serde_json::json!({"status":"succeeded"})],
+        };
+        super::write_controller_cache(&path, &snapshot).unwrap();
+        let cached = super::read_controller_cache(&path, "fingerprint-a").unwrap();
+        assert_eq!(cached.catalogs[0].1["catalogId"], "snapshot-a");
+        assert!(super::read_controller_cache(&path, "fingerprint-b").is_none());
+    }
+
+    #[test]
+    fn controller_fingerprint_changes_when_core_or_plugin_inventory_changes() {
+        let baseline = serde_json::json!({"controller": {
+            "coreVersion": "2.479.1",
+            "plugins": [{"shortName":"workflow-cps","version":"4000.v1"}],
+            "capabilities": [{"name":"plugin-inventory","status":"available"}],
+            "identity": {"baseUrl":"https://jenkins.example.test/"}
+        }});
+        let baseline_fingerprint = super::controller_fingerprint(&baseline).unwrap();
+        let mut plugin_changed = baseline.clone();
+        plugin_changed["controller"]["plugins"][0]["version"] = serde_json::json!("4000.v2");
+        assert_ne!(baseline_fingerprint, super::controller_fingerprint(&plugin_changed).unwrap());
+        let mut core_changed = baseline;
+        core_changed["controller"]["coreVersion"] = serde_json::json!("2.480.0");
+        assert_ne!(baseline_fingerprint, super::controller_fingerprint(&core_changed).unwrap());
+    }
+
+    #[test]
+    fn collection_profile_defaults_to_quick() {
+        let profile: Profile = serde_yaml::from_str("profile: default-mode\nfixtures:\n  - fixture.json\n").unwrap();
+        assert_eq!(profile.collection_profile, "quick");
+    }
+
+    #[test]
+    fn standard_controller_cache_is_reused_refreshed_and_invalidated() {
+        use std::{io::{Read, Write}, net::TcpListener, thread};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for _ in 0..11 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 1024];
+                loop {
+                    let count = stream.read(&mut buffer).unwrap();
+                    if count == 0 { break; }
+                    request.extend_from_slice(&buffer[..count]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") { break; }
+                }
+                let request = String::from_utf8_lossy(&request);
+                let (status, content_type, body) = if request.starts_with("GET /api/json") {
+                    ("200 OK", "application/json", r#"{"_class":"hudson.model.Hudson","nodeName":"ci","jenkinsVersion":"2.479.1"}"#)
+                } else if request.starts_with("GET /pluginManager/api/json") {
+                    ("200 OK", "application/json", r#"{"plugins":[]}"#)
+                } else if request.to_ascii_lowercase().contains("range: bytes=0-0") {
+                    ("206 Partial Content", "text/plain", "m")
+                } else {
+                    ("200 OK", "text/plain", "method(name: 'sh', type: 'String')")
+                };
+                write!(stream, "HTTP/1.1 {status}\r\nX-Jenkins: 2.479.1\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+        });
+        let directory = tempfile::tempdir().unwrap();
+        let profile_path = directory.path().join("profile.yml");
+        fs::write(&profile_path, format!("profile: cache-test\ncollectionProfile: standard\njenkins:\n  controllers:\n    - id: ci\n      url: http://{address}/\n")).unwrap();
+        let profile: Profile = serde_yaml::from_str(&fs::read_to_string(&profile_path).unwrap()).unwrap();
+        let cache_path = super::controller_cache_path(directory.path(), &profile.jenkins.controllers[0], &profile).unwrap();
+        super::build_package(&profile_path, &directory.path().join("first-package")).unwrap();
+        super::build_package(&profile_path, &directory.path().join("cached-package")).unwrap();
+        super::build_package_with_options(&profile_path, &directory.path().join("refreshed-package"), true).unwrap();
+        server.join().unwrap();
+        assert!(cache_path.is_file());
+        assert_eq!(super::invalidate_cache(&profile_path).unwrap(), 1);
+        assert!(!cache_path.exists());
+    }
 
 }

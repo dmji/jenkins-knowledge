@@ -17,7 +17,7 @@ Without `fixtures`, the Builder first requires bounded Jenkins Core/controller m
 
 ### Collection profiles
 
-`collectionProfile` is separate from the package's `profile` identity. It defaults to `standard` and accepts:
+`collectionProfile` is separate from the package's `profile` identity. It defaults to `quick` and accepts:
 
 | Collection profile | Required sources | Optional or skipped surfaces |
 |---|---|---|
@@ -27,7 +27,21 @@ Without `fixtures`, the Builder first requires bounded Jenkins Core/controller m
 
 The Declarative Pipeline model is generated locally for each configured controller. Controller metadata is mandatory because it establishes the identity and version anchor for controller-backed sources. A failure there aborts the build. Optional failures do not discard successful snapshots: the Builder publishes a partial package with stable status and error codes. A failed Shared Library scan is isolated to that library; other controllers/libraries remain available. The Script Console probe runs only in `deep`, uses repository-owned Groovy, and does not accept caller-supplied scripts. It discovers a bounded API type surface rooted in observed Pipeline/Declarative classes and optional per-controller `apiRoots`; it never enumerates a ClassLoader or scans packages/JARs.
 
-Retries are explicit rather than automatic to avoid multiplying controller load. Network timeouts and transient HTTP failures are safe to retry by rerunning the build. Permission failures require corrected Jenkins/Git permissions or credentials first. Malformed responses should be investigated against the Jenkins/plugin version before retrying. The package records no raw remote response bodies or error text.
+Retries are explicit rather than automatic to avoid multiplying controller load. Network timeouts and transient HTTP failures are safe to retry by rerunning the build.
+
+### Controller snapshot cache and refresh
+
+Live controller snapshots are cached locally under `${XDG_CACHE_HOME:-$HOME/.cache}/jenkins-knowledge/controller-snapshots` (override with `JENKINS_KNOWLEDGE_CACHE_DIR`). The cache key includes the controller identity/URL, collection profile, explicit API roots, and API limits. Before reuse, Builder performs the bounded controller discovery request and fingerprints the observed Core version, plugin inventory, capabilities, and controller identity. A matching fingerprint reuses the previously collected controller/GDSL/Declarative/Script Console snapshot; a changed Core version, plugin inventory, capability set, or controller identity forces recollection. Only fully successful snapshots are cached, so optional failures are retried on the next build. Fixture builds do not use the cache. `JENKINS_KNOWLEDGE_CACHE_DIR` names the cache base directory; Builder appends `controller-snapshots`. A changed controller-wide fingerprint invalidates the whole controller snapshot. The current catalog has one coherent controller snapshot boundary, so Builder does not reuse individual GDSL/runtime partitions across a changed Core/plugin identity.
+
+Use `refresh` to bypass an existing cache entry and collect a fresh snapshot, or `invalidate` to remove the cache entry for the controller(s) in a profile:
+
+```sh
+knowledge-builder build profiles/production-pipelines.yml ./target/package
+knowledge-builder refresh profiles/production-pipelines.yml ./target/refreshed-package
+knowledge-builder invalidate profiles/production-pipelines.yml
+```
+
+`refresh` does not overwrite a package directory; choose a new output path or remove an old package explicitly. Cache data is local to the Builder host and is never read by Runtime, LSP, or MCP. Cache reuse never triggers network activity from package opening or querying. Permission failures require corrected Jenkins/Git permissions or credentials first. Malformed responses should be investigated against the Jenkins/plugin version before retrying. The package records no raw remote response bodies or error text.
 
 Shared Library `commit` values, when supplied, must be full 40-character commit SHAs. The scanner records the resolved commit in the catalog source revision. When omitted, the configured ref is fetched and the resolved commit is recorded by the scanner.
 
@@ -64,7 +78,7 @@ Filtering is applied by source ID: excluded sources, their symbols, and their co
 
 **Migration note:** earlier Builder versions accepted `package.include` but ignored it. It now actively filters the package. To preserve the previous all-sections output, remove `package.include` rather than setting it to an empty list. Review existing explicit selectors before upgrading; every requested section must match at least one source.
 
-A profile must select at least one source mode. Fixture catalogs cannot be mixed with live collection. Controller IDs and library names must be unique. URL, ref, commit, fixture-path, package-ID, and selector validation completes before any external collection starts. A requested section must match at least one source after collection; an unavailable plugin inventory therefore fails an explicit `plugins` selection instead of silently producing a partial package.
+A profile must select at least one source mode. `quick` and `deep` require a Jenkins controller; use `standard` for a Shared-Library-only profile. Fixture catalogs cannot be mixed with live collection. Controller IDs and library names must be unique. URL, ref, commit, fixture-path, package-ID, and selector validation completes before any external collection starts. A requested section must match at least one source after collection; an unavailable plugin inventory therefore fails an explicit `plugins` selection instead of silently producing a partial package.
 
 ## Package layout and guarantees
 
