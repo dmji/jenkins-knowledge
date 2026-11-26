@@ -780,4 +780,24 @@ mod tests {
         assert!(validate_catalog(&catalog, &schema()).is_ok());
     }
 
+    #[test]
+    fn rejects_coverage_surface_incompatible_with_source_kind() {
+        let mut catalog = valid_catalog();
+        catalog["coverage"] = json!([{
+            "sourceId":"controller",
+            "surface":"shared-library-vars",
+            "status":"inspected"
+        }]);
+        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        assert!(error.contains("surface 'shared-library-vars' is incompatible with source 'controller' of kind 'jenkins-controller'"));
+    }
+
+    #[test]
+    fn rejects_field_evidence_metadata_fields() {
+        let mut invalid = valid_catalog();
+        invalid["symbols"][0]["fieldEvidence"] = json!({"fieldEvidence":"verified"});
+        let error = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        assert!(error.contains("not a schema-defined symbol attribute"));
+    }
+
 }
