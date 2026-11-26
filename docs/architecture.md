@@ -62,7 +62,7 @@ The optional Script Console probe may describe API types only from the already o
 The current inventory records class/interface/enum identity, superclass and directly implemented interfaces, public/protected method signatures (including overloads and generic type names), JavaBean-style readable/writable property hints, synthetic-member flags, and plugin attribution when Jenkins can resolve it. Hierarchy inspection is bounded to eight superclass levels; referenced raw parameter/return classes are resolved one level beyond the roots. The current default limits are 20 API types total, a queue of 100 candidate roots, 20 methods and 20 properties per type, eight parameter types per method, and a reduced output fallback when the response budget is approached. Unresolved roots are reported as partial probe errors. Reflection metadata is evidence of API shape only: it does not establish Script Security approval, CPS compatibility, runtime availability in every Pipeline context, or safe invocation.
 
 This is intentionally a selected API surface, not complete Groovy, Java, Jenkins, or plugin documentation. The current default roots come from observed extension registrations. Additional roots may be added only to the repository-maintained `EXPLICIT_API_TYPE_ROOTS` allowlist in the fixed probe; this is deliberately not user-controlled. Recursive resolution beyond one referenced-type level is not enabled.
- 
+
 ## Package boundary
 
 The Knowledge Package is the handoff artifact between stages. It contains the manifest, catalog, schema/version metadata, provenance, collection outcomes, and integrity checksums. The catalog is the canonical data contract shared by Builder and all consumers.
