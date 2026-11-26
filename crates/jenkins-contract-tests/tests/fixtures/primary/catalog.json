@@ -226,6 +226,74 @@
       "provenance": [
         "groovy-type-metadata:jenkins.model.Jenkins"
       ]
+    },
+    {
+      "id": "declarative-model-fixture:runtime:agent:kubernetes:org.csanchez.jenkins.plugins.kubernetes.pipeline.KubernetesDeclarativeAgent:0",
+      "name": "kubernetes",
+      "kind": "declarative-directive",
+      "sourceId": "declarative-model-fixture",
+      "signature": "org.csanchez.jenkins.plugins.kubernetes.pipeline.KubernetesDeclarativeAgent",
+      "confidence": "verified",
+      "provenance": [
+        "jenkins-script-console",
+        "declarative-extensions",
+        "agent"
+      ],
+      "fieldEvidence": {
+        "name": "verified",
+        "implementationClass": "verified"
+      },
+      "extensionCategory": "agent",
+      "nameKind": "dsl-token",
+      "evidence": [
+        {
+          "sourceId": "declarative-model-fixture",
+          "kind": "controller-observed",
+          "confidence": "verified",
+          "provenance": "Registered Declarative or Jenkins descriptor",
+          "retrievedAt": "2026-01-01T00:00:00Z",
+          "location": "script-console/declarative-extensions/agent",
+          "sourceKind": "jenkins-controller"
+        }
+      ],
+      "namespace": "kubernetes",
+      "contexts": [
+        "pipeline",
+        "stage"
+      ]
+    },
+    {
+      "id": "declarative-model-fixture:runtime:parameter:StringParameterDefinition:hudson.model.StringParameterDefinition:0",
+      "name": "StringParameterDefinition",
+      "kind": "declarative-directive",
+      "sourceId": "declarative-model-fixture",
+      "signature": "hudson.model.StringParameterDefinition",
+      "confidence": "unknown",
+      "provenance": [
+        "jenkins-script-console",
+        "declarative-extensions",
+        "parameter"
+      ],
+      "fieldEvidence": {
+        "name": "unknown",
+        "implementationClass": "verified"
+      },
+      "extensionCategory": "parameter",
+      "nameKind": "implementation-class",
+      "evidence": [
+        {
+          "sourceId": "declarative-model-fixture",
+          "kind": "controller-observed",
+          "confidence": "unknown",
+          "provenance": "Registered Declarative or Jenkins descriptor",
+          "retrievedAt": "2026-01-01T00:00:00Z",
+          "location": "script-console/declarative-extensions/parameter",
+          "sourceKind": "jenkins-controller"
+        }
+      ],
+      "contexts": [
+        "pipeline"
+      ]
     }
   ],
   "controller": {
