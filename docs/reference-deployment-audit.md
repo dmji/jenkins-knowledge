@@ -1,7 +1,7 @@
 # Reference deployment lifecycle audit
 
-**Date:** 2026-11-27  
-**Audited revision:** `c34ff1077ae0a3a674b70210712e36c754e58080` (master, merged PR #117)  
+**Date:** 2026-11-27
+**Audited revision:** `c34ff1077ae0a3a674b70210712e36c754e58080` (master, merged PR #117)
 **Scope:** implementation and repository documentation at the audited revision. This is a code/documentation audit, not evidence of a live Jenkins compatibility run.
 
 ## Executive summary
