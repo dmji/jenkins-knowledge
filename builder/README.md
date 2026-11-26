@@ -6,6 +6,12 @@ Run the offline fixture package:
 
 ```sh
 cargo run --manifest-path crates/knowledge-builder/Cargo.toml -- build profiles/fixture.yml ./target/fixture-package
+
+# Force a new live controller snapshot (bypass cache)
+cargo run --manifest-path crates/knowledge-builder/Cargo.toml -- refresh profiles/production-pipelines.yml ./target/refreshed-package
+
+# Invalidate the cached controller snapshot for a profile
+cargo run --manifest-path crates/knowledge-builder/Cargo.toml -- invalidate profiles/production-pipelines.yml
 ```
 
 For profile format, live Jenkins/Git collection, deterministic output, package layout, and failure behavior, see [knowledge-builder](../crates/knowledge-builder/README.md).
