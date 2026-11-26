@@ -253,7 +253,7 @@ fn normalize_probe_output(value: &Value) -> Value {
         .as_array()
         .expect("registry array was checked");
     let mut available_registries = 0;
-    let mut registry_results = Vec::with_capacity(2);
+    let mut registry_results = Vec::with_capacity(3);
     for name in ["pipeline-steps", "pipeline-globals", "declarative-extensions"] {
         let raw = raw_registries
             .iter()
@@ -614,6 +614,9 @@ fn allowed_error_code(value: &str) -> bool {
             | "jenkins-unavailable"
             | "extension-type-unavailable"
             | "enumeration-failed"
+            | "class-unavailable"
+            | "type-traversal-truncated"
+            | "member-inspection-failed"
             | "output-truncated"
     )
 }
@@ -630,6 +633,9 @@ fn unavailable(code: &str) -> Value {
         "status": "unavailable",
         "collectedAt": timestamp(),
         "extensionRegistries": [],
+        "apiTypeInventoryStatus": "unavailable",
+        "configuredApiRoots": [],
+        "apiTypes": [],
         "errors": [{ "probe": "script-console", "code": code }]
     });
     redact_sensitive_fields(&mut runtime);
@@ -1133,7 +1139,7 @@ mod tests {
         request = request.basic_auth(user, Some(token));
     }
 
-    let response = match request.form(&[("script", SCRIPT_TEMPLATE)]).send() {
+    let response = match request.form(&[("script", script)]).send() {
         Ok(response) => response,
         Err(error) => {
             return unavailable(if error.is_timeout() {
