@@ -3,11 +3,11 @@
   "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
-      "version": "20"
+      "version": "26.13.1"
     },
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
   },
-  "postCreateCommand": "npm --prefix editors/vscode install",
+  "postCreateCommand": "npm --prefix editors/vscode ci --ignore-scripts --no-audit --no-fund",
   "customizations": {
     "vscode": {
       "extensions": [
