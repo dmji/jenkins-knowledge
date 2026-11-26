@@ -157,7 +157,10 @@ pub fn completeness_reason_codes(outcomes: &[Value]) -> Vec<String> {
         let status = outcome["status"].as_str().unwrap_or_default();
         let error_code = outcome["errorCode"].as_str().unwrap_or_default();
         if status == "succeeded-with-truncation"
-            || matches!(error_code, "output-truncated" | "limit-exceeded" | "response-too-large")
+            || matches!(
+                error_code,
+                "output-truncated" | "limit-exceeded" | "response-too-large" | "source-truncated"
+            )
         {
             reasons.insert("source-truncated".to_owned());
         }
@@ -171,7 +174,10 @@ pub fn completeness_reason_codes(outcomes: &[Value]) -> Vec<String> {
             "partial" | "failed"
                 if !matches!(
                     error_code,
-                    "output-truncated" | "limit-exceeded" | "response-too-large"
+                    "output-truncated"
+                        | "limit-exceeded"
+                        | "response-too-large"
+                        | "source-truncated"
                 ) =>
             {
                 reasons.insert("source-failed".to_owned());
@@ -230,6 +236,7 @@ fn populate_symbol_evidence(catalog: &mut Value) {
             };
             let mut item = serde_json::json!({
                 "sourceId": primary_source_id,
+                "sourceKind": source_kind,
                 "kind": evidence_kind,
                 "confidence": symbol["confidence"],
                 "retrievedAt": retrieved_at,
@@ -251,7 +258,10 @@ fn populate_symbol_evidence(catalog: &mut Value) {
                 let Some(source_id) = item["sourceId"].as_str() else {
                     continue;
                 };
-                if let Some((_, revision)) = source_info.get(source_id) {
+                if let Some((source_kind, revision)) = source_info.get(source_id) {
+                    if item.get("sourceKind").is_none() {
+                        item["sourceKind"] = Value::String(source_kind.clone());
+                    }
                     if item.get("revision").is_none() {
                         item["revision"] = Value::String(revision.clone());
                     }
@@ -703,6 +713,15 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
                     errors.push(format!(
                         "/symbols/{index}/evidence/{evidence_index}/kind: evidence kind '{evidence_kind}' is incompatible with source '{source_id}' of kind '{source_kind}'"
                     ));
+                }
+                if let Some(evidence_source_kind) =
+                    item.get("sourceKind").and_then(Value::as_str)
+                {
+                    if evidence_source_kind != source_kind {
+                        errors.push(format!(
+                            "/symbols/{index}/evidence/{evidence_index}/sourceKind: does not match referenced source kind"
+                        ));
+                    }
                 }
                 if let Some(revision) = item.get("revision").and_then(Value::as_str) {
                     let expected = sources
