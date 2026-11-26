@@ -596,10 +596,13 @@ def collectApiTypes = {
         } catch (Throwable ignored) {
             typeItem.status = 'partial'
             typeItem.membersStatus = 'inaccessible'
+            errors << [probe: 'api-types', code: 'member-inspection-failed']
         }
         def propertyMap = new TreeMap()
-        methodMap.each { methodKey, method ->
-            if (typeItem.methods.size() >= MAX_API_MEMBERS_PER_TYPE || inspectedMembers >= 300) {
+        def orderedMethods = methodMap.values().toList()
+        if (orderedMethods.size() > MAX_API_MEMBERS_PER_TYPE) typeItem.methodsTruncated = true
+        orderedMethods.take(MAX_API_MEMBERS_PER_TYPE).each { method ->
+            if (inspectedMembers >= 300) {
                 typeItem.methodsTruncated = true
                 return
             }
