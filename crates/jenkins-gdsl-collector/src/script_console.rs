@@ -398,7 +398,8 @@ fn normalize_api_method(value: &Value) -> Option<Value> {
         "parameters": [],
         "synthetic": value.get("synthetic").and_then(Value::as_bool).unwrap_or(false),
         "bridge": value.get("bridge").and_then(Value::as_bool).unwrap_or(false),
-        "varargs": value.get("varargs").and_then(Value::as_bool).unwrap_or(false)
+        "varargs": value.get("varargs").and_then(Value::as_bool).unwrap_or(false),
+        "parametersTruncated": value.get("parametersTruncated").and_then(Value::as_bool).unwrap_or(false)
     });
     for field in ["modifiers", "genericReturnType"] {
         if let Some(text) = value.get(field).and_then(Value::as_str).filter(|text| !text.trim().is_empty()) {
