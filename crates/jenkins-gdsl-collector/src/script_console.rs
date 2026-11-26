@@ -408,6 +408,13 @@ fn normalize_registry(
                 normalized["nameKind"] = json!(value);
             }
             if let Some(value) = item
+                .get("apiTypeRoot")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                normalized["apiTypeRoot"] = json!(truncate(value));
+            }
+            if let Some(value) = item
                 .get("descriptorClass")
                 .and_then(Value::as_str)
                 .filter(|value| !value.trim().is_empty())
