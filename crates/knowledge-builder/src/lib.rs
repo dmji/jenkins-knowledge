@@ -545,7 +545,7 @@ fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collec
 
 #[cfg(test)]
 mod tests {
-    use super::build_package;
+    use super::{build_package, validate_profile, Profile};
     use serde_json::{json, Value};
     use std::fs;
 
