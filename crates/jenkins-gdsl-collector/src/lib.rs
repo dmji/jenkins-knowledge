@@ -1084,7 +1084,7 @@ method(name: 'real')
         ).unwrap();
         assert_eq!(first["symbols"][0]["id"], second["symbols"][0]["id"]);
         assert_ne!(first["symbols"][0]["provenance"], second["symbols"][0]["provenance"]);
-        assert_ne!(first["sources"][0]["revision"], json!("retrieved"));
+        assert!(first["sources"][0]["revision"].as_str().unwrap().starts_with("sha256:"));
     }
 
 }
