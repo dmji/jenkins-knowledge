@@ -29,18 +29,30 @@ pub fn script_console_plan() -> Value {
             {
                 "method": "GET",
                 "path": "/api/json?tree=_class,nodeName,jenkinsVersion",
-                "purpose": "bounded controller metadata"
+                "requestCount": 1,
+                "purpose": "bounded controller metadata",
+                "connectTimeoutSeconds": CONNECT_TIMEOUT.as_secs(),
+                "timeoutSeconds": REQUEST_TIMEOUT.as_secs(),
+                "responseCapBytes": 1_048_576
             },
             {
                 "method": "GET",
                 "path": "/pluginManager/api/json?tree=plugins[shortName,version,active,enabled,dependencies[shortName,version,optional]]",
-                "purpose": "bounded installed plugin inventory"
+                "requestCount": 1,
+                "purpose": "bounded installed plugin inventory",
+                "connectTimeoutSeconds": CONNECT_TIMEOUT.as_secs(),
+                "timeoutSeconds": REQUEST_TIMEOUT.as_secs(),
+                "responseCapBytes": 4_194_304
             },
             {
                 "method": "GET",
                 "path": "/pipeline-syntax/gdsl",
                 "headers": { "Range": "bytes=0-0" },
-                "purpose": "one-byte availability probe only"
+                "requestCount": 1,
+                "purpose": "one-byte availability probe only",
+                "connectTimeoutSeconds": CONNECT_TIMEOUT.as_secs(),
+                "timeoutSeconds": REQUEST_TIMEOUT.as_secs(),
+                "responseReadCapBytes": 1
             },
             {
                 "method": "POST",
@@ -48,9 +60,15 @@ pub fn script_console_plan() -> Value {
                 "formFields": ["script"],
                 "probeTemplate": "src/probes/script_console_v1.groovy",
                 "templateVersion": TEMPLATE_VERSION,
-                "purpose": "read-only Groovy/JVM/Core metadata and selected extension registries"
+                "requestCount": 1,
+                "purpose": "read-only Groovy/JVM/Core metadata and selected extension registries",
+                "connectTimeoutSeconds": CONNECT_TIMEOUT.as_secs(),
+                "timeoutSeconds": REQUEST_TIMEOUT.as_secs(),
+                "responseCapBytes": MAX_SCRIPT_RESPONSE_BYTES
             }
         ],
+        "requestCount": 4,
+        "totalTimeoutSeconds": REQUEST_TIMEOUT.as_secs() * 4,
         "scriptConsole": {
             "readOnly": true,
             "registries": ["pipeline-steps", "pipeline-globals"],
@@ -58,7 +76,8 @@ pub fn script_console_plan() -> Value {
             "maxTextLength": MAX_TEXT_LENGTH,
             "maxResponseBytes": MAX_SCRIPT_RESPONSE_BYTES,
             "clientTimeoutSeconds": REQUEST_TIMEOUT.as_secs(),
-            "serverSideTerminationGuaranteed": false
+            "serverSideTerminationGuaranteed": false,
+            "timeoutBehavior": "client stops waiting; Jenkins may continue executing the submitted script"
         },
         "callsMade": false
     })
@@ -377,6 +396,7 @@ fn script_console_endpoint(controller: &str) -> Result<Url, ()> {
         || !url.username().is_empty()
         || url.password().is_some()
         || url.host_str().is_none()
+        || url.port().is_some_and(|port| port == 0)
     {
         return Err(());
     }
@@ -633,6 +653,52 @@ mod tests {
         assert_eq!(result["errors"][0]["code"], "response-too-large");
     }
 
+
+    #[test]
+    fn rejects_unpaired_credentials_before_contacting_jenkins() {
+        let result = collect_script_console("https://jenkins.example.test", Some("reader"), None);
+        assert_eq!(result["status"], "unavailable");
+        assert_eq!(result["errors"][0]["code"], "credentials-must-be-paired");
+    }
+
+    #[test]
+    fn rejects_non_http_and_embedded_credential_urls() {
+        for value in [
+            "file:///tmp/jenkins",
+            "ftp://jenkins.example.test",
+            "https://reader:secret@jenkins.example.test",
+            "https://jenkins.example.test:0",
+        ] {
+            assert!(script_console_endpoint(value).is_err(), "accepted {value}");
+        }
+    }
+
+    #[test]
+    fn rejects_oversized_chunked_or_close_delimited_output_without_content_length() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let body = vec![b'x'; MAX_SCRIPT_RESPONSE_BYTES + 1];
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_request(&mut stream);
+            let _ = stream.write_all(b"HTTP/1.1 200 OK\\r\\nConnection: close\\r\\n\\r\\n");
+            let _ = stream.write_all(&body);
+        });
+        let endpoint = script_console_endpoint(&format!("http://{address}/jenkins")).unwrap();
+        let result = collect_with_client(&endpoint, None, None, &test_client());
+        assert_eq!(result["status"], "unavailable");
+        assert_eq!(result["errors"][0]["code"], "response-too-large");
+    }
+
+    #[test]
+    fn fixed_probe_source_does_not_accept_or_evaluate_caller_groovy() {
+        assert!(SCRIPT_TEMPLATE.contains("StepDescriptor"));
+        assert!(SCRIPT_TEMPLATE.contains("GlobalVariable"));
+        assert!(!SCRIPT_TEMPLATE.contains("GroovyShell"));
+        assert!(!SCRIPT_TEMPLATE.contains("evaluate("));
+        assert!(!SCRIPT_TEMPLATE.contains("toString()"));
+    }
+
     #[test]
     fn dry_run_plan_lists_the_probe_without_claiming_to_execute_it() {
         let plan = script_console_plan();
@@ -640,7 +706,16 @@ mod tests {
         assert_eq!(plan["profile"], "deep");
         assert_eq!(plan["confirmationRequired"], true);
         assert_eq!(plan["callsMade"], false);
+        assert_eq!(plan["requestCount"], 4);
+        assert_eq!(plan["networkRequests"].as_array().unwrap().len(), 4);
+        assert_eq!(plan["networkRequests"][0]["responseCapBytes"], 1_048_576);
+        assert_eq!(plan["networkRequests"][1]["responseCapBytes"], 4_194_304);
+        assert_eq!(plan["networkRequests"][2]["responseReadCapBytes"], 1);
+        assert_eq!(plan["networkRequests"][3]["method"], "POST");
         assert_eq!(plan["networkRequests"][3]["path"], "/scriptText");
+        assert_eq!(plan["networkRequests"][3]["responseCapBytes"], MAX_SCRIPT_RESPONSE_BYTES);
         assert_eq!(plan["scriptConsole"]["registries"][0], "pipeline-steps");
+        assert_eq!(plan["scriptConsole"]["serverSideTerminationGuaranteed"], false);
+        assert!(plan["scriptConsole"]["timeoutBehavior"].as_str().unwrap().contains("may continue"));
     }
 }
