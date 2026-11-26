@@ -1089,7 +1089,15 @@ mod tests {
         assert!(SCRIPT_TEMPLATE.contains("MAX_API_DEPTH = 2"));
         assert!(SCRIPT_TEMPLATE.contains("MAX_API_MEMBERS_PER_TYPE = 12"));
         assert!(SCRIPT_TEMPLATE.contains("visited"));
+        assert!(SCRIPT_TEMPLATE.contains("new TreeMap()"));
+        assert!(SCRIPT_TEMPLATE.contains("pending.sort"));
         assert!(SCRIPT_TEMPLATE.contains("__JENKINS_KNOWLEDGE_API_ROOTS__"));
+        assert!(!SCRIPT_TEMPLATE.contains("getResources("));
+        assert!(!SCRIPT_TEMPLATE.contains("getURLs("));
+        assert!(!SCRIPT_TEMPLATE.contains("getLoadedClasses("));
+        assert!(!SCRIPT_TEMPLATE.contains("method.invoke("));
+        assert!(!SCRIPT_TEMPLATE.contains("newInstance("));
+        assert!(!SCRIPT_TEMPLATE.contains("getDeclaredConstructors("));
         assert!(SCRIPT_TEMPLATE.contains("getKlass()"));
         assert!(!SCRIPT_TEMPLATE.contains("getClazz()"));
         assert!(!SCRIPT_TEMPLATE.contains("GroovyShell"));
