@@ -93,7 +93,7 @@
       "description": "A step whose exact availability is not known.",
       "contexts": ["pipeline"],
       "confidence": "unknown",
-      "provenance": ["script-console:extension-registry"]
+      "provenance": ["groovy-type-metadata:maybeStep"]
     },
     {
       "id": "shared-library-fixture:global:deployApp",
@@ -197,6 +197,41 @@
       "profile": "deep",
       "retrievedAt": "2026-01-01T00:00:00Z",
       "requestCount": 5
+    },
+    "runtime": {
+      "schemaVersion": "1.0.0",
+      "templateVersion": "1",
+      "source": "script-console",
+      "status": "partial",
+      "collectedAt": "2026-01-01T00:00:00Z",
+      "groovyVersion": "4.0.27",
+      "javaVersion": "21",
+      "javaVendor": "OpenJDK",
+      "jenkinsCoreVersion": "2.500",
+      "extensionRegistries": [
+        {
+          "name": "pipeline-steps",
+          "status": "available",
+          "items": [
+            {
+              "name": "sh",
+              "className": "org.jenkinsci.plugins.workflow.steps.ShellStep",
+              "plugin": "plugin-a"
+            }
+          ],
+          "truncated": true
+        },
+        {
+          "name": "pipeline-globals",
+          "status": "unavailable",
+          "items": [],
+          "truncated": false
+        }
+      ],
+      "errors": [
+        {"probe": "script-console", "code": "permission-denied"},
+        {"probe": "pipeline-steps", "code": "output-truncated"}
+      ]
     }
   }
 }
