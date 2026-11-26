@@ -488,13 +488,25 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         catalog["controller"] = controller;
     }
     let has_collection_outcomes = catalog["sources"].as_array().is_some_and(|sources| sources.iter().any(|source| source.get("collection").is_some()));
-    let all_sources_succeeded = catalog["sources"].as_array().is_some_and(|sources| !sources.is_empty() && sources.iter().all(|source| {
-        source["collection"]["status"].as_str() == Some("succeeded")
-            && source["collection"]["truncated"].as_bool() == Some(false)
-    }));
-    let has_failed_source = catalog["sources"].as_array().is_some_and(|sources| sources.iter().any(|source| {
-        source.get("collection").is_some_and(|collection| collection["status"].as_str() != Some("succeeded"))
-    }));
+    let all_sources_succeeded = catalog["sources"].as_array().is_some_and(|sources| {
+        !sources.is_empty()
+            && sources.iter().all(|source| {
+                matches!(
+                    source["collection"]["status"].as_str(),
+                    Some("succeeded" | "skipped-by-profile" | "not-configured")
+                ) && source["collection"]["truncated"].as_bool() == Some(false)
+            })
+    });
+    let has_failed_source = catalog["sources"].as_array().is_some_and(|sources| {
+        sources.iter().any(|source| {
+            source.get("collection").is_some_and(|collection| {
+                matches!(
+                    collection["status"].as_str(),
+                    Some("succeeded-with-truncation" | "unavailable" | "permission-denied" | "failed")
+                )
+            })
+        })
+    });
     catalog["completeness"] = json!({
         "status": if has_failed_source { "partial" } else if has_collection_outcomes && all_sources_succeeded { "complete" } else { "unknown" }
     });
