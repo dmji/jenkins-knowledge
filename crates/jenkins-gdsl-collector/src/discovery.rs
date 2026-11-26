@@ -299,7 +299,7 @@ fn discover_with_client(
         identity["displayName"] = json!(node_name);
     }
 
-    let capabilities = vec![
+    let mut capabilities = vec![
         json!({
             "name": "core-api",
             "status": "available",
@@ -308,6 +308,7 @@ fn discover_with_client(
         plugin_capability,
         gdsl_capability
     ];
+    capabilities.sort_by_key(|capability| capability["name"].as_str().unwrap_or_default().to_owned());
     let controller_revision_input = json!({
         "identity": identity,
         "coreVersion": core_version,
@@ -589,7 +590,7 @@ fn parse_plugin_inventory(
             .map(|version| json!(version))
             .unwrap_or(Value::Null);
 
-        let dependencies = match entry.get("dependencies") {
+        let mut dependencies = match entry.get("dependencies") {
             Some(value) => {
                 let values = value
                     .as_array()
@@ -627,6 +628,7 @@ fn parse_plugin_inventory(
             }
             None => Vec::new(),
         };
+        dependencies.sort_by_key(|dependency| dependency["shortName"].as_str().unwrap_or_default().to_owned());
 
         let source_id = format!(
             "plugin-{}",
