@@ -437,6 +437,27 @@ fn url_has_credentials(value: &str) -> bool {
     authority_has_credentials || query_has_secrets
 }
 
+fn redact_url_value(value: &str) -> String {
+    if let Ok(mut parsed) = url::Url::parse(value) {
+        let _ = parsed.set_username("");
+        let _ = parsed.set_password(None);
+        parsed.set_query(None);
+        parsed.set_fragment(None);
+        return parsed.to_string();
+    }
+
+    let without_suffix = value.split(['?', '#']).next().unwrap_or(value);
+    if let Some((authority, path)) = without_suffix.split_once(':') {
+        if authority.contains('@') && !authority.contains('/') {
+            let host = authority
+                .rsplit_once('@')
+                .map_or(authority, |(_, host)| host);
+            return format!("{host}:{path}");
+        }
+    }
+    without_suffix.to_owned()
+}
+
 fn normalized_secret_key(key: &str) -> String {
     key.chars()
         .filter(|character| character.is_ascii_alphanumeric())
@@ -499,12 +520,12 @@ pub fn redact_sensitive_fields(value: &mut Value) -> usize {
             }
             for (key, child) in fields.iter_mut() {
                 let normalized = normalized_secret_key(key);
-                let is_url = normalized == "endpoint"
+                let is_url = normalized.ends_with("endpoint")
                     || normalized.ends_with("url")
                     || normalized.ends_with("uri");
                 if is_url {
                     if let Value::String(url) = child {
-                        let safe = url.split(['?', '#']).next().unwrap_or_default().to_owned();
+                        let safe = redact_url_value(url);
                         if *url != safe {
                             *url = safe;
                             redacted += 1;
@@ -532,7 +553,7 @@ fn reject_secret_fields(value: &Value, path: &str, errors: &mut Vec<String>) {
                     ));
                 } else {
                     let normalized = normalized_secret_key(key);
-                    let is_url = normalized == "endpoint"
+                    let is_url = normalized.ends_with("endpoint")
                         || normalized.ends_with("url")
                         || normalized.ends_with("uri");
                     if is_url
@@ -993,7 +1014,9 @@ mod tests {
                 "Authorization": "Bearer top-secret-auth",
                 "Content-Type": "application/json"
             },
-            "documentationUrl": "https://docs.example.test/step?access_token=top-secret#details"
+            "documentationUrl": "https://docs-user:top-secret-url@docs.example.test/step?access_token=top-secret#details",
+            "apiEndpoint": "https://user:top-secret-endpoint@controller.example.test/api?token=top-secret-query#details",
+            "repositoryUrl": "git@github.example.test:team/library.git"
         });
         let changes = redact_sensitive_fields(&mut value);
         let serialized = value.to_string();
@@ -1006,6 +1029,8 @@ mod tests {
         assert_eq!(value["metadata"]["nested"][0]["description"], "safe");
         assert_eq!(value["headers"]["Content-Type"], "application/json");
         assert_eq!(value["documentationUrl"], "https://docs.example.test/step");
+        assert_eq!(value["apiEndpoint"], "https://controller.example.test/api");
+        assert_eq!(value["repositoryUrl"], "github.example.test:team/library.git");
     }
 
     #[test]
