@@ -10,7 +10,7 @@ libraries:
   - name: platform-lib
     url: https://git.example.invalid/platform-lib.git
     revision: release/2.x
-    commit: PIN_TO_GIT_COMMIT_SHA
+    # Optional: pin to a resolved 40-character commit SHA for reproducible builds.
   - name: deployment-lib
     url: https://git.example.invalid/deployment-lib.git
     revision: main
