@@ -356,6 +356,7 @@
         "returnType": {
           "type": "string"
         },
+        "typeName": {"type": "string"},
         "readable": {"type": "boolean"},
         "writable": {"type": "boolean"},
         "modifiers": {"type": "string"},
@@ -806,6 +807,8 @@
               "interfaces": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 256}},
               "modifiers": {"type": "string", "maxLength": 128},
               "synthetic": {"type": "boolean"},
+              "dynamicStatus": {"enum": ["possible", "not-detected", "unknown"]},
+              "inaccessibleMethodCount": {"type": "integer", "minimum": 0, "maximum": 50},
               "methodsTruncated": {"type": "boolean"},
               "propertiesTruncated": {"type": "boolean"},
               "plugin": {"type": "string", "maxLength": 256},
@@ -836,7 +839,8 @@
                   "properties": {
                     "name": {"type": "string", "minLength": 1, "maxLength": 256},
                     "readable": {"type": "boolean"},
-                    "writable": {"type": "boolean"}
+                    "writable": {"type": "boolean"},
+                    "type": {"type": "string", "maxLength": 256}
                   }
                 }
               }
