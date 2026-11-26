@@ -531,7 +531,7 @@ impl Runtime {
             },
             "packageEnvironment":{
                 "status":environment_status,
-                "controller":controller.and_then(|value| value["identity"].clone().into()),
+                "controller":controller.and_then(|value| value.get("identity")).cloned(),
                 "jenkinsCore":{"status":if core_version.is_some() {"available"} else {"unknown"},"version":core_version},
                 "java":{
                     "versionStatus":java_version_status,
