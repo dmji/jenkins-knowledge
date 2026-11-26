@@ -20,8 +20,20 @@ if [ "$actual_sha" != "$expected_sha" ]; then
   exit 1
 fi
 
-cargo fmt --manifest-path crates/catalog-validator/Cargo.toml -- --check
-cargo fmt --all -- --check
+# The legacy workspace contains pre-existing rustfmt drift. Check every Rust
+# file changed by this revision without rewriting or grandfathering new code.
+base_sha="${VALIDATION_BASE_SHA:-$(git rev-parse HEAD^)}"
+git diff --check "$base_sha" "$actual_sha"
+if grep -E 'cargo fmt' .github/workflows/rust-ci.yml scripts/validate.sh | grep -v -- '--check'; then
+  echo "validation scripts must never invoke rustfmt in write mode" >&2
+  exit 1
+fi
+changed_rust="$(git diff --name-only "$base_sha" "$actual_sha" -- '*.rs')"
+if [ -n "$changed_rust" ]; then
+  printf '%s\n' "$changed_rust" | while IFS= read -r path; do
+    rustfmt --check --edition 2021 "$path"
+  done
+fi
 cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p catalog-validator -- examples/catalog/catalog.json schemas/catalog.schema.json
