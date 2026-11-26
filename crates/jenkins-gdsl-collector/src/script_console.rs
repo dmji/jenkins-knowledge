@@ -965,7 +965,7 @@ mod tests {
                 "synthetic": index == 14,
                 "bridge": false,
                 "varargs": false,
-                "parameters": parameters,
+                "parameters": parameters.clone(),
                 "parametersTruncated": true,
                 "genericReturnTypeStatus": "unresolved"
             }))
@@ -1018,7 +1018,7 @@ mod tests {
                     (format!("example.Type{index}"), "java.lang.Object".to_owned())
                 };
                 json!({
-                    "name": name,
+                    "name": name.clone(),
                     "className": name,
                     "depth": 2,
                     "rootCategories": ["configured"],
