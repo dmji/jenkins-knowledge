@@ -331,13 +331,27 @@ mod tests {
     use sha2::Digest;
     use std::fs;
 
+    static NEXT_PACKAGE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
     fn fixture_runtime(profile: &str) -> Runtime {
-        let package = std::env::temp_dir().join(format!("jenkins-lsp-test-{}", process::id()));
+        fixture_runtime_with_symbols(profile, Vec::new())
+    }
+
+    fn fixture_runtime_with_symbols(profile: &str, extra_symbols: Vec<Value>) -> Runtime {
+        let package = std::env::temp_dir().join(format!(
+            "jenkins-lsp-test-{}-{}",
+            process::id(),
+            NEXT_PACKAGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         let _ = fs::remove_dir_all(&package);
         fs::create_dir_all(&package).unwrap();
-        let catalog = include_str!("../../../tests/fixtures/catalog-valid.json");
-        fs::write(package.join("catalog.json"), catalog).unwrap();
-        let checksum = sha2::Sha256::digest(catalog.as_bytes())
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        catalog["symbols"].as_array_mut().unwrap().extend(extra_symbols);
+        let catalog_bytes = serde_json::to_vec(&catalog).unwrap();
+        fs::write(package.join("catalog.json"), &catalog_bytes).unwrap();
+        let checksum = sha2::Sha256::digest(&catalog_bytes)
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
@@ -352,10 +366,7 @@ mod tests {
             "checksums": {"catalog.json": checksum},
             "toolVersions": {}
         }).to_string()).unwrap();
-        let previous = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&package).unwrap();
         let runtime = Runtime::open(&package).unwrap();
-        std::env::set_current_dir(previous).unwrap();
         fs::remove_dir_all(package).unwrap();
         runtime
     }
@@ -397,4 +408,53 @@ mod tests {
         assert!(value.contains("verified"));
         assert!(value.contains("fixture"));
     }
+    #[test]
+    fn completion_uses_prefix_and_declarative_or_scripted_context() {
+        let runtime = fixture_runtime("fixture");
+        let declarative = completion(Some(&runtime), "pipeline {\n  agent ", 1, 8);
+        let declarative_labels: Vec<_> = declarative["items"].as_array().unwrap().iter()
+            .filter_map(|item| item["label"].as_str()).collect();
+        assert!(declarative_labels.contains(&"agent"));
+
+        let scripted = completion(Some(&runtime), "node {\n  sh", 1, 4);
+        let scripted_labels: Vec<_> = scripted["items"].as_array().unwrap().iter()
+            .filter_map(|item| item["label"].as_str()).collect();
+        assert!(scripted_labels.contains(&"sh"));
+        assert!(!scripted_labels.contains(&"agent"));
+        assert!(scripted_labels.iter().all(|label| label.starts_with("sh")));
+    }
+
+    #[test]
+    fn completion_finds_prefix_matches_beyond_the_old_global_first_hundred() {
+        let mut extra = Vec::new();
+        for index in 0..120 {
+            extra.push(json!({
+                "id": format!("library:aaa-{index:03}"),
+                "name": format!("aaa-{index:03}"),
+                "kind": "global-variable",
+                "sourceId": "platform-lib",
+                "contexts": ["pipeline"],
+                "confidence": "verified",
+                "provenance": ["test"]
+            }));
+        }
+        extra.push(json!({
+            "id": "library:zzTarget",
+            "name": "zzTarget",
+            "kind": "global-variable",
+            "sourceId": "platform-lib",
+            "contexts": ["pipeline"],
+            "confidence": "verified",
+            "provenance": ["test"]
+        }));
+        let runtime = fixture_runtime_with_symbols("fixture", extra);
+        let result = completion(Some(&runtime), "node {\n  zz", 1, 4);
+        let labels: Vec<_> = result["items"].as_array().unwrap().iter()
+            .filter_map(|item| item["label"].as_str()).collect();
+        assert!(labels.contains(&"zzTarget"));
+        assert_eq!(labels.len(), 1);
+        assert_eq!(result["isIncomplete"], false);
+    }
+
+
 }
