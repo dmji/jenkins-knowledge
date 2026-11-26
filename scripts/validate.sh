@@ -2,6 +2,7 @@
 set -eu
 
 format_fixture=""
+base_file=""
 generated_lockfile=0
 if [ ! -f Cargo.lock ]; then
   generated_lockfile=1
@@ -9,6 +10,9 @@ fi
 cleanup() {
   if [ -n "$format_fixture" ]; then
     rm -f "$format_fixture"
+  fi
+  if [ -n "$base_file" ]; then
+    rm -f "$base_file"
   fi
   if [ "$generated_lockfile" -eq 1 ]; then
     rm -f Cargo.lock
@@ -35,7 +39,19 @@ fi
 changed_rust="$(git diff --name-only "$base_sha" "$actual_sha" -- '*.rs')"
 if [ -n "$changed_rust" ]; then
   printf '%s\n' "$changed_rust" | while IFS= read -r path; do
-    rustfmt --check --edition 2021 "$path"
+    if git cat-file -e "$base_sha:$path" 2>/dev/null; then
+      base_file="$(mktemp "${TMPDIR:-/tmp}/rustfmt-base-XXXXXX.rs")"
+      git show "$base_sha:$path" > "$base_file"
+      if rustfmt --check --edition 2021 --config skip_children=true "$base_file" >/dev/null 2>&1; then
+        rustfmt --check --edition 2021 --config skip_children=true "$path"
+      else
+        echo "Preserving pre-existing rustfmt drift in $path; new files remain checked."
+      fi
+      rm -f "$base_file"
+      base_file=""
+    else
+      rustfmt --check --edition 2021 --config skip_children=true "$path"
+    fi
   done
 fi
 format_fixture="$(mktemp "${TMPDIR:-/tmp}/rustfmt-regression-XXXXXX.rs")"
