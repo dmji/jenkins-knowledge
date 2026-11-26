@@ -344,6 +344,74 @@ fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
             symbols.push(symbol);
         }
     }
+    for (type_index, api_type) in runtime["apiTypes"].as_array().into_iter().flatten().enumerate() {
+        let Some(type_name) = api_type["name"].as_str().filter(|value| !value.trim().is_empty()) else { continue; };
+        let type_id = format!("{source_id}:runtime:api-type:{type_name}:{type_index}");
+        let evidence = json!([{
+            "sourceId": source_id,
+            "kind": "controller-observed",
+            "confidence": "verified",
+            "provenance": "Bounded Java reflection metadata for an observed Jenkins extension type",
+            "retrievedAt": runtime["collectedAt"],
+            "location": "script-console/api-types",
+            "sourceKind": "jenkins-controller"
+        }]);
+        let mut class_symbol = json!({
+            "id": type_id,
+            "name": type_name,
+            "kind": "class",
+            "sourceId": source_id,
+            "signature": type_name,
+            "confidence": "verified",
+            "provenance": ["jenkins-script-console", "api-types"],
+            "fieldEvidence": {"name": "verified", "signature": "verified"},
+            "evidence": evidence
+        });
+        if let Some(plugin) = api_type["plugin"].as_str() {
+            class_symbol["namespace"] = json!(plugin);
+        }
+        symbols.push(class_symbol);
+
+        for (method_index, method) in api_type["methods"].as_array().into_iter().flatten().enumerate() {
+            let Some(method_name) = method["name"].as_str().filter(|value| !value.trim().is_empty()) else { continue; };
+            let Some(signature) = method["signature"].as_str() else { continue; };
+            let parameters: Vec<Value> = method["parameterTypes"].as_array().into_iter().flatten()
+                .enumerate().filter_map(|(index, ty)| ty.as_str().map(|ty| json!({
+                    "name": format!("arg{index}"), "type": ty
+                }))).collect();
+            let mut symbol = json!({
+                "id": format!("{type_id}:method:{method_name}:{method_index}"),
+                "name": method_name,
+                "kind": "method",
+                "sourceId": source_id,
+                "namespace": type_name,
+                "signature": signature,
+                "parameters": parameters,
+                "confidence": "verified",
+                "provenance": ["jenkins-script-console", "api-types", type_name],
+                "fieldEvidence": {"name": "verified", "signature": "verified", "parameters": "verified"},
+                "evidence": evidence
+            });
+            if let Some(return_type) = method["returnType"].as_str() {
+                symbol["returnType"] = json!(return_type);
+            }
+            symbols.push(symbol);
+        }
+        for (property_index, property) in api_type["properties"].as_array().into_iter().flatten().enumerate() {
+            let Some(property_name) = property["name"].as_str().filter(|value| !value.trim().is_empty()) else { continue; };
+            symbols.push(json!({
+                "id": format!("{type_id}:property:{property_name}:{property_index}"),
+                "name": property_name,
+                "kind": "property",
+                "sourceId": source_id,
+                "namespace": type_name,
+                "confidence": "verified",
+                "provenance": ["jenkins-script-console", "api-types", type_name],
+                "fieldEvidence": {"name": "verified", "readable": "verified", "writable": "verified"},
+                "evidence": evidence
+            }));
+        }
+    }
     symbols
 }
 
