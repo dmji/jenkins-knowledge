@@ -1154,10 +1154,11 @@ mod tests {
         assert!(SCRIPT_TEMPLATE.contains("hudson.triggers.Trigger"));
         assert!(SCRIPT_TEMPLATE.contains("getMethods()"));
         assert!(SCRIPT_TEMPLATE.contains("getDeclaredMethods()"));
-        assert!(SCRIPT_TEMPLATE.contains("MAX_API_TYPES = 40"));
-        assert!(SCRIPT_TEMPLATE.contains("MAX_API_DEPTH = 2"));
-        assert!(SCRIPT_TEMPLATE.contains("MAX_API_MEMBERS_PER_TYPE = 12"));
-        assert!(SCRIPT_TEMPLATE.contains("inspectedMembers >= 300"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_API_TYPES = __API_MAX_TYPES__"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_API_DEPTH = __API_MAX_DEPTH__"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_API_MEMBERS_PER_TYPE = __API_MAX_MEMBERS_PER_TYPE__"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_API_TOTAL_MEMBERS = __API_MAX_TOTAL_MEMBERS__"));
+        assert!(SCRIPT_TEMPLATE.contains("inspectedMembers >= MAX_API_TOTAL_MEMBERS"));
         assert!(SCRIPT_TEMPLATE.contains("entry.depth < MAX_API_DEPTH"));
         assert!(SCRIPT_TEMPLATE.contains("MAX_OUTPUT_BYTES = 262144"));
         assert!(SCRIPT_TEMPLATE.contains("visited"));
