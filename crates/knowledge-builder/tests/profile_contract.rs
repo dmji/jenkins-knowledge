@@ -204,7 +204,8 @@ fn jenkins_core_selection_is_independent_of_controller_snapshot() {
     assert_eq!(catalog["sources"].as_array().unwrap().len(), 1);
     assert_eq!(catalog["sources"][0]["kind"], "jenkins-core");
     assert!(catalog.get("controller").is_none());
-    assert!(catalog["symbols"].as_array().unwrap().is_empty());
+    assert_eq!(catalog["symbols"].as_array().unwrap().len(), 1);
+    assert_eq!(catalog["symbols"][0]["sourceId"], "jenkins-core-fixture");
     assert_eq!(catalog["coverage"].as_array().unwrap().len(), 1);
     assert_eq!(catalog["coverage"][0]["sourceId"], "jenkins-core-fixture");
 }
