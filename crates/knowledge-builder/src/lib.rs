@@ -1291,7 +1291,7 @@ mod tests {
                 "rootCategories": ["configured"], "status": "available", "synthetic": false,
                 "dynamic": false, "superClass": "hudson.model.AbstractBuild",
                 "interfaces": ["hudson.model.Queue$Executable"], "plugin": "jenkins-core",
-                "origin": "jenkins.war", "methodsTruncated": false, "propertiesTruncated": false,
+                "origin": "jenkins.war", "documentationPaths": ["help/Run.html"], "methodsTruncated": false, "propertiesTruncated": false,
                 "methods": [
                     {"name":"getLog","declaringClass":"hudson.model.Run","signature":"getLog(int) -> java.util.List","returnType":"java.util.List","genericReturnType":"java.util.List<java.lang.String>","modifiers":"public","synthetic":false,"bridge":false,"varargs":false,"parameters":[{"name":"maxLines","type":"int","genericType":"int","namePresent":true}],"parametersTruncated":false},
                     {"name":"getLog","declaringClass":"hudson.model.Run","signature":"getLog(java.lang.String) -> java.util.List","returnType":"java.util.List","genericReturnType":"java.util.List<java.lang.String>","modifiers":"public","synthetic":false,"bridge":false,"varargs":false,"parameters":[{"name":"path","type":"java.lang.String","genericType":"java.lang.String","namePresent":true}],"parametersTruncated":false}
@@ -1310,6 +1310,7 @@ mod tests {
         assert_eq!(symbols[0]["superClass"], "hudson.model.AbstractBuild");
         assert_eq!(symbols[0]["interfaces"][0], "hudson.model.Queue$Executable");
         assert_eq!(symbols[0]["properties"][0]["confidence"], "inferred");
+        assert_eq!(symbols[0]["documentationPaths"][0], "help/Run.html");
         assert_eq!(symbols[1]["name"], "getLog");
         assert_eq!(symbols[2]["name"], "getLog");
         assert_ne!(symbols[1]["id"], symbols[2]["id"]);
