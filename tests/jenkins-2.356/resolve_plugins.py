@@ -172,6 +172,11 @@ def load_locked_plugins(lock_file: Path, output_dir: Path) -> dict:
     if lock["basePlugins"] != BASE_PLUGINS:
         raise RuntimeError("Base plugin inventory in lock does not match the pinned image")
 
+    installed_versions = dict(BASE_PLUGINS)
+    installed_versions.update(
+        {plugin["name"]: plugin["version"] for plugin in lock["plugins"]}
+    )
+    manifests = []
     for plugin in lock["plugins"]:
         name = plugin["name"]
         archive_path = output_dir / f"{name}.jpi"
@@ -194,6 +199,16 @@ def load_locked_plugins(lock_file: Path, output_dir: Path) -> dict:
             raise RuntimeError(f"Locked plugin {name} requires Jenkins {manifest['requiredCore']}")
         if not at_least("17", manifest["minimumJava"]):
             raise RuntimeError(f"Locked plugin {name} requires Java {manifest['minimumJava']}")
+        manifests.append((name, manifest))
+
+    for name, manifest in manifests:
+        for dependency, required_version in manifest["dependencies"]:
+            actual_version = installed_versions.get(dependency)
+            if actual_version is None or not at_least(actual_version, required_version):
+                raise RuntimeError(
+                    f"Plugin lock is incomplete: {name} requires "
+                    f"{dependency}>={required_version}, found {actual_version}"
+                )
     return lock
 
 
