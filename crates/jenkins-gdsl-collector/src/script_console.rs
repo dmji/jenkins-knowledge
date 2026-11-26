@@ -696,7 +696,7 @@ mod tests {
         assert!(SCRIPT_TEMPLATE.contains("GlobalVariable"));
         assert!(!SCRIPT_TEMPLATE.contains("GroovyShell"));
         assert!(!SCRIPT_TEMPLATE.contains("evaluate("));
-        assert!(!SCRIPT_TEMPLATE.contains("toString()"));
+        assert!(!SCRIPT_TEMPLATE.contains(".toString("));
     }
 
     #[test]
