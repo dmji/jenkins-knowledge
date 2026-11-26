@@ -207,8 +207,10 @@ fn rejects_invalid_profile_defaults_and_absolute_fixture_paths() {
 fn unmatched_explicit_selector_is_an_error() {
     let directory = tempfile::tempdir().unwrap();
     let mut catalog = fixture_catalog();
-    catalog["sources"] = json!([]);
-    catalog["symbols"] = json!([]);
+    let library_source = catalog["sources"][1].clone();
+    let library_symbol = catalog["symbols"][3].clone();
+    catalog["sources"] = json!([library_source]);
+    catalog["symbols"] = json!([library_symbol]);
     catalog.as_object_mut().unwrap().remove("controller");
     fs::write(
         directory.path().join("fixture.json"),
