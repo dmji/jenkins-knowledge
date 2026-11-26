@@ -325,14 +325,26 @@ fn normalize_registry(
             {
                 normalized["plugin"] = json!(truncate(plugin));
             }
-            for field in ["category", "nameKind", "descriptorClass"] {
-                if let Some(value) = item
-                    .get(field)
-                    .and_then(Value::as_str)
-                    .filter(|value| !value.trim().is_empty())
-                {
-                    normalized[field] = json!(truncate(value));
-                }
+            if let Some(value) = item
+                .get("category")
+                .and_then(Value::as_str)
+                .filter(|value| matches!(*value, "agent" | "option" | "when" | "post-condition" | "trigger" | "parameter"))
+            {
+                normalized["category"] = json!(value);
+            }
+            if let Some(value) = item
+                .get("nameKind")
+                .and_then(Value::as_str)
+                .filter(|value| matches!(*value, "dsl-token" | "implementation-class"))
+            {
+                normalized["nameKind"] = json!(value);
+            }
+            if let Some(value) = item
+                .get("descriptorClass")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                normalized["descriptorClass"] = json!(truncate(value));
             }
             if let Some(contexts) = item.get("contexts").and_then(Value::as_array) {
                 let values: Vec<&str> = contexts
@@ -665,6 +677,39 @@ mod tests {
         assert_eq!(step["parameters"][0]["default"], "echo ok");
         assert!(step["parameters"][0].get("unsafe").is_none());
         assert!(step["parameters"][1].get("default").is_none());
+    }
+
+    #[test]
+    fn normalizes_declarative_extension_categories_and_context_metadata() {
+        let mut output = valid_probe_output();
+        output["extensionRegistries"][2]["items"] = json!([
+            {
+                "category": "agent",
+                "name": "kubernetes",
+                "nameKind": "dsl-token",
+                "className": "org.example.KubernetesAgent",
+                "descriptorClass": "org.example.KubernetesAgentDescriptor",
+                "contexts": ["pipeline", "stage"],
+                "plugin": "kubernetes",
+                "unsafe": "discard"
+            },
+            {
+                "category": "parameter",
+                "name": "StringParameterDefinition",
+                "nameKind": "implementation-class",
+                "className": "hudson.model.StringParameterDefinition",
+                "contexts": ["pipeline"],
+                "allowedChildrenCount": 999
+            }
+        ]);
+        let result = normalize_probe_output(&output);
+        let items = &result["extensionRegistries"][2]["items"];
+        assert_eq!(items[0]["category"], "agent");
+        assert_eq!(items[0]["nameKind"], "dsl-token");
+        assert_eq!(items[0]["contexts"][1], "stage");
+        assert_eq!(items[0]["descriptorClass"], "org.example.KubernetesAgentDescriptor");
+        assert!(items[0].get("unsafe").is_none());
+        assert!(items[1].get("allowedChildrenCount").is_none());
     }
 
     #[test]
