@@ -67,6 +67,7 @@ jenkins-runtime --package ./knowledge-package plugin-symbols --plugin workflow-b
 jenkins-runtime --package ./knowledge-package search deploy --source-kind shared-library --confidence inferred
 jenkins-runtime --package ./knowledge-package get ShellStep
 jenkins-runtime --package ./knowledge-package controller
+jenkins-runtime --package ./knowledge-package compatibility
 jenkins-runtime --package ./knowledge-package plugins
 jenkins-runtime --package ./knowledge-package sources
 ```
