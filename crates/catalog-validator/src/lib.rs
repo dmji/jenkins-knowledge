@@ -234,10 +234,11 @@ fn populate_symbol_evidence(catalog: &mut Value) {
                 item["provenance"] = Value::String(location.clone());
                 item["location"] = Value::String(location);
             }
-            symbol["evidence"]
-                .as_array_mut()
-                .map(|items| items.push(item))
-                .unwrap_or_else(|| symbol["evidence"] = serde_json::json!([item]));
+            if let Some(items) = symbol["evidence"].as_array_mut() {
+                items.push(item);
+            } else {
+                symbol["evidence"] = serde_json::json!([item]);
+            }
         }
 
         if let Some(items) = symbol["evidence"].as_array_mut() {
