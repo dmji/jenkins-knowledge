@@ -62,7 +62,7 @@ impl std::error::Error for RuntimeError {}
 pub struct Runtime {
     manifest: Value,
     catalog: Value,
-    source_index: BTreeMap<String, Value>,
+    source_index: BTreeMap<String, usize>,
 }
 
 #[derive(Debug)]
@@ -169,10 +169,8 @@ impl Runtime {
             )));
         }
 
-        let mut aggregate_bytes = manifest_bytes.len() as u64;
-        if aggregate_bytes > MAX_PACKAGE_BYTES {
-            return Err(RuntimeError(format!("package exceeds aggregate size limit ({MAX_PACKAGE_BYTES} bytes)")));
-        }
+        let mut aggregate_bytes = 0u64;
+        add_package_bytes(&mut aggregate_bytes, manifest_bytes.len() as u64)?;
         let mut catalog_bytes = None;
         for (name, expected) in checksums {
             let expected = expected.as_str().ok_or_else(|| {
@@ -190,10 +188,7 @@ impl Runtime {
 
             let file_path = resolve_package_file(package_dir, name)?;
             let contents = read_bounded(&file_path, MAX_PACKAGE_FILE_BYTES, name)?;
-            aggregate_bytes = aggregate_bytes.saturating_add(contents.len() as u64);
-            if aggregate_bytes > MAX_PACKAGE_BYTES {
-                return Err(RuntimeError(format!("package exceeds aggregate size limit ({MAX_PACKAGE_BYTES} bytes)")));
-            }
+            add_package_bytes(&mut aggregate_bytes, contents.len() as u64)?;
             let actual = hex(&Sha256::digest(&contents));
             if actual != expected {
                 return Err(RuntimeError(format!(
@@ -280,7 +275,7 @@ impl Runtime {
 
         for (index, symbol) in self.symbols().iter().enumerate() {
             let source_id = symbol["sourceId"].as_str().unwrap_or_default();
-            let source = self.source_index.get(source_id);
+            let source = self.source_index.get(source_id).and_then(|index| self.sources().get(*index));
             let source_kind = source.and_then(|item| item["kind"].as_str()).unwrap_or_default();
             let matches_plugin = options.plugin.as_deref().is_none_or(|plugin| {
                 let declared_dependency = symbol["executionConstraints"]["pluginDependencies"]
@@ -390,7 +385,7 @@ impl Runtime {
 
     fn enrich(&self, symbol: &Value) -> Value {
         let source_id = symbol["sourceId"].as_str().unwrap_or_default();
-        let source = self.source_index.get(source_id);
+        let source = self.source_index.get(source_id).and_then(|index| self.sources().get(*index));
         let mut result = symbol.clone();
         if let Some(object) = result.as_object_mut() {
             object.insert("source".into(), source.cloned().unwrap_or(Value::Null));
@@ -401,10 +396,20 @@ impl Runtime {
 }
 
 
-fn build_source_index(catalog: &Value) -> BTreeMap<String, Value> {
-    catalog["sources"].as_array().into_iter().flatten()
-        .filter_map(|source| source["id"].as_str().map(|id| (id.to_owned(), source.clone())))
+fn build_source_index(catalog: &Value) -> BTreeMap<String, usize> {
+    catalog["sources"].as_array().into_iter().flatten().enumerate()
+        .filter_map(|(index, source)| source["id"].as_str().map(|id| (id.to_owned(), index)))
         .collect()
+}
+
+fn add_package_bytes(total: &mut u64, bytes: u64) -> Result<(), RuntimeError> {
+    *total = total.saturating_add(bytes);
+    if *total > MAX_PACKAGE_BYTES {
+        return Err(RuntimeError(format!(
+            "package exceeds aggregate size limit ({MAX_PACKAGE_BYTES} bytes)"
+        )));
+    }
+    Ok(())
 }
 
 fn read_bounded(path: &Path, limit: u64, label: &str) -> Result<Vec<u8>, RuntimeError> {
