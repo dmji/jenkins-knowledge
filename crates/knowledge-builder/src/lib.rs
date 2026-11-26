@@ -306,6 +306,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             let path = base.join(fixture);
             let text = fs::read_to_string(&path).map_err(|e| BuildError::Source(format!("fixture {}: {e}", path.display())))?;
             let catalog: Value = serde_json::from_str(&text).map_err(|e| BuildError::Source(format!("fixture {} is invalid JSON: {e}", path.display())))?;
+            // A sibling manifest preserves explicit partial outcomes in sanitized fixture packages.
             let fixture_manifest_path = path
                 .parent()
                 .unwrap_or(base)
