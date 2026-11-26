@@ -412,7 +412,7 @@ fixtures:
             "safeLabel": "keep-this",
             "apiKey": "builder-secret-api",
             "nested": [{"credentialId": "builder-secret-credential"}],
-            "endpoint": "https://controller.example.test/api?access_token=builder-secret-token"
+            "endpoint": "https://builder:builder-secret-user@controller.example.test/api?access_token=builder-secret-token"
         });
         fs::write(
             directory.path().join("fixture.json"),
