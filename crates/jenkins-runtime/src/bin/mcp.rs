@@ -135,6 +135,11 @@ fn pipeline_page(uri: &str) -> Result<(usize, usize), String> {
 fn read_resource(rt: &Runtime, uri: &str) -> Result<Value,String> {
     match uri {
         "jenkins://catalog/manifest" => Ok(rt.manifest().clone()),
+        "jenkins://catalog/collection" => Ok(rt.collection().cloned().unwrap_or_else(|| json!({
+            "status": "unknown",
+            "sources": [],
+            "details": "This package predates explicit collection outcome metadata"
+        }))),
         "jenkins://catalog/coverage" => Ok(json!({"profile":rt.profile(),"coverage":rt.coverage()})),
         "jenkins://catalog/libraries" => Ok(json!({"profile":rt.profile(),"sources":rt.sources().iter().filter(|s|s["kind"]=="shared-library").collect::<Vec<_>>()})),
         _ if uri == "jenkins://catalog/pipeline-steps" || uri.starts_with("jenkins://catalog/pipeline-steps?") => {
@@ -174,6 +179,7 @@ fn handle(rt: &Runtime, req: Value) -> Option<Value> {
         }
         "resources/list" => Ok(json!({"resources":[
             {"uri":"jenkins://catalog/manifest","name":"Knowledge package manifest","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/collection","name":"Package collection outcomes","description":"Package-level completeness and per-source succeeded, unavailable, permission-denied, failed, skipped, or unconfigured outcomes.","mimeType":"application/json"},
             {"uri":"jenkins://catalog/coverage","name":"Catalog collection coverage","mimeType":"application/json"},
             {"uri":"jenkins://catalog/libraries","name":"Shared Library sources","mimeType":"application/json"},
             {"uri":"jenkins://catalog/pipeline-steps","name":"Jenkins Pipeline steps","description":"Paginated with ?offset=0&limit=50; responses include total, returned, and hasMore.","mimeType":"application/json"},
