@@ -584,7 +584,7 @@ def collectApiTypes = {
             try {
                 reflectedParameters = method.getParameters().toList()
             } catch (Throwable ignored) {}
-            parameterTypes.eachWithIndex { parameterType, parameterIndex ->
+            parameterTypes.take(20).eachWithIndex { parameterType, parameterIndex ->
                 def parameterRecord = [
                     name: 'arg' + parameterIndex,
                     namePresent: false,
@@ -615,7 +615,8 @@ def collectApiTypes = {
                 synthetic: method.isSynthetic(),
                 bridge: method.isBridge(),
                 varargs: method.isVarArgs(),
-                parameters: parameterRecords
+                parameters: parameterRecords,
+                parametersTruncated: parameterTypes.length > 20
             ]
             try {
                 def genericReturn = genericTypeName(method.getGenericReturnType(), 0)
