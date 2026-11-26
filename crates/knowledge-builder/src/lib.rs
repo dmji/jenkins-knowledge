@@ -401,6 +401,48 @@ fixtures:
     }
 
     #[test]
+    fn redacts_nested_secret_metadata_before_publishing_package() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        ))
+        .unwrap();
+        catalog["sources"][0]["metadata"] = json!({
+            "safeLabel": "keep-this",
+            "apiKey": "builder-secret-api",
+            "nested": [{"credentialId": "builder-secret-credential"}],
+            "endpoint": "https://controller.example.test/api?access_token=builder-secret-token"
+        });
+        fs::write(
+            directory.path().join("fixture.json"),
+            serde_json::to_vec(&catalog).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            "profile: secret-redaction\nfixtures:\n  - fixture.json\n",
+        )
+        .unwrap();
+
+        let output = directory.path().join("package");
+        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        let catalog_text = fs::read_to_string(output.join("catalog.json")).unwrap();
+        let manifest_text = fs::read_to_string(output.join("manifest.json")).unwrap();
+        let serialized = format!("{catalog_text}{manifest_text}");
+        assert!(!serialized.contains("builder-secret"));
+        let package_catalog: Value = serde_json::from_str(&catalog_text).unwrap();
+        assert_eq!(package_catalog["sources"][0]["metadata"]["safeLabel"], "keep-this");
+        assert_eq!(
+            package_catalog["sources"][0]["metadata"]["endpoint"],
+            "https://controller.example.test/api"
+        );
+        assert!(package_catalog["sources"][0]["metadata"].get("apiKey").is_none());
+        assert!(package_catalog["sources"][0]["metadata"]["nested"][0]
+            .get("credentialId")
+            .is_none());
+    }
+
+    #[test]
     fn rejects_malformed_fixture_json_without_publishing_a_package() {
         let directory = tempfile::tempdir().unwrap();
         fs::write(directory.path().join("broken.json"), "{ not json").unwrap();
