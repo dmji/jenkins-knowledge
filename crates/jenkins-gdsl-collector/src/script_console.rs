@@ -343,14 +343,15 @@ fn normalize_probe_output(value: &Value) -> Value {
         "errors": []
     });
 
-    let metadata_fields = [
+    // Java properties are optional: the probe may run successfully even when
+    // the JVM does not expose one of these values. Keep required probe metadata
+    // separate so missing Java properties do not downgrade the whole snapshot.
+    let required_metadata_fields = [
         ("groovyVersion", "groovy-version"),
-        ("javaVersion", "java-version"),
-        ("javaVendor", "java-vendor"),
         ("jenkinsCoreVersion", "jenkins-core-version"),
     ];
     let mut metadata_count = 0;
-    for (field, probe) in metadata_fields {
+    for (field, probe) in required_metadata_fields {
         if let Some(value) = value
             .get(field)
             .and_then(Value::as_str)
@@ -360,6 +361,15 @@ fn normalize_probe_output(value: &Value) -> Value {
             metadata_count += 1;
         } else {
             errors.push(json!({ "probe": probe, "code": "probe-failed" }));
+        }
+    }
+    for field in ["javaVersion", "javaVendor"] {
+        if let Some(value) = value
+            .get(field)
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+        {
+            runtime[field] = json!(truncate(value));
         }
     }
 
@@ -420,10 +430,16 @@ fn normalize_probe_output(value: &Value) -> Value {
         }
     }
 
-    let status = if metadata_count == metadata_fields.len()
+    let only_optional_java_errors = errors.iter().all(|error| {
+        matches!(
+            error["probe"].as_str(),
+            Some("java-version" | "java-vendor")
+        )
+    });
+    let status = if metadata_count == required_metadata_fields.len()
         && available_registries == 3
         && runtime["apiTypeInventoryStatus"] == "available"
-        && errors.is_empty()
+        && only_optional_java_errors
     {
         "collected"
     } else if metadata_count > 0 || available_registries > 0 {
@@ -894,6 +910,38 @@ mod tests {
         assert_eq!(result["apiTypes"][0]["name"], "hudson.model.Run");
         assert_eq!(result["apiTypes"][0]["methods"][0]["name"], "getNumber");
         assert_eq!(result["extensionRegistries"][0]["items"][0]["name"], "sh");
+    }
+
+    #[test]
+    fn missing_java_properties_do_not_degrade_a_successful_probe() {
+        let mut output = valid_probe_output();
+        output["javaVersion"] = Value::Null;
+        output["javaVendor"] = Value::Null;
+
+        let result = normalize_probe_output(&output);
+
+        assert_eq!(result["status"], "collected");
+        assert!(result.get("javaVersion").is_none());
+        assert!(result.get("javaVendor").is_none());
+        assert!(result["errors"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn java_property_probe_errors_remain_field_local() {
+        let mut output = valid_probe_output();
+        output["javaVersion"] = Value::Null;
+        output["errors"] = json!([{
+            "probe": "java-version",
+            "code": "probe-failed"
+        }]);
+
+        let result = normalize_probe_output(&output);
+
+        assert_eq!(result["status"], "collected");
+        assert!(result.get("javaVersion").is_none());
+        assert_eq!(result["javaVendor"], "Eclipse Adoptium");
+        assert_eq!(result["errors"][0]["probe"], "java-version");
+        assert_eq!(result["errors"][0]["code"], "probe-failed");
     }
 
     #[test]

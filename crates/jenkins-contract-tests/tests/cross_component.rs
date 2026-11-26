@@ -233,6 +233,20 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
 
     lsp_write(
         &mut writer,
+        &json!({"jsonrpc":"2.0","id":9,"method":"jenkinsKnowledge/controller","params":{}}),
+    );
+    let controller = lsp_response(&mut reader, 9);
+    assert_eq!(
+        controller["result"]["controller"]["collection"]["javaVersionStatus"],
+        "available"
+    );
+    assert_eq!(
+        controller["result"]["controller"]["collection"]["javaVendorStatus"],
+        "available"
+    );
+
+    lsp_write(
+        &mut writer,
         &json!({
             "jsonrpc":"2.0",
             "method":"workspace/didChangeConfiguration",
@@ -385,6 +399,14 @@ fn run_mcp(package: &Path, expected: &Value) {
         "controller-fixture"
     );
     assert_eq!(inventory["controller"]["coreVersion"], "2.500");
+    assert_eq!(
+        inventory["controller"]["collection"]["javaVersionStatus"],
+        "available"
+    );
+    assert_eq!(
+        inventory["controller"]["collection"]["javaVendorStatus"],
+        "available"
+    );
     assert_eq!(inventory["plugins"]["status"], "unknown");
     assert_eq!(inventory["plugins"]["items"].as_array().unwrap().len(), 2);
     assert_eq!(inventory["capabilities"]["status"], "known");

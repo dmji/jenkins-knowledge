@@ -458,7 +458,9 @@
     "collection": {
       "profile": "deep",
       "retrievedAt": "2026-01-01T00:00:00Z",
-      "requestCount": 5
+      "requestCount": 5,
+      "javaVersionStatus": "available",
+      "javaVendorStatus": "available"
     },
     "runtime": {
       "schemaVersion": "1.0.0",

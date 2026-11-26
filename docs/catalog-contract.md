@@ -23,7 +23,9 @@ The optional top-level `controller` object describes one concrete Jenkins contro
 - `coreVersion` records the observed Jenkins Core version.
 - `plugins` is a bounded inventory of installed plugins. Each entry references a `plugin` source and records the short name, observed version, enabled/active state (nullable when unknown), and declared dependencies. A missing plugin is not implied by an incomplete inventory.
 - `capabilities` records named probes as `available`, `unavailable`, or `unknown`; it does not infer capability from a Core version.
-- `collection` records the profile, retrieval timestamp, optional start/completion timestamps, and request count.
+- `collection` records the profile, retrieval timestamp, optional start/completion timestamps, and request count. It may also record `javaVersionStatus` and `javaVendorStatus`: `available`, `not-collected-by-profile`, `unavailable`, or `probe-failed`. These are per-property outcomes, not package-level collection statuses.
+
+The optional `runtime` object records Deep Script Console observations. `javaVersion` and `javaVendor` are included only when read from the actual JVM system properties. Their per-property statuses live in `collection`: `available` means a non-empty value was observed; `not-collected-by-profile` means Quick/Standard intentionally skipped Script Console; `unavailable` means the probe ran but did not provide the property (or Script Console itself was unavailable); `probe-failed` means reading that property threw an error. A Java property failure is field-local and does not make an otherwise successful Script Console snapshot partial. Never infer Java from Jenkins Core.
 
 A symbol may include `availability` and `executionConstraints`. Availability is explicitly `available`, `unavailable`, or `unknown`, with optional plugin source references. CPS and Script Security/Sandbox values distinguish positive/negative observations from `unknown` and `not-inspected`. These fields must only be populated from evidence; the presence of a method or step does not prove CPS compatibility or Sandbox approval.
 
