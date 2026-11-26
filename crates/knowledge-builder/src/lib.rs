@@ -1035,6 +1035,20 @@ pub fn build_package_with_options(profile_path: &Path, output: &Path, refresh: b
                     "deep" => 5,
                     _ => 4
                 });
+                let java_version_status = java_metadata_status(
+                    &profile.collection_profile,
+                    &catalog["controller"]["runtime"],
+                    "javaVersion",
+                    "java-version",
+                );
+                let java_vendor_status = java_metadata_status(
+                    &profile.collection_profile,
+                    &catalog["controller"]["runtime"],
+                    "javaVendor",
+                    "java-vendor",
+                );
+                catalog["controller"]["collection"]["javaVersionStatus"] = json!(java_version_status);
+                catalog["controller"]["collection"]["javaVendorStatus"] = json!(java_vendor_status);
             }
             let api_type_symbols = runtime_api_type_symbols(&catalog["controller"]["runtime"], &controller_source_id);
             if let Some(symbols) = catalog["symbols"].as_array_mut() { symbols.extend(api_type_symbols); }
@@ -1470,6 +1484,37 @@ fn collector_outcome(error: &CollectorError) -> (&'static str, &'static str) {
     }
 }
 
+fn java_metadata_status(
+    profile: &str,
+    runtime: &Value,
+    field: &str,
+    probe: &str,
+) -> &'static str {
+    if profile != "deep" {
+        return "not-collected-by-profile";
+    }
+    if runtime
+        .get(field)
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        return "available";
+    }
+    let probe_failed = runtime
+        .get("errors")
+        .and_then(Value::as_array)
+        .is_some_and(|errors| {
+            errors.iter().any(|error| {
+                error["probe"] == probe && error["code"] == "probe-failed"
+            })
+        });
+    if probe_failed {
+        "probe-failed"
+    } else {
+        "unavailable"
+    }
+}
+
 fn build_timestamp() -> String {
     if let Ok(epoch) = env::var("SOURCE_DATE_EPOCH") {
         if let Ok(seconds) = epoch.parse::<i64>() {
@@ -1485,9 +1530,54 @@ fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collec
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, collection_plan, runtime_api_type_symbols, runtime_symbols, valid_api_class_name, validate_profile, Profile};
+    use super::{build_package, collection_plan, java_metadata_status, runtime_api_type_symbols, runtime_symbols, valid_api_class_name, validate_profile, Profile};
     use serde_json::{json, Value};
     use std::{fs, path::Path};
+
+    #[test]
+    fn java_metadata_status_distinguishes_profile_and_probe_outcomes() {
+        let available = json!({
+            "javaVersion": "17.0.12",
+            "javaVendor": "Eclipse Adoptium",
+            "errors": []
+        });
+        assert_eq!(
+            java_metadata_status("quick", &available, "javaVersion", "java-version"),
+            "not-collected-by-profile"
+        );
+        assert_eq!(
+            java_metadata_status("standard", &available, "javaVendor", "java-vendor"),
+            "not-collected-by-profile"
+        );
+        assert_eq!(
+            java_metadata_status("deep", &available, "javaVersion", "java-version"),
+            "available"
+        );
+        assert_eq!(
+            java_metadata_status("deep", &available, "javaVendor", "java-vendor"),
+            "available"
+        );
+
+        let unavailable = json!({ "errors": [] });
+        assert_eq!(
+            java_metadata_status("deep", &unavailable, "javaVersion", "java-version"),
+            "unavailable"
+        );
+        let failed = json!({
+            "errors": [{ "probe": "java-version", "code": "probe-failed" }]
+        });
+        assert_eq!(
+            java_metadata_status("deep", &failed, "javaVersion", "java-version"),
+            "probe-failed"
+        );
+        let denied = json!({
+            "errors": [{ "probe": "script-console", "code": "permission-denied" }]
+        });
+        assert_eq!(
+            java_metadata_status("deep", &denied, "javaVendor", "java-vendor"),
+            "unavailable"
+        );
+    }
 
     #[test]
     fn emits_distinct_controller_observed_symbols_for_duplicate_runtime_steps() {
