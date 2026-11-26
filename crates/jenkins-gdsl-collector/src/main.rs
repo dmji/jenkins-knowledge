@@ -71,7 +71,7 @@ fn main() {
         "gdsl" => collect(&controller, username.as_deref(), token.as_deref())
             .map_err(|error| error.to_string()),
         "deep" if dry_run => Ok(script_console_plan()),
-        "deep" => {
+        "deep" => (|| -> Result<Value, String> {
             let mut catalog = discover(&controller, username.as_deref(), token.as_deref())
                 .map_err(|error| error.to_string())?;
             let runtime =
@@ -90,7 +90,7 @@ fn main() {
             catalog_validator::validate_catalog(&catalog, &schema)
                 .map_err(|error| format!("deep discovery produced an invalid catalog: {error}"))?;
             Ok(catalog)
-        }
+        })(),
         _ => unreachable!("profile was validated"),
     };
     let catalog: Value = result.unwrap_or_else(|error| {
