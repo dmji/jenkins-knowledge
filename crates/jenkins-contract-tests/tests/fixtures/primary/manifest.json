@@ -1,0 +1,19 @@
+{
+  "collection": {
+    "status": "partial",
+    "profile": "deep",
+    "startedAt": "2026-01-01T00:00:00Z",
+    "completedAt": "2026-01-01T00:01:00Z",
+    "sources": [
+      {"id": "controller:metadata", "kind": "controller", "name": "fixture", "surface": "controller-metadata", "sourceId": "controller-fixture", "revision": "2.500", "status": "succeeded"},
+      {"id": "controller:plugin-inventory", "kind": "plugin-inventory", "name": "fixture", "surface": "plugin-inventory", "sourceId": "controller-fixture", "status": "permission-denied", "errorCode": "permission-denied"},
+      {"id": "controller:pipeline-gdsl", "kind": "pipeline-gdsl", "name": "fixture", "surface": "pipeline-gdsl", "sourceId": "controller-fixture", "revision": "2.500", "status": "succeeded-with-truncation", "errorCode": "output-truncated"},
+      {"id": "controller:script-console", "kind": "script-console", "name": "fixture", "surface": "script-console", "sourceId": "controller-fixture", "revision": "2.500", "status": "unavailable", "errorCode": "permission-denied"},
+      {"id": "plugin-a:inventory", "kind": "plugin", "name": "Plugin A", "surface": "plugin-api", "sourceId": "plugin-a", "revision": "1.0.0", "status": "succeeded"},
+      {"id": "plugin-b:inventory", "kind": "plugin", "name": "Plugin B", "surface": "plugin-api", "sourceId": "plugin-b", "revision": "2.0.0", "status": "succeeded"},
+      {"id": "declarative-model", "kind": "declarative-model", "name": "fixture", "surface": "declarative-model", "sourceId": "declarative-model-fixture", "revision": "model-v1", "status": "succeeded"},
+      {"id": "jenkins-core", "kind": "jenkins-core", "name": "fixture", "surface": "core-version", "sourceId": "jenkins-core-fixture", "revision": "2.500", "status": "succeeded"},
+      {"id": "shared-library", "kind": "shared-library", "name": "Fixture Shared Library", "surface": "library-source", "sourceId": "shared-library-fixture", "revision": "0123456789012345678901234567890123456789", "status": "failed", "errorCode": "request-failed"}
+    ]
+  }
+}
