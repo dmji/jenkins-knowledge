@@ -10,7 +10,12 @@ def safeText = { value ->
     if (value == null) {
         return null
     }
-    String text = value.toString()
+    // The repository-owned probe only accepts String results from the fixed
+    // Jenkins/JVM accessors. Never invoke arbitrary plugin-object toString().
+    if (!(value instanceof String)) {
+        return null
+    }
+    String text = (String) value
     return text.length() > MAX_TEXT_LENGTH ? text.substring(0, MAX_TEXT_LENGTH) : text
 }
 
