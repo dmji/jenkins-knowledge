@@ -13,8 +13,6 @@ The **Catalog** is the canonical, versioned contract between these stages. Profi
 
 See [the architecture and trust-boundary document](docs/architecture.md).
 
-Generated Groovy stubs, MCP resources, and documentation are derived from the catalog; they are not the source of truth.
-
 ## Repository layout
 
 ```text
