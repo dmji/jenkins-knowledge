@@ -1,0 +1,19 @@
+{
+  "plugins": [
+    {
+      "shortName": "workflow-cps",
+      "version": "4000.v123",
+      "enabled": true,
+      "active": true,
+      "dependencies": [
+        { "shortName": "workflow-api", "version": "2.0", "optional": false }
+      ]
+    },
+    {
+      "shortName": "workflow-api",
+      "version": "2.0",
+      "enabled": true,
+      "active": true
+    }
+  ]
+}

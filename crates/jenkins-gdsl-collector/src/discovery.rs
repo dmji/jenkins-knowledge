@@ -812,7 +812,7 @@ mod tests {
         response(
             "200 OK",
             "X-Jenkins: 2.479.1\r\n",
-            br#"{"_class":"hudson.model.Hudson","nodeName":"controller"}"#.to_vec(),
+            include_bytes!("../tests/fixtures/controller/core-api.json").to_vec(),
         )
     }
 
@@ -820,7 +820,7 @@ mod tests {
         response(
             "200 OK",
             "",
-            br#"{"plugins":[{"shortName":"workflow-cps","version":"4000.v123","enabled":true,"active":true,"dependencies":[{"shortName":"workflow-api","version":"2.0","optional":false}]},{"shortName":"workflow-api","version":"2.0","enabled":true,"active":true}]}"#.to_vec(),
+            include_bytes!("../tests/fixtures/controller/plugin-manager-api.json").to_vec(),
         )
     }
 
@@ -841,7 +841,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(catalog["controller"]["coreVersion"], "2.479.1");
-        assert_eq!(catalog["controller"]["identity"]["displayName"], "controller");
+        assert_eq!(catalog["controller"]["identity"]["displayName"], "sanitized-controller-fixture");
         assert_eq!(catalog["controller"]["plugins"].as_array().unwrap().len(), 2);
         assert_eq!(
             catalog["controller"]["plugins"][0]["dependencies"][0]["shortName"],

@@ -1,4 +1,4 @@
-use knowledge_builder::{build_package_with_options, invalidate_cache};
+use knowledge_builder::{build_package_with_options, collection_plan, invalidate_cache};
 use serde_json::Value;
 use std::{env, fs, path::Path, process::ExitCode};
 
@@ -50,6 +50,19 @@ fn main() -> ExitCode {
                 }
             }
         }
+        [command, profile] if command == "plan" => match collection_plan(Path::new(profile)) {
+            Ok(plan) => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&plan).unwrap_or_else(|_| "{}".into())
+                );
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("plan failed: {error}");
+                ExitCode::FAILURE
+            }
+        },
         [command, profile] if command == "invalidate" => match invalidate_cache(Path::new(profile))
         {
             Ok(removed) => {
@@ -62,7 +75,7 @@ fn main() -> ExitCode {
             }
         },
         _ => {
-            eprintln!("usage:\n  knowledge-builder build <profile.yml> <output-package-directory>\n  knowledge-builder refresh <profile.yml> <output-package-directory>\n  knowledge-builder invalidate <profile.yml>");
+            eprintln!("usage:\n  knowledge-builder plan <profile.yml>\n  knowledge-builder build <profile.yml> <output-package-directory>\n  knowledge-builder refresh <profile.yml> <output-package-directory>\n  knowledge-builder invalidate <profile.yml>");
             ExitCode::from(2)
         }
     }

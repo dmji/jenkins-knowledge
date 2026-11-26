@@ -2,6 +2,14 @@
 
 Build a versioned Knowledge Package from an explicit YAML profile. Builder is the administrator-operated collection stage; its profile defines the only Jenkins controllers and Git repositories that are contacted. Running Runtime, LSP, or MCP never starts or refreshes a Builder job.
 
+## Inspect a collection plan without network access
+
+`plan` validates the selected profile and prints the controller endpoints, HTTP request count, response limits, Script Console probe details, and configured Shared Library remotes. It never reads credential values or contacts Jenkins/Git:
+
+```sh
+cargo run --manifest-path crates/knowledge-builder/Cargo.toml -- plan profiles/production-pipelines.yml
+```
+
 ## Offline fixture build
 
 The profile may provide `fixtures`, a list of catalog JSON paths relative to the profile file. This mode is intended for tests and reproducible builds; it does not contact Jenkins or Git.
