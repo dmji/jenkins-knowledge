@@ -1002,6 +1002,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         git(source.path(), &["add", "large.bin"]);
         git(source.path(), &["commit", "--quiet", "-m", "large fixture"]);
 
+        let checkout_path = checkout.path().to_owned();
         run_git(checkout.path(), &["init", "--quiet"]).unwrap();
         let error = run_git_with_budget(
             checkout.path(),
@@ -1012,7 +1013,8 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         .to_string();
         assert!(error.contains("storage budget"), "{error}");
         // The TempDir owner removes the partial checkout even after budget exhaustion.
-        assert!(directory_size(checkout.path()).unwrap() >= 0);
+        drop(checkout);
+        assert!(!checkout_path.exists());
     }
 
     #[test]
