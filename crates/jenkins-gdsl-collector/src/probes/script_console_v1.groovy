@@ -73,7 +73,7 @@ def appendDeclarativeItem = { registry, extension, category, suppliedName, nameK
     }
     Class describableClass = null
     try {
-        describableClass = extension.getClazz()
+        describableClass = extension.getKlass()
     } catch (Throwable ignored) {
         // Non-descriptor extension points do not expose a describable class.
     }
@@ -215,7 +215,7 @@ def collectDeclarativeExtensions = { registry ->
                     try {
                         itemName = extension.getName()
                     } catch (Throwable ignored) {
-                        itemName = extension.getClazz().getSimpleName()
+                        itemName = extension.getKlass().getSimpleName()
                         nameKind = 'implementation-class'
                     }
                     def metadata = [:]
@@ -322,7 +322,7 @@ registrySpecs.each { spec ->
                         false,
                         jenkins.getPluginManager().getUberClassLoader()
                     )
-                    def model = modelType.getMethod('of', Class).invoke(null, extension.getClazz())
+                    def model = modelType.getMethod('of', Class).invoke(null, extension.getKlass())
                     def parameters = []
                     for (def parameter : model.getParameters()) {
                         if (parameters.size() >= MAX_PARAMETERS_PER_STEP) {
