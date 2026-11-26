@@ -327,7 +327,10 @@ fn runtime_api_type_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
         ) else {
             continue;
         };
-        let class_confidence = if api_type["status"] == "available" {
+        let class_confidence = if api_type["status"] == "available"
+            && api_type["synthetic"] != true
+            && api_type["dynamic"] != true
+        {
             "verified"
         } else {
             "unknown"
@@ -382,9 +385,11 @@ fn runtime_api_type_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
             class_symbol["interfaces"] = json!(interfaces);
             class_symbol["fieldEvidence"]["interfaces"] = json!("verified");
         }
-        if let Some(synthetic) = api_type["synthetic"].as_bool() {
-            class_symbol["synthetic"] = json!(synthetic);
-            class_symbol["fieldEvidence"]["synthetic"] = json!("verified");
+        for field in ["synthetic", "dynamic"] {
+            if let Some(value) = api_type[field].as_bool() {
+                class_symbol[field] = json!(value);
+                class_symbol["fieldEvidence"][field] = json!("verified");
+            }
         }
         if let Some(properties) = api_type["properties"].as_array() {
             class_symbol["properties"] = json!(properties);
@@ -409,6 +414,7 @@ fn runtime_api_type_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
             let method_confidence = if class_confidence == "verified"
                 && method["synthetic"] != true
                 && method["bridge"] != true
+                && method["dynamic"] != true
             {
                 "verified"
             } else {
@@ -452,13 +458,15 @@ fn runtime_api_type_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
                 method_symbol["parametersTruncated"] = json!(truncated);
                 method_symbol["fieldEvidence"]["parametersTruncated"] = json!("verified");
             }
-            for field in ["genericReturnType", "modifiers"] {
+            for field in ["genericReturnType", "modifiers", "genericReturnTypeStatus"] {
                 if let Some(value) = method[field].as_str() {
                     method_symbol[field] = json!(value);
-                    method_symbol["fieldEvidence"][field] = json!("verified");
+                    if field != "genericReturnTypeStatus" {
+                        method_symbol["fieldEvidence"][field] = json!("verified");
+                    }
                 }
             }
-            for field in ["synthetic", "bridge", "varargs"] {
+            for field in ["synthetic", "dynamic", "bridge", "varargs"] {
                 if let Some(value) = method[field].as_bool() {
                     method_symbol[field] = json!(value);
                     method_symbol["fieldEvidence"][field] = json!("verified");
