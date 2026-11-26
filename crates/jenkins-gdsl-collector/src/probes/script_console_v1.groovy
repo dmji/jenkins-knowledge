@@ -404,6 +404,81 @@ registrySpecs.each { spec ->
     result.extensionRegistries << registry
 }
 
+// Bounded API surface: roots are only classes already observed in the three
+// registries above. Reflection reads metadata only; it never invokes discovered members.
+final int MAX_API_TYPES = 50
+final int MAX_API_MEMBERS_PER_TYPE = 50
+final int MAX_API_PARAMETERS = 16
+final int MAX_API_TEXT_LENGTH = 256
+result.apiTypes = []
+def seenApiTypes = new LinkedHashSet<String>()
+def apiRoots = []
+result.extensionRegistries.each { registry ->
+    registry.items.each { item ->
+        String rootName = safeText(item.apiTypeRoot ?: item.className)
+        if (rootName != null && !rootName.trim().isEmpty()) apiRoots << rootName
+    }
+}
+apiRoots.unique().sort().take(MAX_API_TYPES).each { rootName ->
+    try {
+        Class root = Class.forName(rootName, false, jenkins.getPluginManager().getUberClassLoader())
+        if (!seenApiTypes.add(root.getName())) return
+        def typeRecord = [
+            name: safeText(root.getName()),
+            kind: root.isInterface() ? 'interface' : (root.isEnum() ? 'enum' : 'class'),
+            modifiers: java.lang.reflect.Modifier.toString(root.getModifiers()),
+            synthetic: root.isSynthetic(),
+            methods: [],
+            properties: []
+        ]
+        try { if (root.getSuperclass() != null) typeRecord.superclass = safeText(root.getSuperclass().getName()) } catch (Throwable ignored) {}
+        try { typeRecord.interfaces = root.getInterfaces().collect { safeText(it.getName()) }.findAll { it != null }.take(16) } catch (Throwable ignored) {}
+        def methodsBySignature = new TreeMap<String, Object>()
+        def current = root
+        int hierarchyDepth = 0
+        while (current != null && hierarchyDepth <= 8) {
+            current.getDeclaredMethods().each { method ->
+                int modifiers = method.getModifiers()
+                if (!java.lang.reflect.Modifier.isPublic(modifiers) && !java.lang.reflect.Modifier.isProtected(modifiers)) return
+                String methodName = safeText(method.getName())
+                if (methodName == null) return
+                def parameterTypes = method.getGenericParameterTypes().collect { safeText(it.getTypeName()) }.findAll { it != null }.take(MAX_API_PARAMETERS)
+                String returnType = safeText(method.getGenericReturnType().getTypeName())
+                String signature = methodName + '(' + parameterTypes.join(',') + '):' + (returnType ?: 'unknown')
+                if (!methodsBySignature.containsKey(signature) && methodsBySignature.size() < MAX_API_MEMBERS_PER_TYPE) {
+                    methodsBySignature[signature] = [name: methodName, signature: signature, returnType: returnType,
+                        parameterTypes: parameterTypes, modifiers: java.lang.reflect.Modifier.toString(modifiers), synthetic: method.isSynthetic()]
+                }
+            }
+            current = current.getSuperclass()
+            hierarchyDepth++
+        }
+        typeRecord.methods = methodsBySignature.values().toList()
+        def propertyMap = new TreeMap<String, Object>()
+        typeRecord.methods.each { method ->
+            String methodName = method.name
+            String propertyName = null
+            if (methodName.startsWith('get') && methodName.length() > 3 && method.parameterTypes.isEmpty() && method.returnType != 'void') propertyName = methodName.substring(3).uncapitalize()
+            if (methodName.startsWith('is') && methodName.length() > 2 && method.parameterTypes.isEmpty()) propertyName = methodName.substring(2).uncapitalize()
+            if (methodName.startsWith('set') && methodName.length() > 3 && method.parameterTypes.size() == 1) propertyName = methodName.substring(3).uncapitalize()
+            if (propertyName != null && propertyName.length() <= MAX_API_TEXT_LENGTH && propertyMap.size() < MAX_API_MEMBERS_PER_TYPE) {
+                def property = propertyMap[propertyName] ?: [name: propertyName, readable: false, writable: false]
+                if (methodName.startsWith('set')) property.writable = true else property.readable = true
+                propertyMap[propertyName] = property
+            }
+        }
+        typeRecord.properties = propertyMap.values().toList()
+        try {
+            def plugin = jenkins.getPluginManager().whichPlugin(root)
+            if (plugin != null) typeRecord.plugin = safeText(plugin.getShortName())
+        } catch (Throwable ignored) {}
+        result.apiTypes << typeRecord
+    } catch (Throwable ignored) {
+        errors << [probe: 'api-types', code: 'type-unresolved']
+    }
+}
+if (apiRoots.size() > MAX_API_TYPES) result.apiTypesTruncated = true
+
 def output = JsonOutput.toJson(result)
 if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
     result.extensionRegistries.each { registry ->
