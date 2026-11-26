@@ -35,6 +35,7 @@ fn query_options(args: &Value, include_query: bool) -> Result<SearchOptions, Str
         prefix: None,
         contexts: None,
         kinds: None,
+        source_kind: None,
         limit,
     })
 }
