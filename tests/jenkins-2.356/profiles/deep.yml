@@ -1,0 +1,15 @@
+profile: jenkins-2356-deep
+collectionProfile: deep
+jenkins:
+  controllers:
+    - id: jenkins-2356
+      url: http://127.0.0.1:18080/
+libraries:
+  - name: gsa-examples
+    url: https://github.com/GSA/jenkins-shared-library-examples.git
+    revision: main
+    commit: 7dfe2ab4bf7123b6aea29b0ec92caa2277cea5de
+  - name: missing-commit
+    url: https://github.com/GSA/jenkins-shared-library-examples.git
+    revision: main
+    commit: 0000000000000000000000000000000000000000
