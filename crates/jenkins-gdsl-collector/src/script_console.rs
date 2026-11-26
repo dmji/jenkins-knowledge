@@ -291,7 +291,10 @@ fn normalize_probe_output(value: &Value) -> Value {
                     methods.push(normalized);
                 }
             }
-            item["methods"] = json!(methods);\n            for field in ["methodsTruncated", "propertiesTruncated"] {\n                if let Some(value) = raw_type.get(field).and_then(Value::as_bool) { item[field] = json!(value); }\n            }
+            item["methods"] = json!(methods);
+            for field in ["methodsTruncated", "propertiesTruncated"] {
+                if let Some(value) = raw_type.get(field).and_then(Value::as_bool) { item[field] = json!(value); }
+            }
             let mut properties = Vec::new();
             if let Some(raw_properties) = raw_type.get("properties").and_then(Value::as_array) {
                 for property in raw_properties.iter().take(50) {
@@ -505,6 +508,7 @@ fn allowed_probe(value: &str) -> bool {
             | "pipeline-steps"
             | "pipeline-globals"
             | "declarative-extensions"
+            | "api-types"
             | "output"
     )
 }
@@ -516,6 +520,7 @@ fn allowed_error_code(value: &str) -> bool {
             | "jenkins-unavailable"
             | "extension-type-unavailable"
             | "enumeration-failed"
+            | "type-unresolved"
             | "output-truncated"
     )
 }
