@@ -1315,6 +1315,7 @@ mod tests {
         assert_eq!(report["environmentComparisonStatus"], "matched");
         assert_eq!(report["status"], "not-proven");
         assert_eq!(report["package"]["completeness"], "complete");
+        assert_eq!(report["packageEnvironment"]["status"], "available");
         assert!(report["warnings"].as_array().unwrap().iter()
             .any(|warning| warning["code"] == "environment-match-does-not-prove-compatibility"));
     }
@@ -1333,6 +1334,7 @@ mod tests {
         assert_eq!(report["status"], "unknown");
         assert_eq!(report["environmentComparisonStatus"], "unknown");
         assert_eq!(report["package"]["completeness"], "partial");
+        assert_eq!(report["packageEnvironment"]["status"], "partial");
         let codes: Vec<_> = report["warnings"].as_array().unwrap().iter()
             .filter_map(|warning| warning["code"].as_str())
             .collect();
