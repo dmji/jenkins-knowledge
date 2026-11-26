@@ -1353,18 +1353,6 @@ mod tests {
                 "propertiesTruncated": false,
                 "methods": [
                     {
-                        "name": "getNumber",
-                        "declaringClass": "hudson.model.Run",
-                        "signature": "getNumber() -> int",
-                        "returnType": "int",
-                        "modifiers": "public",
-                        "synthetic": false,
-                        "bridge": false,
-                        "varargs": false,
-                        "parameters": [],
-                        "parametersTruncated": false
-                    },
-                    {
                         "name": "getLog",
                         "declaringClass": "hudson.model.Run",
                         "signature": "getLog(int) -> java.util.List",
@@ -1381,6 +1369,24 @@ mod tests {
                             "namePresent": true
                         }],
                         "parametersTruncated": false
+                    },
+                    {
+                        "name": "getLog",
+                        "declaringClass": "hudson.model.Run",
+                        "signature": "getLog(java.lang.String) -> java.util.List",
+                        "returnType": "java.util.List",
+                        "genericReturnType": "java.util.List<java.lang.String>",
+                        "modifiers": "public",
+                        "synthetic": false,
+                        "bridge": false,
+                        "varargs": false,
+                        "parameters": [{
+                            "name": "path",
+                            "type": "java.lang.String",
+                            "genericType": "java.lang.String",
+                            "namePresent": true
+                        }],
+                        "parametersTruncated": false
                     }
                 ],
                 "properties": [{
@@ -1389,17 +1395,36 @@ mod tests {
                     "accessors": ["getNumber"],
                     "confidence": "inferred"
                 }]
+            },{
+                "name": "hudson.model.AbstractBuild",
+                "className": "hudson.model.AbstractBuild",
+                "depth": 2,
+                "rootCategories": ["supertype-of:hudson.model.Run"],
+                "status": "partial",
+                "synthetic": false,
+                "dynamic": false,
+                "superClass": "hudson.model.Run",
+                "interfaces": [],
+                "membersStatus": "inaccessible",
+                "methods": [],
+                "properties": [],
+                "methodsTruncated": false,
+                "propertiesTruncated": false
             }]
         });
         let symbols = runtime_api_type_symbols(&runtime, "controller:test");
-        assert_eq!(symbols.len(), 3);
+        assert_eq!(symbols.len(), 4);
         assert_eq!(symbols[0]["kind"], "class");
         assert_eq!(symbols[0]["superClass"], "hudson.model.AbstractBuild");
+        assert_eq!(symbols[0]["interfaces"][0], "hudson.model.Queue$Executable");
         assert_eq!(symbols[0]["properties"][0]["confidence"], "inferred");
         assert_eq!(symbols[1]["kind"], "method");
+        assert_eq!(symbols[1]["name"], "getLog");
+        assert_eq!(symbols[2]["name"], "getLog");
         assert_eq!(symbols[2]["parameters"][0]["namePresent"], true);
         assert_eq!(symbols[2]["genericReturnType"], "java.util.List<java.lang.String>");
         assert_ne!(symbols[1]["id"], symbols[2]["id"]);
+        assert_eq!(symbols[3]["confidence"], "unknown");
     }
 
     #[test]
