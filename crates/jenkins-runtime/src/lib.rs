@@ -330,7 +330,9 @@ impl Runtime {
             let matches_context = options.contexts.as_ref().is_none_or(|contexts| {
                 let declared = symbol["contexts"].as_array();
                 let execution = symbol["executionConstraints"]["contexts"].as_array();
-                contexts.iter().any(|context| {
+                let has_context_metadata = declared.is_some_and(|values| !values.is_empty())
+                    || execution.is_some_and(|values| !values.is_empty());
+                !has_context_metadata || contexts.iter().any(|context| {
                     declared.is_some_and(|values| values.iter().any(|value| value.as_str() == Some(context)))
                         || execution.is_some_and(|values| values.iter().any(|value| value.as_str() == Some(context)))
                 })
@@ -917,6 +919,71 @@ mod tests {
         assert_eq!(total, MAX_PACKAGE_BYTES);
         let error = add_package_bytes(&mut total, 1).unwrap_err().to_string();
         assert!(error.contains("aggregate size limit"));
+    }
+
+    #[test]
+    fn paginated_search_has_stable_order_and_no_gaps_or_duplicates() {
+        let mut runtime = runtime();
+        let symbols = runtime.catalog["symbols"].as_array_mut().unwrap();
+        for index in 0..23 {
+            symbols.push(serde_json::json!({
+                "id": format!("page:{index:03}"),
+                "name": format!("page-{index:03}"),
+                "kind": "step",
+                "sourceId": "controller",
+                "contexts": ["steps"],
+                "confidence": "verified",
+                "provenance": ["test"]
+            }));
+        }
+        let options = SearchOptions { kind: Some("step".into()), limit: 7, ..SearchOptions::default() };
+        let first = runtime.search_page(&options, 0).unwrap();
+        let second = runtime.search_page(&options, 7).unwrap();
+        let third = runtime.search_page(&options, 14).unwrap();
+        let fourth = runtime.search_page(&options, 21).unwrap();
+        assert_eq!(first.total, 24);
+        assert!(first.has_more && second.has_more && third.has_more);
+        assert!(!fourth.has_more);
+        let ids: Vec<_> = [first, second, third, fourth].into_iter()
+            .flat_map(|page| page.results.into_iter().map(|symbol| symbol["id"].as_str().unwrap().to_owned()))
+            .collect();
+        let unique: std::collections::BTreeSet<_> = ids.iter().cloned().collect();
+        assert_eq!(ids.len(), 24);
+        assert_eq!(unique.len(), 24);
+    }
+
+    #[test]
+    fn search_page_rejects_offsets_above_the_documented_ceiling() {
+        let error = runtime().search_page(&SearchOptions::default(), MAX_SEARCH_OFFSET + 1)
+            .unwrap_err().to_string();
+        assert!(error.contains("search offset exceeds limit"));
+    }
+
+    #[test]
+    fn prefix_context_kind_and_source_kind_filters_are_applied_before_pagination() {
+        let runtime = runtime();
+        let step = SearchOptions {
+            prefix: Some("sh".into()),
+            contexts: Some(vec!["steps".into()]),
+            kinds: Some(vec!["step".into()]),
+            limit: 1,
+            ..SearchOptions::default()
+        };
+        let page = runtime.search_page(&step, 0).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.results[0]["name"], "sh");
+
+        let library = SearchOptions {
+            prefix: Some("depl".into()),
+            contexts: Some(vec!["pipeline".into()]),
+            kinds: Some(vec!["global-variable".into()]),
+            source_kind: Some("shared-library".into()),
+            limit: 1,
+            ..SearchOptions::default()
+        };
+        let page = runtime.search_page(&library, 0).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.results[0]["name"], "deployApp");
     }
 
 }
