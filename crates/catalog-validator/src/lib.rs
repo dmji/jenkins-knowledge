@@ -347,7 +347,6 @@ fn validate_coverage_consistency(catalog: &Value, source_kinds: &HashMap<String,
     let Some(symbols) = catalog["symbols"].as_array() else { return; };
     for (coverage_index, entry) in coverage.iter().enumerate() {
         let status = entry["status"].as_str().unwrap_or_default();
-        if status == "inspected" { continue; }
         let source_id = entry["sourceId"].as_str().unwrap_or_default();
         let surface = entry["surface"].as_str().unwrap_or_default();
         if let Some(allowed) = coverage_source_kinds(surface) {
@@ -359,6 +358,7 @@ fn validate_coverage_consistency(catalog: &Value, source_kinds: &HashMap<String,
                 continue;
             }
         }
+        if status == "inspected" { continue; }
         let Some(kinds) = coverage_symbol_kinds(surface) else { continue; };
         for (symbol_index, symbol) in symbols.iter().enumerate() {
             if !kinds.contains(&symbol["kind"].as_str().unwrap_or_default()) { continue; }
