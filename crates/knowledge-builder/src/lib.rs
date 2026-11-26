@@ -487,7 +487,9 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     if let Some(controller) = controller_metadata {
         catalog["controller"] = controller;
     }
-    let has_collection_outcomes = catalog["sources"].as_array().is_some_and(|sources| sources.iter().any(|source| source.get("collection").is_some()));
+    let has_collection_outcomes = catalog["sources"].as_array().is_some_and(|sources| {
+        sources.iter().all(|source| source.get("collection").is_some())
+    });
     let all_sources_succeeded = catalog["sources"].as_array().is_some_and(|sources| {
         !sources.is_empty()
             && sources.iter().all(|source| {
