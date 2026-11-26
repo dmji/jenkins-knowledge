@@ -857,6 +857,43 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_bounded_api_types_and_discards_untrusted_metadata() {
+        let mut output = valid_probe_output();
+        output["apiTypes"] = json!([{
+            "name": "org.example.DeployStep", "kind": "class",
+            "superclass": "java.lang.Object", "interfaces": ["java.io.Serializable"],
+            "modifiers": "public", "synthetic": false, "plugin": "example-plugin",
+            "methods": [{
+                "name": "deploy", "signature": "deploy(java.lang.String):void",
+                "returnType": "void", "parameterTypes": ["java.lang.String"],
+                "modifiers": "public", "synthetic": false, "unsafe": "discard"
+            }],
+            "properties": [{"name": "target", "readable": true, "writable": false}],
+            "unsafe": "discard"
+        }]);
+        output["apiTypesTruncated"] = json!(false);
+        let result = normalize_probe_output(&output);
+        let ty = &result["apiTypes"][0];
+        assert_eq!(ty["name"], "org.example.DeployStep");
+        assert_eq!(ty["methods"][0]["signature"], "deploy(java.lang.String):void");
+        assert_eq!(ty["properties"][0]["readable"], true);
+        assert!(ty.get("unsafe").is_none());
+        assert!(ty["methods"][0].get("unsafe").is_none());
+    }
+
+    #[test]
+    fn api_type_inventory_is_capped_and_reports_truncation() {
+        let mut output = valid_probe_output();
+        output["apiTypes"] = json!((0..60).map(|index| json!({
+            "name": format!("example.Type{index}"), "kind": "class",
+            "synthetic": false, "methods": [], "properties": []
+        })).collect::<Vec<_>>());
+        let result = normalize_probe_output(&output);
+        assert_eq!(result["apiTypes"].as_array().unwrap().len(), 50);
+        assert_eq!(result["apiTypesTruncated"], true);
+    }
+
+    #[test]
     fn reports_script_console_permission_failures_without_response_content() {
         let (controller, _) = mock_server(
             "403 Forbidden",
