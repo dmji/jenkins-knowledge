@@ -1309,6 +1309,19 @@ mod tests {
     }
 
     #[test]
+    fn accepts_only_explicit_bounded_api_roots_in_profiles() {
+        let profile: Profile = serde_yaml::from_str(
+            "profile: api-roots-test\ncollectionProfile: deep\njenkins:\n  controllers:\n    - id: local\n      url: https://jenkins.example.test\n      apiRoots:\n        - hudson.model.Run\n        - org.example.Outer$Inner\n"
+        ).unwrap();
+        validate_profile(&profile).unwrap();
+
+        let invalid: Profile = serde_yaml::from_str(
+            "profile: api-roots-test\ncollectionProfile: deep\njenkins:\n  controllers:\n    - id: local\n      url: https://jenkins.example.test\n      apiRoots:\n        - java.lang.String;System.exit(0)\n"
+        ).unwrap();
+        assert!(validate_profile(&invalid).is_err());
+    }
+
+    #[test]
     fn emits_bounded_class_method_and_property_symbols() {
         let runtime = json!({
             "collectedAt": "2026-11-26T00:00:00Z",
