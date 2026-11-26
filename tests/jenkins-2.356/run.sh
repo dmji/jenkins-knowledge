@@ -14,7 +14,7 @@ TOKEN_FILE="$RUNNER_TEMP/jenkins-knowledge-tokens.env"
 ENV_FILE="$RUNNER_TEMP/jenkins-knowledge-jenkins.env"
 
 mkdir -p "$OUT"
-rm -f "$TOKEN_FILE" "$OUT/plugin-inventory-api.json" "$OUT/environment-summary.json" "$OUT/java-version.txt" "$OUT/image.txt"
+rm -f "$TOKEN_FILE" "$OUT/plugin-inventory-api.json" "$OUT/plugin-inventory.json" "$OUT/environment-summary.json" "$OUT/java-version.txt" "$OUT/image.txt"
 rm -rf "$OUT/quick" "$OUT/standard" "$OUT/deep" "$OUT/deep-readonly" "$OUT/cache"
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
@@ -92,7 +92,7 @@ grep -q '17\.' "$OUT/java-version.txt"
 
 # Save the exact plugin inventory observed from this digest-pinned controller.
 curl --silent --show-error --fail --user "admin:$admin_token" \
-    "$JENKINS_URL/pluginManager/api/json?depth=1" > "$OUT/plugin-inventory.json"
+    "$JENKINS_URL/pluginManager/api/json?depth=1" > "$OUT/plugin-inventory-api.json"
 printf '%s\n' 'jenkins/jenkins:2.356-jdk17@sha256:211419c659bd04b2d065ead531aad35ea47471489dcf714ab2c8a30cb9870850' \
     > "$OUT/image.txt"
 
