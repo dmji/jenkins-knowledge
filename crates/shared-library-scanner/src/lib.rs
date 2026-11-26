@@ -95,10 +95,19 @@ pub fn scan_checkout(
     let limits = ScanLimits::from_environment()?;
     let mut files = Vec::new();
     let mut total_bytes = 0u64;
+    let mut entries = 0usize;
     for directory in ["vars", "src"] {
         let root = canonical_root.join(directory);
         if root.exists() {
-            collect_groovy_files(&root, &canonical_root, 0, &mut files, &mut total_bytes, &limits)?;
+            collect_groovy_files(
+                &root,
+                &canonical_root,
+                0,
+                &mut files,
+                &mut total_bytes,
+                &mut entries,
+                &limits,
+            )?;
         }
     }
     files.sort();
@@ -130,6 +139,12 @@ pub fn scan_checkout(
             )?;
         }
         scan_classes_and_methods(&path, &content, &source_id, confidence, &mut symbols, &mut diagnostics);
+        if symbols.len() > limits.symbols {
+            return Err(ScanError::Io(format!(
+                "generated symbol count exceeds configured limit ({})",
+                limits.symbols
+            )));
+        }
     }
 
     let generated_at = timestamp();
@@ -149,6 +164,15 @@ pub fn scan_checkout(
         "symbols": symbols
     });
     redact_sensitive_fields(&mut catalog);
+    let catalog_size = serde_json::to_vec_pretty(&catalog)
+        .map_err(|_| ScanError::InvalidCatalog("cannot serialize generated catalog".into()))?
+        .len();
+    if catalog_size > limits.catalog_bytes {
+        return Err(ScanError::InvalidCatalog(format!(
+            "generated catalog exceeds configured size limit ({} bytes)",
+            limits.catalog_bytes
+        )));
+    }
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json"))
         .map_err(|e| ScanError::InvalidCatalog(e.to_string()))?;
     catalog_validator::validate_catalog(&catalog, &schema)
@@ -348,7 +372,15 @@ fn run_git_inner(directory: &Path, args: &[&str], limit: u64) -> Result<String, 
 }
 
 #[derive(Debug, Clone, Copy)]
-struct ScanLimits { depth: usize, files: usize, file_bytes: u64, total_bytes: u64 }
+struct ScanLimits {
+    depth: usize,
+    files: usize,
+    entries: usize,
+    file_bytes: u64,
+    total_bytes: u64,
+    symbols: usize,
+    catalog_bytes: usize,
+}
 impl ScanLimits {
     fn from_environment() -> Result<Self, ScanError> {
         fn limit(name: &str, default: u64) -> Result<u64, ScanError> {
@@ -361,37 +393,102 @@ impl ScanLimits {
         Ok(Self {
             depth: limit("JENKINS_KNOWLEDGE_SCAN_MAX_DEPTH", 32)? as usize,
             files: limit("JENKINS_KNOWLEDGE_SCAN_MAX_FILES", 10000)? as usize,
+            entries: limit("JENKINS_KNOWLEDGE_SCAN_MAX_ENTRIES", 100000)? as usize,
             file_bytes: limit("JENKINS_KNOWLEDGE_SCAN_MAX_FILE_BYTES", 1048576)?,
             total_bytes: limit("JENKINS_KNOWLEDGE_SCAN_MAX_TOTAL_BYTES", 33554432)?,
+            symbols: limit("JENKINS_KNOWLEDGE_SCAN_MAX_SYMBOLS", 50000)? as usize,
+            catalog_bytes: limit("JENKINS_KNOWLEDGE_SCAN_MAX_CATALOG_BYTES", 67108864)? as usize,
         })
     }
 }
 
-fn collect_groovy_files(root: &Path, checkout: &Path, depth: usize, output: &mut Vec<PathBuf>,
-    total_bytes: &mut u64, limits: &ScanLimits) -> Result<(), ScanError> {
-    if depth > limits.depth { return Err(ScanError::Io(format!("scan depth exceeds limit ({})", limits.depth))); }
-    let metadata = fs::symlink_metadata(root).map_err(|e| ScanError::Io(format!("cannot inspect directory: {e}")))?;
-    if metadata.file_type().is_symlink() { return Ok(()); }
-    if !metadata.is_dir() { return Ok(()); }
-    let canonical_root = root.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve directory: {e}")))?;
-    if !canonical_root.starts_with(checkout) { return Err(ScanError::Io("directory escaped checkout root".into())); }
-    for entry in fs::read_dir(&canonical_root).map_err(|e| ScanError::Io(format!("cannot read directory: {e}")))? {
+fn collect_groovy_files(
+    root: &Path,
+    checkout: &Path,
+    depth: usize,
+    output: &mut Vec<PathBuf>,
+    total_bytes: &mut u64,
+    entry_count: &mut usize,
+    limits: &ScanLimits,
+) -> Result<(), ScanError> {
+    if depth > limits.depth {
+        return Err(ScanError::Io(format!("scan depth exceeds limit ({})", limits.depth)));
+    }
+    let metadata = fs::symlink_metadata(root)
+        .map_err(|e| ScanError::Io(format!("cannot inspect directory: {e}")))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Ok(());
+    }
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|e| ScanError::Io(format!("cannot resolve directory: {e}")))?;
+    if !canonical_root.starts_with(checkout) {
+        return Err(ScanError::Io("directory escaped checkout root".into()));
+    }
+    for entry in fs::read_dir(&canonical_root)
+        .map_err(|e| ScanError::Io(format!("cannot read directory: {e}")))?
+    {
+        *entry_count = entry_count.saturating_add(1);
+        if *entry_count > limits.entries {
+            return Err(ScanError::Io(format!(
+                "filesystem entry count exceeds limit ({})",
+                limits.entries
+            )));
+        }
         let entry = entry.map_err(|e| ScanError::Io(format!("cannot read directory entry: {e}")))?;
         let path = entry.path();
-        let metadata = fs::symlink_metadata(&path).map_err(|e| ScanError::Io(format!("cannot inspect path: {e}")))?;
-        if metadata.file_type().is_symlink() { continue; }
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|e| ScanError::Io(format!("cannot inspect path: {e}")))?;
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
         if metadata.is_dir() {
-            let canonical = path.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve directory: {e}")))?;
-            if !canonical.starts_with(checkout) { return Err(ScanError::Io("directory escaped checkout root".into())); }
-            collect_groovy_files(&canonical, checkout, depth + 1, output, total_bytes, limits)?;
-        } else if metadata.is_file() && path.extension().is_some_and(|ext| ext == "groovy") {
-            let canonical = path.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve source file: {e}")))?;
-            if !canonical.starts_with(checkout) { return Err(ScanError::Io("source file escaped checkout root".into())); }
-            if metadata.len() > limits.file_bytes { return Err(ScanError::Io(format!("{} exceeds per-file limit of {} bytes", path.display(), limits.file_bytes))); }
-            *total_bytes = (*total_bytes).saturating_add(metadata.len());
-            if *total_bytes > limits.total_bytes { return Err(ScanError::Io(format!("source files exceed aggregate limit of {} bytes", limits.total_bytes))); }
-            output.push(canonical);
-            if output.len() > limits.files { return Err(ScanError::Io(format!("source file count exceeds limit ({})", limits.files))); }
+            let canonical = path
+                .canonicalize()
+                .map_err(|e| ScanError::Io(format!("cannot resolve directory: {e}")))?;
+            if !canonical.starts_with(checkout) {
+                return Err(ScanError::Io("directory escaped checkout root".into()));
+            }
+            collect_groovy_files(
+                &canonical,
+                checkout,
+                depth + 1,
+                output,
+                total_bytes,
+                entry_count,
+                limits,
+            )?;
+        } else if metadata.is_file()
+            && path.extension().is_some_and(|ext| ext == "groovy" || ext == "txt")
+        {
+            let canonical = path
+                .canonicalize()
+                .map_err(|e| ScanError::Io(format!("cannot resolve source file: {e}")))?;
+            if !canonical.starts_with(checkout) {
+                return Err(ScanError::Io("source file escaped checkout root".into()));
+            }
+            if metadata.len() > limits.file_bytes {
+                return Err(ScanError::Io(format!(
+                    "source file exceeds per-file limit of {} bytes",
+                    limits.file_bytes
+                )));
+            }
+            *total_bytes = total_bytes.saturating_add(metadata.len());
+            if *total_bytes > limits.total_bytes {
+                return Err(ScanError::Io(format!(
+                    "source files exceed aggregate limit of {} bytes",
+                    limits.total_bytes
+                )));
+            }
+            if path.extension().is_some_and(|ext| ext == "groovy") {
+                output.push(canonical);
+                if output.len() > limits.files {
+                    return Err(ScanError::Io(format!(
+                        "source file count exceeds limit ({})",
+                        limits.files
+                    )));
+                }
+            }
         }
     }
     Ok(())
