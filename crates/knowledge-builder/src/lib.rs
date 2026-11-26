@@ -1279,7 +1279,7 @@ fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collec
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, runtime_symbols, validate_profile, Profile};
+    use super::{build_package, runtime_api_type_symbols, runtime_symbols, valid_api_class_name, validate_profile, Profile};
     use serde_json::{json, Value};
     use std::fs;
 
@@ -1306,6 +1306,83 @@ mod tests {
         assert_eq!(symbols[1]["namespace"], "two");
         assert_eq!(symbols[2]["kind"], "global-variable");
         assert_eq!(symbols[0]["evidence"][0]["kind"], "controller-observed");
+    }
+
+    #[test]
+    fn emits_bounded_class_method_and_property_symbols() {
+        let runtime = json!({
+            "collectedAt": "2026-11-26T00:00:00Z",
+            "apiTypes": [{
+                "name": "hudson.model.Run",
+                "className": "hudson.model.Run",
+                "depth": 0,
+                "rootCategories": ["configured"],
+                "status": "available",
+                "synthetic": false,
+                "superClass": "hudson.model.AbstractBuild",
+                "interfaces": ["hudson.model.Queue$Executable"],
+                "plugin": "jenkins-core",
+                "origin": "jenkins.war",
+                "methodsTruncated": false,
+                "propertiesTruncated": false,
+                "methods": [
+                    {
+                        "name": "getNumber",
+                        "declaringClass": "hudson.model.Run",
+                        "signature": "getNumber() -> int",
+                        "returnType": "int",
+                        "modifiers": "public",
+                        "synthetic": false,
+                        "bridge": false,
+                        "varargs": false,
+                        "parameters": [],
+                        "parametersTruncated": false
+                    },
+                    {
+                        "name": "getLog",
+                        "declaringClass": "hudson.model.Run",
+                        "signature": "getLog(int) -> java.util.List",
+                        "returnType": "java.util.List",
+                        "genericReturnType": "java.util.List<java.lang.String>",
+                        "modifiers": "public",
+                        "synthetic": false,
+                        "bridge": false,
+                        "varargs": false,
+                        "parameters": [{
+                            "name": "maxLines",
+                            "type": "int",
+                            "genericType": "int",
+                            "namePresent": true
+                        }],
+                        "parametersTruncated": false
+                    }
+                ],
+                "properties": [{
+                    "name": "number",
+                    "readType": "int",
+                    "accessors": ["getNumber"],
+                    "confidence": "inferred"
+                }]
+            }]
+        });
+        let symbols = runtime_api_type_symbols(&runtime, "controller:test");
+        assert_eq!(symbols.len(), 3);
+        assert_eq!(symbols[0]["kind"], "class");
+        assert_eq!(symbols[0]["superClass"], "hudson.model.AbstractBuild");
+        assert_eq!(symbols[0]["properties"][0]["confidence"], "inferred");
+        assert_eq!(symbols[1]["kind"], "method");
+        assert_eq!(symbols[2]["parameters"][0]["namePresent"], true);
+        assert_eq!(symbols[2]["genericReturnType"], "java.util.List<java.lang.String>");
+        assert_ne!(symbols[1]["id"], symbols[2]["id"]);
+    }
+
+    #[test]
+    fn validates_explicit_api_roots_as_bounded_class_names() {
+        assert!(valid_api_class_name("hudson.model.Run"));
+        assert!(valid_api_class_name("org.example.Outer$Inner"));
+        assert!(!valid_api_class_name("java.lang.String;System.exit(0)"));
+        assert!(!valid_api_class_name("java.lang.String/../../etc/passwd"));
+        assert!(!valid_api_class_name("java.lang.String "));
     }
 
     #[test]
