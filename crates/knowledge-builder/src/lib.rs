@@ -1115,4 +1115,78 @@ fixtures:
     }
 
 
+    #[test]
+    fn preserves_controller_snapshot_when_optional_plugin_and_gdsl_surfaces_fail() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            thread,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for _ in 0..4 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 1024];
+                loop {
+                    let count = stream.read(&mut buffer).unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..count]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let request = String::from_utf8_lossy(&request);
+                if request.starts_with("GET /api/json") {
+                    let body = r#"{"_class":"hudson.model.Hudson","nodeName":"ci","jenkinsVersion":"2.479.1"}"#;
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nX-Jenkins: 2.479.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    ).unwrap();
+                } else {
+                    let status = if request.starts_with("GET /pluginManager/api/json") {
+                        "403 Forbidden"
+                    } else {
+                        "404 Not Found"
+                    };
+                    write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    ).unwrap();
+                }
+            }
+        });
+
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            format!(
+                "profile: partial-controller\ncollectionProfile: standard\njenkins:\n  controllers:\n    - id: ci\n      url: http://{address}/\n"
+            ),
+        ).unwrap();
+        let output = directory.path().join("package");
+        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        server.join().unwrap();
+
+        let catalog: Value = serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
+        let manifest: Value = serde_json::from_slice(&fs::read(output.join("manifest.json")).unwrap()).unwrap();
+        assert_eq!(manifest["collection"]["status"], "partial");
+        assert_eq!(manifest["collection"]["profile"], "standard");
+        assert!(catalog["sources"].as_array().unwrap().iter().any(|source| source["kind"] == "jenkins-controller"));
+        assert!(catalog["sources"].as_array().unwrap().iter().any(|source| source["kind"] == "jenkins-core"));
+        assert!(catalog["symbols"].as_array().unwrap().iter().any(|symbol| symbol["kind"] == "declarative-directive"));
+        assert!(manifest["collection"]["sources"].as_array().unwrap().iter().any(|outcome|
+            outcome["surface"] == "plugin-inventory" && outcome["status"] == "permission-denied"));
+        assert!(manifest["collection"]["sources"].as_array().unwrap().iter().any(|outcome|
+            outcome["surface"] == "pipeline-gdsl" && outcome["status"] == "unavailable"));
+        assert!(!manifest.to_string().contains("authorization"));
+    }
+
+
 }
