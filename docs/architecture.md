@@ -55,6 +55,14 @@ Git remotes are administrator-configured trusted inputs, not user-submitted host
 
 A refresh is an explicit Builder run. It produces a new package/snapshot; it does not mutate a package currently served by Runtime.
 
+## Bounded Jenkins API type inventory
+
+The optional Script Console probe may describe API types only from the already observed Pipeline step, global-variable, and Declarative extension registries. It does not enumerate a Jenkins/plugin class loader, scan packages or plugin JARs, or execute discovered methods or constructors.
+
+The current inventory records class/interface/enum identity, superclass and directly implemented interfaces, public/protected method signatures (including overloads and generic type names), JavaBean-style readable/writable property hints, synthetic-member flags, and plugin attribution when Jenkins can resolve it. Hierarchy inspection is bounded to eight superclass levels; the current default limits are 20 root types, 20 methods and 20 properties per type, eight parameter types per method, and a reduced output fallback when the response budget is approached. Unresolved roots are reported as partial probe errors. Reflection metadata is evidence of API shape only: it does not establish Script Security approval, CPS compatibility, runtime availability in every Pipeline context, or safe invocation.
+
+This is intentionally a selected API surface, not complete Groovy, Java, Jenkins, or plugin documentation. The current default roots come from observed extension registrations; arbitrary class roots and recursive resolution of referenced parameter/return types are not enabled by default. Additional explicit-root configuration and deeper bounded type resolution require a separately reviewed allowlist and budget contract.
+ 
 ## Package boundary
 
 The Knowledge Package is the handoff artifact between stages. It contains the manifest, catalog, schema/version metadata, provenance, collection outcomes, and integrity checksums. The catalog is the canonical data contract shared by Builder and all consumers.
