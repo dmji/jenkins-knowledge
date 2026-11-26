@@ -751,7 +751,7 @@ mod tests {
     stages {
         stage('real') {
             steps {
-                def slashy = /script { } stage('fake') { } \/ and \\/\\/ text/
+                def slashy = /script { } stage('fake') { } \/ and \/\/ text/
                 def dollar = $/post { } pipeline { } escaped $/ slash and $$ sign /$
                 def interpolated = "value @@INTERP@@ [script: { steps { } }] }"
                 sh
@@ -893,14 +893,4 @@ mod tests {
     }
 
 
-}
-) || bytes.get(index + 1) == Some(&b'/')) {
-            index += 2;
-        } else if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'$') {
-            return index + 2;
-        } else {
-            index += 1;
-        }
-    }
-    bytes.len()
 }
