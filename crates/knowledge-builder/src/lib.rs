@@ -433,6 +433,7 @@ fixtures:
         assert!(!serialized.contains("builder-secret"));
         let package_catalog: Value = serde_json::from_str(&catalog_text).unwrap();
         assert_eq!(package_catalog["sources"][0]["metadata"]["safeLabel"], "keep-this");
+        assert!(package_catalog["symbols"][0]["signature"].as_str().is_some());
         assert_eq!(
             package_catalog["sources"][0]["metadata"]["endpoint"],
             "https://controller.example.test/api"
