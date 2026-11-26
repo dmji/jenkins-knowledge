@@ -4,10 +4,14 @@ Build and distribute verified Jenkins Pipeline API knowledge for IDEs and AI age
 
 ## Architecture
 
-- **Builder** scans Jenkins controllers, plugin metadata, and pinned Shared Library revisions.
-- **Catalog** is the canonical, versioned JSON representation of discovered symbols.
-- **Runtime** reads a built package and exposes read-only search, details, examples, and pipeline-step lookup.
-- **Profiles** select an explicit combination of controller snapshots and library revisions.
+The application has two deliberately separate stages:
+
+1. **Administrative collection (Builder):** an administrator maintains the controller and Shared Library profile and explicitly runs collection. Builder uses the configured Jenkins/Git credentials, gathers and validates source snapshots, and publishes a versioned Knowledge Package. Refresh is always an explicit administrative action.
+2. **User queries (Runtime, LSP, MCP):** users query a selected, already-built Knowledge Package. This stage is offline and read-only: it does not contact Jenkins or Git, access collection credentials, invoke Builder, refresh data, or mutate the package.
+
+The **Catalog** is the canonical, versioned contract between these stages. Profiles select the exact controller snapshot and library revisions included in a package. Generated Groovy stubs, MCP resources, and documentation are derived from the catalog; they are not the source of truth.
+
+See [the architecture and trust-boundary document](docs/architecture.md).
 
 Generated Groovy stubs, MCP resources, and documentation are derived from the catalog; they are not the source of truth.
 
