@@ -1088,6 +1088,9 @@ mod tests {
         assert!(SCRIPT_TEMPLATE.contains("MAX_API_TYPES = 40"));
         assert!(SCRIPT_TEMPLATE.contains("MAX_API_DEPTH = 2"));
         assert!(SCRIPT_TEMPLATE.contains("MAX_API_MEMBERS_PER_TYPE = 12"));
+        assert!(SCRIPT_TEMPLATE.contains("inspectedMembers >= 300"));
+        assert!(SCRIPT_TEMPLATE.contains("entry.depth < MAX_API_DEPTH"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_OUTPUT_BYTES = 262144"));
         assert!(SCRIPT_TEMPLATE.contains("visited"));
         assert!(SCRIPT_TEMPLATE.contains("new TreeMap()"));
         assert!(SCRIPT_TEMPLATE.contains("pending.sort"));
