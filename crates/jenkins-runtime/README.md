@@ -41,6 +41,8 @@ The MCP resource \`jenkins://catalog/pipeline-steps\` remains valid and returns 
 
 Runtime exposes the optional manifest `collection` object through `Runtime::collection()`. It reports package-level completeness and per-source outcomes independently from symbol confidence and catalog API-surface coverage. Older packages without this additive field return `None`; consumers must treat that as unknown, not complete. MCP and LSP expose the same status without modifying symbol confidence.
 
+The controller details returned by the `controller` command, LSP controller request, and MCP `get_controller_inventory` preserve the controller collection's `javaVersionStatus` and `javaVendorStatus` fields alongside optional `runtime.javaVersion` and `runtime.javaVendor`. Consumers should display the status rather than treating a missing Java value as a compatibility failure.
+
 ## Controller-aware queries and details
 
 Runtime search/list filters apply across the symbols in the selected package: `--source` selects an exact source ID, `--controller` selects the package controller by ID, display name, base URL, or controller source ID, `--source-kind` selects `jenkins-controller`, `plugin`, `jenkins-core`, or `shared-library`, `--plugin` selects symbols supplied by or explicitly dependent on a plugin, `--kind` selects a symbol kind, `--context` selects an explicitly declared Pipeline/Declarative context, and `--confidence` filters `verified`, `inferred`, or `unknown` evidence. A context filter does not match symbols with missing context metadata.
