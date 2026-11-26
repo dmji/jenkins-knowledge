@@ -198,7 +198,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let staging_path = staging.path();
     let catalog_bytes = format!("{}\n", serde_json::to_string_pretty(&catalog).map_err(|e| BuildError::Io(e.to_string()))?);
     fs::write(staging_path.join("catalog.json"), &catalog_bytes).map_err(|e| BuildError::Io(e.to_string()))?;
-    let manifest = json!({
+    let mut manifest = json!({
         "packageVersion":"1.0.0",
         "catalogSchemaVersion":"1.0.0",
         "profile":profile.profile,
@@ -209,6 +209,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         "checksums":{"catalog.json":hex(&Sha256::digest(catalog_bytes.as_bytes()))},
         "toolVersions":{"knowledge-builder":env!("CARGO_PKG_VERSION")}
     });
+    redact_sensitive_fields(&mut manifest);
     validate_package_metadata(&catalog, &manifest)
         .map_err(|error| BuildError::InvalidCatalog(format!("manifest/catalog consistency failed: {error}")))?;
     let manifest_schema: Value = serde_json::from_str(include_str!("../../../schemas/manifest.schema.json"))
