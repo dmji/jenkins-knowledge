@@ -51,6 +51,9 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 /// Add deterministic source fingerprints and a catalog snapshot ID.
 /// Collection timestamps remain available for diagnostics but do not participate in identity.
 pub fn stamp_catalog_identity(catalog: &mut Value) -> Result<(), String> {
+    if catalog.get("completeness").is_none() {
+        catalog["completeness"] = serde_json::json!({"status":"unknown"});
+    }
     canonicalize_arrays(catalog);
     let source_ids = catalog["sources"].as_array()
         .ok_or_else(|| "catalog sources must be an array".to_owned())?
