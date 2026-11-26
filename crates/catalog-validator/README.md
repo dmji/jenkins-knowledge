@@ -40,3 +40,12 @@ Older hand-authored package manifests with empty sourceRevisions/provenance maps
 Known surfaces are checked against their compatible source kinds. For known symbol surfaces (Pipeline steps, Declarative directives, Shared Library vars/src, methods, classes, and properties), a status other than inspected is rejected if matching symbols or evidence from that source are present. An inspected surface may legitimately contain zero symbols.
 
 Unknown coverage surface names are allowed for forward compatibility; source references and duplicate source/surface pairs are still validated, but no surface-specific inference is made until the surface is known. Unknown additional fields inside provenance records are also allowed. Unknown top-level catalog or manifest fields remain rejected by their JSON Schemas.
+
+
+## Secret-bearing metadata
+
+Secret key names are normalized by removing punctuation/separators and folding case before matching. The policy covers passwords/passphrases, API/access/private keys, tokens, secrets, credentials and credential IDs, authorization/bearer/basic-auth headers, cookies, and session identifiers. It is applied recursively through objects and arrays, including source metadata, controller snapshots, symbol metadata, coverage records, and manifest provenance.
+
+The shared redactor removes matching fields and strips query strings/fragments from URL-like fields (URL, URI, documentation URL, base URL, and endpoint) while preserving non-sensitive sibling metadata. The Jenkins GDSL Collector, Shared Library Scanner, and Builder use this same redactor before validating or publishing their outputs. Direct catalog/manifest validation rejects any remaining secret-bearing key or URL query parameter. Error messages report paths and key names only; they never include secret values.
+
+Ordinary API signatures (for example, a Pipeline method signature) are not treated as secrets. Signed URL query parameters such as sig/signature are rejected and removed with the rest of the URL query.
