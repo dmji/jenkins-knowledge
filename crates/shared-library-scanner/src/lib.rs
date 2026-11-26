@@ -209,7 +209,9 @@ impl GitCheckout {
                 "Git checkout storage budget must be a positive integer".into(),
             ));
         }
-        let temp = tempfile::tempdir()
+        let temp = tempfile::Builder::new()
+            .prefix("jenkins-knowledge-git-")
+            .tempdir()
             .map_err(|_| ScanError::Io("cannot create temporary Git checkout".into()))?;
         Ok(Self { temp, limit })
     }
@@ -1168,6 +1170,70 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         drop(first);
         assert!(!first_path.exists());
         assert!(second.path().exists());
+    }
+
+    fn git_for_test(directory: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(directory)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("git is installed for scanner integration tests");
+        assert!(status.success(), "git test command failed: {args:?}");
+    }
+
+    fn local_bare_remote(root: &Path, payload_bytes: usize) -> PathBuf {
+        let source = root.join("source");
+        let remote = root.join("remote.git");
+        fs::create_dir_all(source.join("vars")).unwrap();
+        git_for_test(&source, &["init", "--quiet"]);
+        git_for_test(&source, &["config", "user.name", "Scanner Test"]);
+        git_for_test(&source, &["config", "user.email", "scanner@example.test"]);
+        let payload: Vec<u8> = (0..payload_bytes)
+            .map(|index| ((index * 37 + index / 251) % 251) as u8)
+            .collect();
+        fs::write(source.join("vars/payload.groovy"), payload).unwrap();
+        git_for_test(&source, &["add", "--all"]);
+        git_for_test(&source, &["commit", "--quiet", "-m", "fixture"]);
+        git_for_test(root, &["init", "--bare", "--quiet", remote.to_str().unwrap()]);
+        git_for_test(&source, &["remote", "add", "origin", remote.to_str().unwrap()]);
+        git_for_test(&source, &["push", "--quiet", "origin", "HEAD:refs/heads/main"]);
+        git_for_test(&remote, &["config", "uploadpack.allowFilter", "false"]);
+        remote
+    }
+
+    #[test]
+    fn fetches_local_bare_repository_without_mount_privileges() {
+        let root = tempfile::tempdir().unwrap();
+        let remote = local_bare_remote(root.path(), 1024);
+        let (checkout, commit) =
+            fetch_checkout(remote.to_str().unwrap(), "main", 16 * 1024 * 1024).unwrap();
+        assert_eq!(commit.len(), 40);
+        assert!(checkout.path().join("vars/payload.groovy").is_file());
+    }
+
+    #[test]
+    fn aborts_when_server_ignores_blob_filter_and_checkout_budget_is_exceeded() {
+        let root = tempfile::tempdir().unwrap();
+        let remote = local_bare_remote(root.path(), 8 * 1024 * 1024);
+        let temp_root = std::env::temp_dir();
+        let before = fs::read_dir(&temp_root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("jenkins-knowledge-git-"))
+            .count();
+
+        let result = fetch_checkout(remote.to_str().unwrap(), "main", 512 * 1024);
+        assert!(result.is_err(), "oversized ignored-filter fetch unexpectedly succeeded");
+
+        let after = fs::read_dir(&temp_root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("jenkins-knowledge-git-"))
+            .count();
+        assert_eq!(after, before, "failed fetch left a temporary checkout behind");
     }
 
     #[test]
