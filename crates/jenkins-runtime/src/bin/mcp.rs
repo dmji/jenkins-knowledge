@@ -219,7 +219,7 @@ mod tests {
         let names: Vec<_> = definitions.iter().filter_map(|tool| tool["name"].as_str()).collect();
         assert_eq!(names, ["search_api", "get_api_details", "list_api", "get_usage_examples", "get_pipeline_step"]);
         let search = definitions.iter().find(|tool| tool["name"] == "search_api").unwrap();
-        for filter in ["plugin", "owner", "type", "confidence", "limit"] {
+        for filter in ["plugin", "owner", "type", "confidence", "offset", "limit"] {
             assert!(search["inputSchema"]["properties"].get(filter).is_some());
         }
         for tool in definitions {
@@ -228,6 +228,111 @@ mod tests {
             assert_eq!(tool["outputSchema"]["type"], "object");
             assert!(tool["outputSchema"]["properties"].is_object());
         }
+    }
+
+    fn structured_tool_page(runtime: &Runtime, name: &str, args: Value) -> Value {
+        call_tool(runtime, name, &args).unwrap()["structuredContent"].clone()
+    }
+
+    #[test]
+    fn search_api_pages_cover_all_matches_without_duplicates() {
+        let runtime = fixture_runtime();
+        let pages: Vec<_> = [0, 5, 10].into_iter().map(|offset| {
+            structured_tool_page(&runtime, "search_api", json!({
+                "query": "page-",
+                "offset": offset,
+                "limit": 5
+            }))
+        }).collect();
+
+        assert_eq!(pages[0]["total"], 12);
+        assert_eq!(pages[0]["returned"], 5);
+        assert_eq!(pages[0]["hasMore"], true);
+        assert_eq!(pages[0]["nextOffset"], 5);
+        assert_eq!(pages[1]["nextOffset"], 10);
+        assert_eq!(pages[2]["returned"], 2);
+        assert_eq!(pages[2]["hasMore"], false);
+        assert!(pages[2]["nextOffset"].is_null());
+
+        let ids: Vec<_> = pages.iter().flat_map(|page| {
+            page["results"].as_array().unwrap().iter()
+                .map(|symbol| symbol["id"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        }).collect();
+        let unique: std::collections::BTreeSet<_> = ids.iter().cloned().collect();
+        assert_eq!(ids.len(), 12);
+        assert_eq!(unique.len(), 12);
+    }
+
+    #[test]
+    fn list_api_pages_cover_all_filtered_symbols_without_duplicates() {
+        let runtime = fixture_runtime();
+        let pages: Vec<_> = [0, 5, 10].into_iter().map(|offset| {
+            structured_tool_page(&runtime, "list_api", json!({
+                "kind": "step",
+                "offset": offset,
+                "limit": 5
+            }))
+        }).collect();
+
+        assert_eq!(pages[0]["total"], 13);
+        assert_eq!(pages[0]["returned"], 5);
+        assert_eq!(pages[0]["hasMore"], true);
+        assert_eq!(pages[1]["hasMore"], true);
+        assert_eq!(pages[2]["returned"], 3);
+        assert_eq!(pages[2]["hasMore"], false);
+
+        let ids: Vec<_> = pages.iter().flat_map(|page| {
+            page["results"].as_array().unwrap().iter()
+                .map(|symbol| symbol["id"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        }).collect();
+        let unique: std::collections::BTreeSet<_> = ids.iter().cloned().collect();
+        assert_eq!(ids.len(), 13);
+        assert_eq!(unique.len(), 13);
+    }
+
+    #[test]
+    fn search_and_list_tools_report_empty_and_default_pages() {
+        let runtime = fixture_runtime();
+        let empty = structured_tool_page(&runtime, "search_api", json!({"query": "no-such-symbol"}));
+        assert_eq!(empty["total"], 0);
+        assert_eq!(empty["returned"], 0);
+        assert_eq!(empty["hasMore"], false);
+        assert!(empty["nextOffset"].is_null());
+
+        let default = structured_tool_page(&runtime, "list_api", json!({}));
+        assert_eq!(default["offset"], 0);
+        assert_eq!(default["limit"], DEFAULT_SEARCH_LIMIT);
+        assert_eq!(default["total"], 13);
+        assert_eq!(default["returned"], 13);
+        assert_eq!(default["hasMore"], false);
+    }
+
+    #[test]
+    fn search_and_list_tools_reject_invalid_offsets_and_limits() {
+        let runtime = fixture_runtime();
+        for arguments in [
+            json!({"offset": -1}),
+            json!({"offset": 1.5}),
+            json!({"offset": "1"}),
+            json!({"offset": MAX_SEARCH_OFFSET + 1}),
+            json!({"limit": 0}),
+            json!({"limit": -1}),
+            json!({"limit": 1.5}),
+            json!({"limit": MAX_SEARCH_RESULTS + 1}),
+        ] {
+            assert!(call_tool(&runtime, "search_api", &arguments).is_err(), "{arguments}");
+            assert!(call_tool(&runtime, "list_api", &arguments).is_err(), "{arguments}");
+        }
+    }
+
+    #[test]
+    fn next_offset_never_advertises_a_page_outside_runtime_bounds() {
+        assert_eq!(next_offset(0, 5, true), Some(5));
+        assert_eq!(next_offset(MAX_SEARCH_OFFSET - 5, 5, true), Some(MAX_SEARCH_OFFSET));
+        assert_eq!(next_offset(MAX_SEARCH_OFFSET, 5, true), None);
+        assert_eq!(next_offset(0, 5, false), None);
     }
 
     #[test]
