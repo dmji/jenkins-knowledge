@@ -1,7 +1,7 @@
 use catalog_validator::{validate_catalog, validate_package_metadata};
 use serde::Deserialize;
 use serde::de::{Error as DeError, MapAccess, Visitor};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BinaryHeap},
@@ -28,6 +28,7 @@ pub struct SearchOptions {
     pub query: String,
     pub kind: Option<String>,
     pub source: Option<String>,
+    pub controller: Option<String>,
     pub plugin: Option<String>,
     pub owner: Option<String>,
     pub type_name: Option<String>,
@@ -45,6 +46,7 @@ impl Default for SearchOptions {
             query: String::new(),
             kind: None,
             source: None,
+            controller: None,
             plugin: None,
             owner: None,
             type_name: None,
@@ -81,6 +83,8 @@ pub struct Runtime {
     manifest: Value,
     catalog: Value,
     source_index: BTreeMap<String, usize>,
+    symbol_index: BTreeMap<String, Vec<usize>>,
+    member_index: BTreeMap<String, Vec<usize>>,
 }
 
 #[derive(Debug)]
@@ -145,7 +149,8 @@ impl Runtime {
     #[cfg(test)]
     pub(crate) fn from_validated_parts(manifest: Value, catalog: Value) -> Self {
         let source_index = build_source_index(&catalog);
-        Self { manifest, catalog, source_index }
+        let (symbol_index, member_index) = build_symbol_indexes(&catalog);
+        Self { manifest, catalog, source_index, symbol_index, member_index }
     }
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self, RuntimeError> {
@@ -254,7 +259,8 @@ impl Runtime {
             )));
         }
         let source_index = build_source_index(&catalog);
-        Ok(Self { manifest, catalog, source_index })
+        let (symbol_index, member_index) = build_symbol_indexes(&catalog);
+        Ok(Self { manifest, catalog, source_index, symbol_index, member_index })
     }
 
     pub fn profile(&self) -> &str {
@@ -277,6 +283,73 @@ impl Runtime {
             .as_array()
             .map(Vec::as_slice)
             .unwrap_or(&[])
+    }
+
+    fn source_detail(&self, id: &str) -> Option<Value> {
+        let source = self.source_index.get(id).and_then(|index| self.sources().get(*index))?;
+        let mut detail = source.clone();
+        if let Some(object) = detail.as_object_mut() {
+            object.insert("profile".into(), json!(self.profile()));
+            object.insert("manifestProvenance".into(), self.manifest["provenance"].get(id).cloned()
+                .unwrap_or_else(|| json!({"status":"unknown"})));
+        }
+        Some(detail)
+    }
+
+    pub fn source_details(&self) -> Vec<Value> {
+        self.sources().iter().filter_map(|source| {
+            source["id"].as_str().and_then(|id| self.source_detail(id))
+        }).collect()
+    }
+
+    pub fn controller(&self) -> Option<&Value> {
+        self.catalog.get("controller")
+    }
+
+    fn plugin_inventory(&self) -> &[Value] {
+        self.catalog["controller"]["plugins"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn plugin_inventory_status(&self) -> &'static str {
+        if let Some(capability) = self.controller().and_then(|controller| controller["capabilities"].as_array())
+            .and_then(|capabilities| capabilities.iter().find(|item| item["name"] == "plugin-manager-api"))
+        {
+            return match capability["status"].as_str() {
+                Some("available") => "available",
+                Some("unavailable") => "unavailable",
+                _ => "unknown",
+            };
+        }
+        if self.controller().and_then(|controller| controller.get("plugins")).and_then(Value::as_array).is_some() {
+            "available"
+        } else {
+            "unknown"
+        }
+    }
+
+    pub fn plugins(&self) -> Vec<Value> {
+        self.plugin_inventory().iter().map(|plugin| {
+            let mut detail = plugin.clone();
+            let source = plugin["sourceId"].as_str().and_then(|id| self.source_detail(id));
+            if let Some(object) = detail.as_object_mut() {
+                object.insert("source".into(), source.unwrap_or(Value::Null));
+                object.insert("profile".into(), json!(self.profile()));
+            }
+            detail
+        }).collect()
+    }
+
+    pub fn controller_details(&self) -> Option<Value> {
+        let mut detail = self.controller()?.clone();
+        let source = self.source_details().into_iter().find(|source| source["kind"].as_str() == Some("jenkins-controller"));
+        if let Some(object) = detail.as_object_mut() {
+            object.insert("source".into(), source.unwrap_or(Value::Null));
+            object.insert("profile".into(), json!(self.profile()));
+        }
+        Some(detail)
     }
 
     pub fn search(&self, query: &str, kind: Option<&str>, source: Option<&str>) -> Vec<Value> {
@@ -307,6 +380,15 @@ impl Runtime {
             let source_id = symbol["sourceId"].as_str().unwrap_or_default();
             let source = self.source_index.get(source_id).and_then(|index| self.sources().get(*index));
             let source_kind = source.and_then(|item| item["kind"].as_str()).unwrap_or_default();
+            let matches_controller = options.controller.as_deref().is_none_or(|controller| {
+                let identity = &self.catalog["controller"]["identity"];
+                identity["id"].as_str() == Some(controller)
+                    || identity["displayName"].as_str() == Some(controller)
+                    || identity["baseUrl"].as_str() == Some(controller)
+                    || (source_kind == "jenkins-controller" && source.is_some_and(|item| {
+                        item["id"].as_str() == Some(controller) || item["name"].as_str() == Some(controller)
+                    }))
+            });
             let matches_plugin = options.plugin.as_deref().is_none_or(|plugin| {
                 let declared_dependency = symbol["executionConstraints"]["pluginDependencies"]
                     .as_array().is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(plugin)))
@@ -317,14 +399,21 @@ impl Runtime {
                     || declared_dependency
             });
             let matches_owner = options.owner.as_deref().is_none_or(|owner| {
-                ["owner", "namespace", "class", "type"].iter()
+                ["owner", "namespace", "class", "type", "declaringClass"].iter()
                     .filter_map(|key| symbol.get(key).and_then(Value::as_str))
                     .any(|value| value == owner || value.starts_with(&format!("{owner}.")))
             });
             let matches_type = options.type_name.as_deref().is_none_or(|type_name| {
-                ["type", "returnType", "namespace", "class"].iter()
-                    .filter_map(|key| symbol.get(key).and_then(Value::as_str))
-                    .any(|value| value == type_name || value.contains(type_name))
+                let matches_name = |value: &str| value == type_name || value.contains(type_name);
+                ["type", "returnType", "genericReturnType", "namespace", "class", "signature", "superClass", "declaringClass"]
+                    .iter().filter_map(|key| symbol.get(key).and_then(Value::as_str)).any(matches_name)
+                    || symbol["interfaces"].as_array().is_some_and(|values| values.iter().filter_map(Value::as_str).any(matches_name))
+                    || symbol["parameters"].as_array().is_some_and(|values| values.iter().any(|parameter| {
+                        ["type", "genericType"].iter().filter_map(|key| parameter.get(key).and_then(Value::as_str)).any(matches_name)
+                    }))
+                    || symbol["properties"].as_array().is_some_and(|values| values.iter().any(|property| {
+                        ["readType", "writeType"].iter().filter_map(|key| property.get(key).and_then(Value::as_str)).any(matches_name)
+                    }))
             });
             let matches_prefix = prefix.as_deref().is_none_or(|prefix| {
                 symbol["name"].as_str().unwrap_or_default().to_lowercase().starts_with(prefix)
@@ -334,7 +423,7 @@ impl Runtime {
                 let execution = symbol["executionConstraints"]["contexts"].as_array();
                 let has_context_metadata = declared.is_some_and(|values| !values.is_empty())
                     || execution.is_some_and(|values| !values.is_empty());
-                !has_context_metadata || contexts.iter().any(|context| {
+                has_context_metadata && contexts.iter().any(|context| {
                     declared.is_some_and(|values| values.iter().any(|value| value.as_str() == Some(context)))
                         || execution.is_some_and(|values| values.iter().any(|value| value.as_str() == Some(context)))
                 })
@@ -343,15 +432,25 @@ impl Runtime {
                 kinds.iter().any(|kind| symbol["kind"].as_str() == Some(kind))
             });
             let matches_source_kind = options.source_kind.as_deref().is_none_or(|kind| source_kind == kind);
-            let matches = (query.is_empty() || ["name", "description", "signature", "namespace", "returnType"]
-                .iter().filter_map(|key| symbol.get(key).and_then(Value::as_str))
-                .any(|value| value.to_lowercase().contains(&query)))
+            let matches_query = query.is_empty()
+                || ["name", "description", "signature", "namespace", "returnType", "genericReturnType", "superClass", "declaringClass"]
+                    .iter().filter_map(|key| symbol.get(key).and_then(Value::as_str))
+                    .any(|value| value.to_lowercase().contains(&query))
+                || symbol["interfaces"].as_array().is_some_and(|values| values.iter().filter_map(Value::as_str).any(|value| value.to_lowercase().contains(&query)))
+                || symbol["parameters"].as_array().is_some_and(|values| values.iter().any(|parameter| {
+                    ["name", "type", "genericType"].iter().filter_map(|key| parameter.get(key).and_then(Value::as_str)).any(|value| value.to_lowercase().contains(&query))
+                }))
+                || symbol["properties"].as_array().is_some_and(|values| values.iter().any(|property| {
+                    ["name", "readType", "writeType"].iter().filter_map(|key| property.get(key).and_then(Value::as_str)).any(|value| value.to_lowercase().contains(&query))
+                }));
+            let matches = matches_query
                 && matches_prefix
                 && matches_context
                 && matches_kind
                 && matches_source_kind
                 && options.kind.as_deref().is_none_or(|value| symbol["kind"].as_str() == Some(value))
                 && options.source.as_deref().is_none_or(|value| source_id == value)
+                && matches_controller
                 && matches_plugin
                 && matches_owner
                 && matches_type
@@ -399,24 +498,160 @@ impl Runtime {
     }
 
     pub fn get(&self, name_or_id: &str) -> Result<Value, RuntimeError> {
-        let matches: Vec<_> = self
-            .symbols()
-            .iter()
-            .filter(|s| {
-                s["id"].as_str() == Some(name_or_id)
-                    || s["name"].as_str() == Some(name_or_id)
-            })
-            .collect();
+        let matches = self.symbol_index.get(name_or_id).cloned().unwrap_or_default();
         match matches.as_slice() {
             [] => Err(RuntimeError(format!(
                 "symbol '{name_or_id}' was not found"
             ))),
-            [symbol] => Ok(self.enrich(symbol)),
+            [index] => Ok(self.enrich_details(&self.symbols()[*index])),
             many => Err(RuntimeError(format!(
                 "symbol '{name_or_id}' is ambiguous ({} matches); use a symbol ID or filter by source",
                 many.len()
             ))),
         }
+    }
+
+    fn enrich_details(&self, symbol: &Value) -> Value {
+        let mut result = self.enrich(symbol);
+        let class_name = qualified_name(symbol);
+        let mut members = if symbol["kind"].as_str() == Some("class") {
+            self.member_index.get(&class_name).or_else(|| self.member_index.get(symbol["name"].as_str().unwrap_or_default()))
+                .into_iter().flatten().filter(|index| self.symbols()[**index]["kind"].as_str() != Some("class"))
+                .map(|index| self.enrich_details(&self.symbols()[*index])).collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        if symbol["kind"].as_str() == Some("class") {
+            if let Some(properties) = symbol["properties"].as_array() {
+                let source = self.source_detail(symbol["sourceId"].as_str().unwrap_or_default())
+                    .unwrap_or(Value::Null);
+                for property in properties {
+                    let mut member = property.clone();
+                    if let Some(object) = member.as_object_mut() {
+                        object.insert("kind".into(), json!("property"));
+                        object.insert("sourceId".into(), symbol["sourceId"].clone());
+                        object.insert("declaringClass".into(), json!(class_name));
+                        object.insert("source".into(), source.clone());
+                        object.insert("profile".into(), json!(self.profile()));
+                        object.insert("provenance".into(), symbol["provenance"].clone());
+                        object.insert("evidence".into(), symbol["evidence"].clone());
+                        let mut references = Vec::new();
+                        if let Some(name) = property["readType"].as_str() {
+                            references.push(self.resolve_type_reference("readType", name, symbol));
+                        }
+                        if let Some(name) = property["writeType"].as_str() {
+                            references.push(self.resolve_type_reference("writeType", name, symbol));
+                        }
+                        object.insert("typeReferences".into(), json!(references));
+                    }
+                    members.push(member);
+                }
+            }
+        }
+        let mut type_references = Vec::new();
+        if let Some(name) = symbol["superClass"].as_str() {
+            type_references.push(self.resolve_type_reference("superClass", name, symbol));
+        }
+        if let Some(interfaces) = symbol["interfaces"].as_array() {
+            for name in interfaces.iter().filter_map(Value::as_str) {
+                type_references.push(self.resolve_type_reference("interface", name, symbol));
+            }
+        }
+        if let Some(name) = symbol["returnType"].as_str() {
+            type_references.push(self.resolve_type_reference("returnType", name, symbol));
+        }
+        if let Some(name) = symbol["genericReturnType"].as_str() {
+            type_references.push(self.resolve_type_reference("genericReturnType", name, symbol));
+        }
+        if let Some(parameters) = symbol["parameters"].as_array() {
+            for parameter in parameters {
+                if let Some(name) = parameter["type"].as_str() {
+                    type_references.push(self.resolve_type_reference("parameter", name, symbol));
+                }
+                if let Some(name) = parameter["genericType"].as_str() {
+                    type_references.push(self.resolve_type_reference("genericParameter", name, symbol));
+                }
+            }
+        }
+        if let Some(object) = result.as_object_mut() {
+            if symbol["kind"].as_str() == Some("class") {
+                let member_status = symbol["membersStatus"].as_str().unwrap_or_else(|| {
+                    if symbol["methodsTruncated"] == true || symbol["propertiesTruncated"] == true { "partial" }
+                    else if members.is_empty() { "unknown" }
+                    else { "available" }
+                });
+                object.insert("members".into(), json!(members));
+                object.insert("membersStatus".into(), json!(member_status));
+            }
+            object.insert("typeReferences".into(), json!(type_references));
+            object.insert("executionConstraintsSummary".into(), self.execution_constraints_summary(symbol, true));
+        }
+        result
+    }
+
+    fn execution_constraints_summary(&self, symbol: &Value, include_plugin_details: bool) -> Value {
+        let constraints = &symbol["executionConstraints"];
+        let mut context_values = Vec::new();
+        for values in [symbol["contexts"].as_array(), constraints["contexts"].as_array()].into_iter().flatten() {
+            for value in values.iter().filter_map(Value::as_str) {
+                if !context_values.iter().any(|existing| existing == value) {
+                    context_values.push(value.to_owned());
+                }
+            }
+        }
+        let availability = symbol["availability"]["status"].as_str().unwrap_or("unknown");
+        let mut plugin_ids = Vec::new();
+        for ids in [constraints["pluginDependencies"].as_array(), symbol["availability"]["pluginSourceIds"].as_array()].into_iter().flatten() {
+            for id in ids.iter().filter_map(Value::as_str) {
+                if !plugin_ids.iter().any(|existing| existing == id) {
+                    plugin_ids.push(id.to_owned());
+                }
+            }
+        }
+        let plugin_details = if include_plugin_details {
+            plugin_ids.iter().map(|id| {
+                let source = self.source_detail(id);
+                let inventory = self.plugin_inventory().iter().find(|plugin| {
+                    plugin["sourceId"].as_str() == Some(id.as_str()) || plugin["shortName"].as_str() == Some(id.as_str())
+                });
+                json!({
+                    "id":id,
+                    "status": if source.is_some() || inventory.is_some() { "known" } else { "unknown" },
+                    "source":source,
+                    "inventory":inventory
+                })
+            }).collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        json!({
+            "cps": constraints["cps"].as_str().unwrap_or("unknown"),
+            "sandbox": constraints["sandbox"].as_str().unwrap_or("unknown"),
+            "contexts": if context_values.is_empty() { json!({"status":"unknown","values":[]}) } else { json!({"status":"known","values":context_values}) },
+            "pluginAvailability": {"status":availability,"pluginIds":plugin_ids,"plugins":plugin_details}
+        })
+    }
+
+    fn resolve_type_reference(&self, role: &str, name: &str, owner: &Value) -> Value {
+        let indices = self.symbol_index.get(name).into_iter().flatten()
+            .filter(|index| self.symbols()[**index]["kind"].as_str() == Some("class"))
+            .copied().collect::<Vec<_>>();
+        let status = if indices.len() > 1 { "ambiguous" }
+            else if let Some(index) = indices.first() {
+                match self.symbols()[*index]["typeStatus"].as_str() {
+                    Some("inaccessible") => "inaccessible",
+                    Some("partial") => "partial",
+                    Some("unresolved") => "unknown",
+                    _ => "resolved",
+                }
+            } else if owner["typeStatus"].as_str() == Some("inaccessible") { "inaccessible" }
+            else { "unknown" };
+        json!({
+            "role":role,
+            "name":name,
+            "status":status,
+            "symbols":indices.into_iter().map(|index| self.enrich(&self.symbols()[index])).collect::<Vec<_>>()
+        })
     }
 
     pub fn examples(&self, name_or_id: &str) -> Result<Value, RuntimeError> {
@@ -441,7 +676,7 @@ impl Runtime {
             [] => Err(RuntimeError(format!(
                 "Pipeline step '{name}' was not found"
             ))),
-            [symbol] => Ok(self.enrich(symbol)),
+            [symbol] => Ok(self.enrich_details(symbol)),
             many => Err(RuntimeError(format!(
                 "Pipeline step '{name}' is ambiguous ({} matches); use a symbol ID",
                 many.len()
@@ -451,11 +686,15 @@ impl Runtime {
 
     fn enrich(&self, symbol: &Value) -> Value {
         let source_id = symbol["sourceId"].as_str().unwrap_or_default();
-        let source = self.source_index.get(source_id).and_then(|index| self.sources().get(*index));
+        let source = self.source_detail(source_id);
         let mut result = symbol.clone();
         if let Some(object) = result.as_object_mut() {
-            object.insert("source".into(), source.cloned().unwrap_or(Value::Null));
+            object.insert("source".into(), source.unwrap_or(Value::Null));
             object.insert("profile".into(), Value::String(self.profile().into()));
+            object.insert("executionConstraintsSummary".into(), self.execution_constraints_summary(symbol, false));
+            object.insert("controller".into(), self.controller()
+                .and_then(|controller| controller.get("identity"))
+                .cloned().unwrap_or(Value::Null));
         }
         result
     }
@@ -466,6 +705,35 @@ fn build_source_index(catalog: &Value) -> BTreeMap<String, usize> {
     catalog["sources"].as_array().into_iter().flatten().enumerate()
         .filter_map(|(index, source)| source["id"].as_str().map(|id| (id.to_owned(), index)))
         .collect()
+}
+
+fn qualified_name(symbol: &Value) -> String {
+    if symbol["kind"].as_str() == Some("class") {
+        if let Some(signature) = symbol["signature"].as_str().filter(|value| !value.is_empty()) {
+            return signature.to_owned();
+        }
+    }
+    let name = symbol["name"].as_str().unwrap_or_default();
+    symbol["namespace"].as_str().filter(|namespace| !namespace.is_empty())
+        .map(|namespace| format!("{namespace}.{name}"))
+        .unwrap_or_else(|| name.to_owned())
+}
+
+fn build_symbol_indexes(catalog: &Value) -> (BTreeMap<String, Vec<usize>>, BTreeMap<String, Vec<usize>>) {
+    let mut symbols_by_name = BTreeMap::<String, Vec<usize>>::new();
+    let mut members_by_class = BTreeMap::<String, Vec<usize>>::new();
+    for (index, symbol) in catalog["symbols"].as_array().into_iter().flatten().enumerate() {
+        let qualified = qualified_name(symbol);
+        let signature = (symbol["kind"].as_str() == Some("class")).then(|| symbol["signature"].as_str()).flatten();
+        for key in [symbol["id"].as_str(), symbol["name"].as_str(), Some(qualified.as_str()), signature].into_iter().flatten() {
+            let indices = symbols_by_name.entry(key.to_owned()).or_default();
+            if indices.last().copied() != Some(index) { indices.push(index); }
+        }
+        if let Some(class) = symbol["declaringClass"].as_str() {
+            members_by_class.entry(class.to_owned()).or_default().push(index);
+        }
+    }
+    (symbols_by_name, members_by_class)
 }
 
 fn add_package_bytes(total: &mut u64, bytes: u64) -> Result<(), RuntimeError> {
@@ -955,6 +1223,14 @@ mod tests {
                     .is_some_and(|items| items.iter().any(|item| item == "workflow-basic-steps"))
         }));
 
+        let unknown_constraint = SearchOptions {
+            kind: Some("class".into()),
+            ..SearchOptions::default()
+        };
+        let unknown_result = runtime.search_with_options(&unknown_constraint);
+        assert_eq!(unknown_result[0]["executionConstraintsSummary"]["cps"], "unknown");
+        assert_eq!(unknown_result[0]["executionConstraintsSummary"]["contexts"]["status"], "unknown");
+
         let inferred = SearchOptions {
             confidence: Some("inferred".into()),
             ..SearchOptions::default()
@@ -978,6 +1254,13 @@ mod tests {
         let results = runtime.search_with_options(&options);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["name"], "ShellStep");
+
+        let parameter_type = SearchOptions {
+            type_name: Some("Map".into()),
+            ..SearchOptions::default()
+        };
+        let results = runtime.search_with_options(&parameter_type);
+        assert!(results.iter().any(|symbol| symbol["name"] == "deployApp"));
     }
 
     #[test]
@@ -986,12 +1269,132 @@ mod tests {
         let mut duplicate = r.catalog["symbols"][2].clone();
         duplicate["id"] = Value::String("second-deploy".into());
         r.catalog["symbols"].as_array_mut().unwrap().push(duplicate);
+        let (symbol_index, member_index) = build_symbol_indexes(&r.catalog);
+        r.symbol_index = symbol_index;
+        r.member_index = member_index;
         assert!(r
             .get("deployApp")
             .unwrap_err()
             .to_string()
             .contains("ambiguous"));
     }
+
+    #[test]
+    fn detail_resolves_type_references_and_declared_members_from_catalog_evidence() {
+        let mut runtime = runtime();
+        let class_name = "org.jenkinsci.plugins.workflow.steps.durable_task.ShellStep";
+        runtime.catalog["symbols"][3]["namespace"] = Value::String("workflow-basic-steps".into());
+        runtime.catalog["symbols"][3]["signature"] = Value::String(class_name.into());
+        runtime.catalog["symbols"][3]["superClass"] = Value::String("org.jenkinsci.plugins.workflow.steps.Step".into());
+        runtime.catalog["symbols"][3]["properties"] = serde_json::json!([{"name":"label","readType":"java.lang.String","accessors":["getLabel"],"confidence":"inferred"}]);
+        runtime.catalog["symbols"].as_array_mut().unwrap().push(serde_json::json!({
+            "id":"workflow-basic-steps:Step:class",
+            "name":"Step",
+            "namespace":"org.jenkinsci.plugins.workflow.steps",
+            "signature":"org.jenkinsci.plugins.workflow.steps.Step",
+            "kind":"class",
+            "sourceId":"workflow-basic-steps",
+            "confidence":"verified",
+            "provenance":["test"]
+        }));
+        runtime.catalog["symbols"].as_array_mut().unwrap().push(serde_json::json!({
+            "id":"workflow-basic-steps:ShellStep:launch",
+            "name":"launch",
+            "kind":"method",
+            "sourceId":"workflow-basic-steps",
+            "declaringClass":class_name,
+            "returnType":"java.lang.String",
+            "confidence":"verified",
+            "provenance":["test"]
+        }));
+        let (symbol_index, member_index) = build_symbol_indexes(&runtime.catalog);
+        runtime.symbol_index = symbol_index;
+        runtime.member_index = member_index;
+
+        let detail = runtime.get(class_name).unwrap();
+        assert!(detail["members"].as_array().unwrap().iter().any(|member| member["name"] == "launch"));
+        let property = detail["members"].as_array().unwrap().iter().find(|member| member["name"] == "label").unwrap();
+        assert_eq!(property["kind"], "property");
+        assert_eq!(property["confidence"], "inferred");
+        assert_eq!(property["typeReferences"][0]["name"], "java.lang.String");
+        assert_eq!(detail["typeReferences"][0]["role"], "superClass");
+        assert_eq!(detail["typeReferences"][0]["status"], "resolved");
+        assert_eq!(detail["typeReferences"][0]["symbols"][0]["name"], "Step");
+        assert_eq!(detail["membersStatus"], "available");
+        let step_index = runtime.symbols().iter().position(|symbol| symbol["id"] == "workflow-basic-steps:Step:class").unwrap();
+        runtime.catalog["symbols"][step_index]["typeStatus"] = json!("partial");
+        let partial = runtime.get(class_name).unwrap();
+        assert_eq!(partial["typeReferences"][0]["status"], "partial");
+        runtime.catalog["symbols"][step_index]["typeStatus"] = json!("inaccessible");
+        let inaccessible = runtime.get(class_name).unwrap();
+        assert_eq!(inaccessible["typeReferences"][0]["status"], "inaccessible");
+        assert_eq!(runtime.search_page(&SearchOptions { kind: Some("class".into()), ..SearchOptions::default() }, 0).unwrap().total, 2);
+    }
+
+    #[test]
+    fn detail_reports_unknown_constraints_without_promoting_confidence() {
+        let detail = runtime().get("deployApp").unwrap();
+        assert_eq!(detail["confidence"], "inferred");
+        assert_eq!(detail["profile"], "test");
+        assert_eq!(detail["source"]["revision"], "0123456789abcdef0123456789abcdef01234567");
+        assert_eq!(detail["source"]["manifestProvenance"]["status"], "unknown");
+        assert_eq!(detail["executionConstraintsSummary"]["cps"], "unknown");
+        assert_eq!(detail["executionConstraintsSummary"]["sandbox"], "unknown");
+        assert_eq!(detail["executionConstraintsSummary"]["contexts"]["status"], "known");
+        assert_eq!(detail["executionConstraintsSummary"]["pluginAvailability"]["status"], "unknown");
+        assert_eq!(detail["typeReferences"][0]["status"], "unknown");
+    }
+
+
+    #[test]
+    fn detail_combines_context_evidence_and_resolves_plugin_availability() {
+        let detail = runtime().get("sh").unwrap();
+        let contexts = detail["executionConstraintsSummary"]["contexts"]["values"].as_array().unwrap();
+        assert!(contexts.iter().any(|value| value == "steps"));
+        assert!(contexts.iter().any(|value| value == "pipeline"));
+        assert_eq!(detail["executionConstraintsSummary"]["pluginAvailability"]["status"], "available");
+        assert_eq!(detail["executionConstraintsSummary"]["pluginAvailability"]["plugins"][0]["inventory"]["shortName"], "workflow-basic-steps");
+    }
+
+    #[test]
+    fn controller_filter_and_context_filter_do_not_match_unknown_contexts() {
+        let runtime = runtime();
+        let controller = SearchOptions {
+            controller: Some("jenkins-ci".into()),
+            ..SearchOptions::default()
+        };
+        assert!(!runtime.search_with_options(&controller).is_empty());
+        let other_controller = SearchOptions {
+            controller: Some("another-controller".into()),
+            ..SearchOptions::default()
+        };
+        assert!(runtime.search_with_options(&other_controller).is_empty());
+
+        let unknown_context = SearchOptions {
+            contexts: Some(vec!["steps".into()]),
+            kinds: Some(vec!["class".into()]),
+            ..SearchOptions::default()
+        };
+        assert!(runtime.search_with_options(&unknown_context).is_empty());
+    }
+
+    #[test]
+    fn plugin_inventory_status_preserves_unavailable_capability_evidence() {
+        let mut runtime = runtime();
+        runtime.catalog["controller"]["capabilities"].as_array_mut().unwrap().push(
+            json!({"name":"plugin-manager-api","status":"unavailable"})
+        );
+        assert_eq!(runtime.plugin_inventory_status(), "unavailable");
+    }
+
+    #[test]
+    fn runtime_exposes_controller_plugins_and_all_package_sources() {
+        let runtime = runtime();
+        assert_eq!(runtime.controller().unwrap()["coreVersion"], "2.479.1");
+        assert_eq!(runtime.plugins().len(), 1);
+        assert!(runtime.sources().iter().any(|source| source["kind"] == "shared-library"));
+    }
+
     #[test]
     fn aggregate_package_size_accepts_boundary_and_rejects_first_byte_over() {
         let mut total = 0;

@@ -12,11 +12,11 @@ fn content(value: Value) -> Value {
 }
 fn tools() -> Value {
     json!([
-      {"name":"search_api","description":"Search catalog symbols with shared filters and bounded pagination. Responses include total, returned, hasMore, and nextOffset.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"kind":{"type":"string"},"source":{"type":"string"},"plugin":{"type":"string"},"owner":{"type":"string"},"type":{"type":"string"},"confidence":{"enum":["verified","inferred","unknown"]},"offset":{"type":"integer","minimum":0,"maximum":10000},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}},"offset":{"type":"integer"},"limit":{"type":"integer"},"total":{"type":"integer"},"returned":{"type":"integer"},"hasMore":{"type":"boolean"},"nextOffset":{"type":["integer","null"]},"paginationLimitReached":{"type":"boolean"}},"required":["profile","results","offset","limit","total","returned","hasMore","nextOffset","paginationLimitReached"]}},
-      {"name":"get_api_details","description":"Get one symbol by exact name or ID, including signature, parameters, provenance, profile, and confidence.","inputSchema":{"type":"object","properties":{"name_or_id":{"type":"string"}},"required":["name_or_id"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"}},"required":["id","name","profile","source","confidence"],"additionalProperties":true}},
-      {"name":"list_api","description":"List catalog symbols with shared filters and bounded pagination. Responses include total, returned, hasMore, and nextOffset.","inputSchema":{"type":"object","properties":{"kind":{"type":"string"},"source":{"type":"string"},"plugin":{"type":"string"},"owner":{"type":"string"},"type":{"type":"string"},"confidence":{"enum":["verified","inferred","unknown"]},"offset":{"type":"integer","minimum":0,"maximum":10000},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}},"offset":{"type":"integer"},"limit":{"type":"integer"},"total":{"type":"integer"},"returned":{"type":"integer"},"hasMore":{"type":"boolean"},"nextOffset":{"type":["integer","null"]},"paginationLimitReached":{"type":"boolean"}},"required":["profile","results","offset","limit","total","returned","hasMore","nextOffset","paginationLimitReached"]}},
+      {"name":"search_api","description":"Search symbols across controller, plugin, Pipeline, Declarative, Groovy, and Shared Library sources with controller/source/plugin/kind/context/confidence filters and bounded pagination.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"kind":{"type":"string"},"source":{"type":"string"},"controller":{"type":"string"},"sourceKind":{"type":"string"},"context":{"type":"string"},"plugin":{"type":"string"},"owner":{"type":"string"},"type":{"type":"string"},"confidence":{"enum":["verified","inferred","unknown"]},"offset":{"type":"integer","minimum":0,"maximum":10000},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}},"offset":{"type":"integer"},"limit":{"type":"integer"},"total":{"type":"integer"},"returned":{"type":"integer"},"hasMore":{"type":"boolean"},"nextOffset":{"type":["integer","null"]},"paginationLimitReached":{"type":"boolean"}},"required":["profile","results","offset","limit","total","returned","hasMore","nextOffset","paginationLimitReached"]}},
+      {"name":"get_api_details","description":"Get one symbol by exact name or ID, including source provenance, resolved type references and members, and explicit known/unknown execution constraints.","inputSchema":{"type":"object","properties":{"name_or_id":{"type":"string"}},"required":["name_or_id"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"}},"required":["id","name","profile","source","confidence"],"additionalProperties":true}},
+      {"name":"list_api","description":"List catalog symbols across all configured sources with controller/source/plugin/kind/context/confidence filters and bounded pagination.","inputSchema":{"type":"object","properties":{"kind":{"type":"string"},"source":{"type":"string"},"controller":{"type":"string"},"sourceKind":{"type":"string"},"context":{"type":"string"},"plugin":{"type":"string"},"owner":{"type":"string"},"type":{"type":"string"},"confidence":{"enum":["verified","inferred","unknown"]},"offset":{"type":"integer","minimum":0,"maximum":10000},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}},"offset":{"type":"integer"},"limit":{"type":"integer"},"total":{"type":"integer"},"returned":{"type":"integer"},"hasMore":{"type":"boolean"},"nextOffset":{"type":["integer","null"]},"paginationLimitReached":{"type":"boolean"}},"required":["profile","results","offset","limit","total","returned","hasMore","nextOffset","paginationLimitReached"]}},
       {"name":"get_usage_examples","description":"Get catalog-backed usage examples for one exact symbol name or ID.","inputSchema":{"type":"object","properties":{"name_or_id":{"type":"string"}},"required":["name_or_id"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"},"examples":{"type":"array","items":{"type":"string"}}},"required":["id","name","profile","source","confidence","examples"],"additionalProperties":true}},
-      {"name":"get_pipeline_step","description":"Get Jenkins Pipeline step metadata by exact name or symbol ID.","inputSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"}},"required":["id","name","profile","source","confidence"],"additionalProperties":true}}
+      {"name":"get_pipeline_step","description":"Get Jenkins Pipeline step metadata, source, type relationships, and execution constraints by exact name or symbol ID.","inputSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"}},"required":["id","name","profile","source","confidence"],"additionalProperties":true}}
     ])
 }
 fn query_options(args: &Value, include_query: bool) -> Result<(SearchOptions, usize), String> {
@@ -46,14 +46,15 @@ fn query_options(args: &Value, include_query: bool) -> Result<(SearchOptions, us
         query: if include_query { optional(args,"query").unwrap_or("").to_owned() } else { String::new() },
         kind: optional(args,"kind").map(str::to_owned),
         source: optional(args,"source").map(str::to_owned),
+        controller: optional(args,"controller").map(str::to_owned),
         plugin: optional(args,"plugin").map(str::to_owned),
         owner: optional(args,"owner").map(str::to_owned),
         type_name: optional(args,"type").map(str::to_owned),
         confidence: optional(args,"confidence").map(str::to_owned),
         prefix: None,
-        contexts: None,
+        contexts: optional(args,"context").map(|context| vec![context.to_owned()]),
         kinds: None,
-        source_kind: None,
+        source_kind: optional(args,"sourceKind").map(str::to_owned),
         limit,
     }, offset))
 }
@@ -102,7 +103,7 @@ fn call_tool(rt: &Runtime, name: &str, args: &Value) -> Result<Value,String> {
     }
 }
 
-fn pipeline_page(uri: &str) -> Result<(usize, usize), String> {
+fn pagination_page(uri: &str) -> Result<(usize, usize), String> {
     let (_, query) = uri.split_once('?').unwrap_or((uri, ""));
     let mut offset = 0usize;
     let mut limit = DEFAULT_SEARCH_LIMIT;
@@ -132,6 +133,21 @@ fn pipeline_page(uri: &str) -> Result<(usize, usize), String> {
     Ok((offset, limit))
 }
 
+fn read_symbol_resource(rt: &Runtime, uri: &str, key: &str, kind: Option<&str>, source_kind: Option<&str>) -> Result<Value,String> {
+    let (offset, limit) = pagination_page(uri)?;
+    let options = SearchOptions {
+        kind: kind.map(str::to_owned),
+        source_kind: source_kind.map(str::to_owned),
+        limit,
+        ..SearchOptions::default()
+    };
+    let page = rt.search_page(&options, offset).map_err(|error| error.to_string())?;
+    let mut response = page_metadata(&page);
+    response["profile"] = json!(rt.profile());
+    response[key] = json!(page.results);
+    Ok(response)
+}
+
 fn read_resource(rt: &Runtime, uri: &str) -> Result<Value,String> {
     match uri {
         "jenkins://catalog/manifest" => Ok(rt.manifest().clone()),
@@ -141,20 +157,42 @@ fn read_resource(rt: &Runtime, uri: &str) -> Result<Value,String> {
             "details": "This package predates explicit collection outcome metadata"
         }))),
         "jenkins://catalog/coverage" => Ok(json!({"profile":rt.profile(),"coverage":rt.coverage()})),
-        "jenkins://catalog/libraries" => Ok(json!({"profile":rt.profile(),"sources":rt.sources().iter().filter(|s|s["kind"]=="shared-library").collect::<Vec<_>>()})),
-        _ if uri == "jenkins://catalog/pipeline-steps" || uri.starts_with("jenkins://catalog/pipeline-steps?") => {
-            let (offset, limit) = pipeline_page(uri)?;
-            let options = SearchOptions {
-                kind: Some("step".into()),
-                limit,
-                ..SearchOptions::default()
-            };
+        "jenkins://catalog/controller" => Ok(json!({"profile":rt.profile(),"controller":rt.controller_details()})),
+        "jenkins://catalog/plugins" => Ok(json!({"profile":rt.profile(),"status":rt.plugin_inventory_status(),"plugins":rt.plugins()})),
+        "jenkins://catalog/sources" => Ok(json!({"profile":rt.profile(),"sources":rt.source_details()})),
+        _ if uri == "jenkins://catalog/types" || uri.starts_with("jenkins://catalog/types?") => {
+            let (offset, limit) = pagination_page(uri)?;
+            let options = SearchOptions { kind: Some("class".into()), limit, ..SearchOptions::default() };
             let page = rt.search_page(&options, offset).map_err(|error| error.to_string())?;
             let mut response = page_metadata(&page);
             response["profile"] = json!(rt.profile());
-            response["steps"] = json!(page.results);
+            let types = page.results.iter().filter_map(|symbol| {
+                symbol["id"].as_str().and_then(|id| rt.get(id).ok())
+            }).collect::<Vec<_>>();
+            response["types"] = json!(types);
             Ok(response)
         },
+        _ if uri == "jenkins://catalog/pipeline-steps" || uri.starts_with("jenkins://catalog/pipeline-steps?") => {
+            let (offset, limit) = pagination_page(uri)?;
+            let options = SearchOptions { kind: Some("step".into()), limit, ..SearchOptions::default() };
+            let page = rt.search_page(&options, offset).map_err(|error| error.to_string())?;
+            let mut response = page_metadata(&page);
+            response["profile"] = json!(rt.profile());
+            let steps = page.results.iter().filter_map(|symbol| {
+                symbol["id"].as_str().and_then(|id| rt.pipeline_step(id).ok())
+            }).collect::<Vec<_>>();
+            response["steps"] = json!(steps);
+            Ok(response)
+        },
+        _ if uri == "jenkins://catalog/globals" || uri.starts_with("jenkins://catalog/globals?") =>
+            read_symbol_resource(rt, uri, "globals", Some("global-variable"), None),
+        _ if uri == "jenkins://catalog/declarative" || uri.starts_with("jenkins://catalog/declarative?") =>
+            read_symbol_resource(rt, uri, "constructs", Some("declarative-directive"), None),
+        _ if uri == "jenkins://catalog/library-symbols" || uri.starts_with("jenkins://catalog/library-symbols?") =>
+            read_symbol_resource(rt, uri, "symbols", None, Some("shared-library")),
+        _ if uri == "jenkins://catalog/plugin-symbols" || uri.starts_with("jenkins://catalog/plugin-symbols?") =>
+            read_symbol_resource(rt, uri, "symbols", None, Some("plugin")),
+        "jenkins://catalog/libraries" => Ok(json!({"profile":rt.profile(),"sources":rt.source_details().into_iter().filter(|source|source["kind"]=="shared-library").collect::<Vec<_>>()})),
         _ if uri.starts_with("jenkins://catalog/profiles/") => {
             let profile=uri.trim_start_matches("jenkins://catalog/profiles/");
             if profile!=rt.profile() { return Err(format!("profile '{profile}' is not loaded; launch the server with that profile's package")); }
@@ -181,8 +219,16 @@ fn handle(rt: &Runtime, req: Value) -> Option<Value> {
             {"uri":"jenkins://catalog/manifest","name":"Knowledge package manifest","mimeType":"application/json"},
             {"uri":"jenkins://catalog/collection","name":"Package collection outcomes","description":"Package-level completeness and per-source succeeded, unavailable, permission-denied, failed, skipped, or unconfigured outcomes.","mimeType":"application/json"},
             {"uri":"jenkins://catalog/coverage","name":"Catalog collection coverage","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/controller","name":"Jenkins controller metadata","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/plugins","name":"Installed Jenkins plugins","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/sources","name":"Knowledge package sources","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/types","name":"Groovy types and members","description":"Paginated with ?offset=0&limit=50; each type includes catalog-declared members and resolved type references.","mimeType":"application/json"},
             {"uri":"jenkins://catalog/libraries","name":"Shared Library sources","mimeType":"application/json"},
-            {"uri":"jenkins://catalog/pipeline-steps","name":"Jenkins Pipeline steps","description":"Paginated with ?offset=0&limit=50; responses include total, returned, and hasMore.","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/pipeline-steps","name":"Jenkins Pipeline steps","description":"Paginated with ?offset=0&limit=50; responses include resolved step details and execution constraints.","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/globals","name":"Pipeline and Shared Library globals","description":"Paginated global-variable symbols with source and confidence metadata.","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/declarative","name":"Declarative Pipeline constructs","description":"Paginated Declarative directive symbols with execution-context evidence.","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/library-symbols","name":"Shared Library symbols","description":"Paginated symbols scanned from configured Shared Libraries.","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/plugin-symbols","name":"Plugin-provided symbols","description":"Paginated symbols provided by installed Jenkins plugins.","mimeType":"application/json"},
             {"uri":format!("jenkins://catalog/profiles/{}",rt.profile()),"name":"Selected profile","mimeType":"application/json"}
         ]})),
         "resources/read" => {
@@ -256,7 +302,7 @@ mod tests {
         let names: Vec<_> = definitions.iter().filter_map(|tool| tool["name"].as_str()).collect();
         assert_eq!(names, ["search_api", "get_api_details", "list_api", "get_usage_examples", "get_pipeline_step"]);
         let search = definitions.iter().find(|tool| tool["name"] == "search_api").unwrap();
-        for filter in ["plugin", "owner", "type", "confidence", "offset", "limit"] {
+        for filter in ["controller", "sourceKind", "context", "plugin", "owner", "type", "confidence", "offset", "limit"] {
             assert!(search["inputSchema"]["properties"].get(filter).is_some());
         }
         for tool in definitions {
@@ -346,6 +392,49 @@ mod tests {
         assert_eq!(default["hasMore"], false);
     }
 
+
+    #[test]
+    fn search_api_exposes_controller_context_and_source_kind_filters() {
+        let runtime = fixture_runtime();
+        let page = structured_tool_page(&runtime, "search_api", json!({
+            "query":"sh",
+            "controller":"jenkins-ci",
+            "sourceKind":"jenkins-controller",
+            "context":"steps"
+        }));
+        assert_eq!(page["total"], 1);
+        assert_eq!(page["results"][0]["name"], "sh");
+        let mismatch = structured_tool_page(&runtime, "list_api", json!({"controller":"other"}));
+        assert_eq!(mismatch["total"], 0);
+    }
+
+    #[test]
+    fn controller_plugin_source_and_type_resources_are_available() {
+        let runtime = fixture_runtime();
+        let controller = read_resource(&runtime, "jenkins://catalog/controller").unwrap();
+        let plugins = read_resource(&runtime, "jenkins://catalog/plugins").unwrap();
+        let sources = read_resource(&runtime, "jenkins://catalog/sources").unwrap();
+        let types = read_resource(&runtime, "jenkins://catalog/types").unwrap();
+        let globals = read_resource(&runtime, "jenkins://catalog/globals").unwrap();
+        let declarative = read_resource(&runtime, "jenkins://catalog/declarative").unwrap();
+        let library_symbols = read_resource(&runtime, "jenkins://catalog/library-symbols").unwrap();
+        let plugin_symbols = read_resource(&runtime, "jenkins://catalog/plugin-symbols").unwrap();
+        assert_eq!(controller["controller"]["identity"]["id"], "jenkins-ci");
+        assert_eq!(plugins["status"], "available");
+        assert_eq!(plugins["plugins"].as_array().unwrap().len(), 1);
+        assert!(sources["sources"].as_array().unwrap().iter().any(|source| source["kind"] == "shared-library"));
+        assert!(types["types"].as_array().unwrap().iter().any(|symbol| symbol["name"] == "ShellStep"));
+        assert_eq!(types["total"], 1);
+        assert_eq!(globals["globals"][0]["name"], "deployApp");
+        assert_eq!(declarative["constructs"][0]["name"], "agent");
+        assert_eq!(library_symbols["symbols"][0]["name"], "deployApp");
+        assert_eq!(plugin_symbols["total"], 3);
+        assert!(plugin_symbols["symbols"].as_array().unwrap().iter().all(|symbol| symbol["source"]["kind"] == "plugin"));
+        let paged_types = read_resource(&runtime, "jenkins://catalog/types?offset=0&limit=1").unwrap();
+        assert_eq!(paged_types["returned"], 1);
+        assert_eq!(types["types"][0]["membersStatus"], "unknown");
+        assert_eq!(types["types"][0]["controller"]["id"], "jenkins-ci");
+    }
     #[test]
     fn page_metadata_marks_when_runtime_offset_ceiling_blocks_next_page() {
         let page = SearchPage {
@@ -515,11 +604,11 @@ mod tests {
 
     #[test]
     fn pipeline_resource_rejects_invalid_pagination_parameters() {
-        assert!(pipeline_page("jenkins://catalog/pipeline-steps?offset=-1").is_err());
-        assert!(pipeline_page("jenkins://catalog/pipeline-steps?limit=0").is_err());
-        assert!(pipeline_page("jenkins://catalog/pipeline-steps?offset=1&offset=2").is_err());
-        assert!(pipeline_page("jenkins://catalog/pipeline-steps?cursor=bad").is_err());
-        assert!(pipeline_page(&format!("jenkins://catalog/pipeline-steps?offset={}", MAX_SEARCH_OFFSET + 1)).is_err());
+        assert!(pagination_page("jenkins://catalog/pipeline-steps?offset=-1").is_err());
+        assert!(pagination_page("jenkins://catalog/pipeline-steps?limit=0").is_err());
+        assert!(pagination_page("jenkins://catalog/pipeline-steps?offset=1&offset=2").is_err());
+        assert!(pagination_page("jenkins://catalog/pipeline-steps?cursor=bad").is_err());
+        assert!(pagination_page(&format!("jenkins://catalog/pipeline-steps?offset={}", MAX_SEARCH_OFFSET + 1)).is_err());
     }
 
 }
