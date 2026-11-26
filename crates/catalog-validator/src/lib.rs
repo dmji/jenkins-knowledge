@@ -969,10 +969,6 @@ mod tests {
             "authHeader",
             "bearerToken",
             "signature",
-            "AWS_SECRET_ACCESS_KEY",
-            "sessionId",
-            "authHeader",
-            "bearerToken",
         ] {
             assert!(is_secret_field_name(key), "{key}");
         }
