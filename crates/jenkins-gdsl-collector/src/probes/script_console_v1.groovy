@@ -449,8 +449,9 @@ genericTypeName = { type, depth ->
 
 def isJenkinsApiClass = { Class type ->
     try {
-        if (jenkins.getPluginManager().whichPlugin(type) != null) return true
         String name = type.getName()
+        if (name.startsWith('groovy.') || name.startsWith('org.codehaus.groovy.')) return false
+        if (jenkins.getPluginManager().whichPlugin(type) != null) return true
         return name.startsWith('hudson.') ||
             name.startsWith('jenkins.') ||
             name.startsWith('org.jenkinsci.') ||
