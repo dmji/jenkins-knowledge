@@ -497,6 +497,7 @@ mod tests {
         let tool = structured_tool_page(&runtime, "get_package_compatibility", json!({}));
         let resource = read_resource(&runtime, "jenkins://catalog/compatibility").unwrap();
         let inventory = controller_inventory(&runtime);
+        let listed = handle(&runtime, json!({"id":1,"method":"resources/list"})).unwrap();
 
         assert_eq!(tool["status"], "unknown");
         assert_eq!(tool["environmentComparisonStatus"], "not-compared");
@@ -504,6 +505,8 @@ mod tests {
         assert_eq!(resource["status"], "unknown");
         assert_eq!(inventory["freshness"]["packageGeneratedAt"], runtime.manifest()["createdAt"]);
         assert!(inventory.get("compatibility").is_some());
+        assert!(listed["result"]["resources"].as_array().unwrap().iter()
+            .any(|resource| resource["uri"] == "jenkins://catalog/compatibility"));
     }
 
     #[test]
