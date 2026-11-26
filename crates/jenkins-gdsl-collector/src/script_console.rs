@@ -76,6 +76,15 @@ pub fn script_console_plan() -> Value {
             "maxItemsPerRegistry": MAX_ITEMS_PER_REGISTRY,
             "maxTextLength": MAX_TEXT_LENGTH,
             "maxResponseBytes": MAX_SCRIPT_RESPONSE_BYTES,
+            "apiTypeInventory": {
+                "maxTypes": 40,
+                "maxDepth": 2,
+                "maxMembersPerType": 12,
+                "maxTotalMembers": 300,
+                "maxConfiguredRoots": 20,
+                "classLoaderEnumeration": false,
+                "methodOrConstructorExecution": false
+            },
             "clientTimeoutSeconds": REQUEST_TIMEOUT.as_secs(),
             "serverSideTerminationGuaranteed": false,
             "timeoutBehavior": "client stops waiting; Jenkins may continue executing the submitted script"
