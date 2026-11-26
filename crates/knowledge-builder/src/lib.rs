@@ -93,12 +93,17 @@ impl PackageSelection {
 }
 
 fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
-    if profile.profile.trim().is_empty() || profile.profile.trim() != profile.profile {
+    if profile.profile.trim().is_empty()
+        || profile.profile.trim() != profile.profile
+        || profile.profile.chars().any(char::is_control)
+    {
         return Err(BuildError::Profile(
             "profile: identity must be non-empty and have no surrounding whitespace".into(),
         ));
     }
-    if profile.package.id.as_ref().is_some_and(|id| id.trim().is_empty() || id.trim() != id) {
+    if profile.package.id.as_ref().is_some_and(|id| {
+        id.trim().is_empty() || id.trim() != id || id.chars().any(char::is_control)
+    }) {
         return Err(BuildError::Profile(
             "package.id: must be non-empty and have no surrounding whitespace when provided".into(),
         ));
@@ -116,9 +121,18 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
         ));
     }
 
+    if profile.jenkins.controllers.len() > 1 {
+        return Err(BuildError::Profile(
+            "jenkins.controllers: one controller per package is supported by the current catalog snapshot schema; build separate profiles for separate controllers".into(),
+        ));
+    }
+
     let mut controller_ids = HashSet::new();
     for (index, controller) in profile.jenkins.controllers.iter().enumerate() {
-        if controller.id.trim().is_empty() || controller.id.trim() != controller.id {
+        if controller.id.trim().is_empty()
+            || controller.id.trim() != controller.id
+            || controller.id.chars().any(char::is_control)
+        {
             return Err(BuildError::Profile(format!(
                 "jenkins.controllers[{index}].id: must be non-empty and have no surrounding whitespace"
             )));
@@ -135,7 +149,10 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
 
     let mut library_names = HashSet::new();
     for (index, library) in profile.libraries.iter().enumerate() {
-        if library.name.trim().is_empty() || library.name.trim() != library.name {
+        if library.name.trim().is_empty()
+            || library.name.trim() != library.name
+            || library.name.chars().any(char::is_control)
+        {
             return Err(BuildError::Profile(format!(
                 "libraries[{index}].name: must be non-empty and have no surrounding whitespace"
             )));
@@ -175,6 +192,7 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
         if fixture.trim().is_empty()
             || fixture.trim() != fixture
             || path.is_absolute()
+            || fixture.starts_with("\\\\")
             || has_windows_prefix
             || fixture.chars().any(char::is_control)
         {
