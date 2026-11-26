@@ -1084,9 +1084,34 @@ fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collec
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, validate_profile, Profile};
+    use super::{build_package, runtime_symbols, validate_profile, Profile};
     use serde_json::{json, Value};
     use std::fs;
+
+    #[test]
+    fn emits_distinct_controller_observed_symbols_for_duplicate_runtime_steps() {
+        let runtime = json!({
+            "collectedAt": "2026-11-26T00:00:00Z",
+            "extensionRegistries": [{
+                "name": "pipeline-steps",
+                "items": [
+                    {"name":"deploy","className":"plugin.OneStep","plugin":"one","parameters":[{"name":"target","type":"java.lang.String","required":true}]},
+                    {"name":"deploy","className":"plugin.TwoStep","plugin":"two"}
+                ]
+            },{
+                "name":"pipeline-globals",
+                "items":[{"name":"env","className":"workflow.Env"}]
+            }]
+        });
+        let symbols = runtime_symbols(&runtime, "controller:test");
+        assert_eq!(symbols.len(), 3);
+        assert_ne!(symbols[0]["id"], symbols[1]["id"]);
+        assert_eq!(symbols[0]["kind"], "step");
+        assert_eq!(symbols[0]["parameters"][0]["name"], "target");
+        assert_eq!(symbols[1]["namespace"], "two");
+        assert_eq!(symbols[2]["kind"], "global-variable");
+        assert_eq!(symbols[0]["evidence"][0]["kind"], "controller-observed");
+    }
 
     #[test]
     fn preserves_collection_coverage_in_merged_catalog() {
