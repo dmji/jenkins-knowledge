@@ -344,6 +344,9 @@ fn runtime_api_type_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
             }]
         });
         if let Some(plugin) = api_type["plugin"].as_str() { class_symbol["namespace"] = json!(plugin); }
+        if let Some(paths) = api_type["documentationPaths"].as_array() {
+            class_symbol["documentationPaths"] = json!(paths);
+        }
         if let Some(status) = api_type["status"].as_str() {
             class_symbol["typeStatus"] = json!(status);
             class_symbol["fieldEvidence"]["typeStatus"] = json!("verified");
