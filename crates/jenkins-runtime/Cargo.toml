@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 catalog-validator = { path = "../catalog-validator" }
-jsonschema = "0.29"
+jsonschema = "0.63"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
