@@ -1,4 +1,4 @@
-use catalog_validator::validate_catalog;
+use catalog_validator::{validate_catalog, validate_package_metadata};
 use serde::Deserialize;
 use serde::de::{Error as DeError, MapAccess, Visitor};
 use serde_json::Value;
@@ -238,6 +238,8 @@ impl Runtime {
                 .expect("bundled catalog schema");
         validate_catalog(&catalog, &catalog_schema)
             .map_err(|e| RuntimeError(format!("invalid catalog '{catalog_name}': {e}")))?;
+        validate_package_metadata(&catalog, &manifest)
+            .map_err(|e| RuntimeError(format!("invalid package metadata: {e}")))?;
         let expected = manifest
             .get("catalogSchemaVersion")
             .and_then(Value::as_str)
@@ -585,14 +587,26 @@ mod tests {
         let catalog_bytes = serde_json::to_vec(catalog).unwrap();
         fs::write(directory.join("catalog.json"), &catalog_bytes).unwrap();
         let checksum = hex(&Sha256::digest(&catalog_bytes));
+        let mut source_revisions = serde_json::Map::new();
+        let mut provenance = serde_json::Map::new();
+        for source in catalog["sources"].as_array().into_iter().flatten() {
+            let Some(id) = source["id"].as_str() else { continue; };
+            source_revisions.insert(id.into(), source["revision"].clone());
+            provenance.insert(id.into(), serde_json::json!({
+                "name": source["name"],
+                "kind": source["kind"],
+                "revision": source["revision"],
+                "url": source.get("url").cloned().unwrap_or(Value::Null)
+            }));
+        }
         let manifest = serde_json::json!({
             "packageVersion": "1.0.0",
             "catalogSchemaVersion": "1.0.0",
             "profile": "test",
             "createdAt": "2026-01-01T00:00:00Z",
             "catalog": "catalog.json",
-            "sourceRevisions": {},
-            "provenance": {},
+            "sourceRevisions": source_revisions,
+            "provenance": provenance,
             "checksums": {"catalog.json": checksum},
             "toolVersions": {}
         });
@@ -722,6 +736,52 @@ mod tests {
         fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
         let error = Runtime::open(directory.path()).unwrap_err().to_string();
         assert!(error.contains("checksum mismatch for package file 'metadata.txt'"));
+    }
+
+    #[test]
+    fn rejects_manifest_source_revision_mismatch() {
+        let directory = tempfile::tempdir().unwrap();
+        write_package(directory.path());
+        let manifest_path = directory.path().join("manifest.json");
+        let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["sourceRevisions"]["platform-lib"] = Value::String("wrong-revision".into());
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("/sourceRevisions/platform-lib"));
+        assert!(error.contains("does not match catalog source revision"));
+    }
+
+    #[test]
+    fn rejects_manifest_provenance_mismatch() {
+        let directory = tempfile::tempdir().unwrap();
+        write_package(directory.path());
+        let manifest_path = directory.path().join("manifest.json");
+        let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["provenance"]["platform-lib"]["name"] = Value::String("different-library".into());
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("/provenance/platform-lib/name"));
+    }
+
+    #[test]
+    fn runtime_uses_catalog_semantics_for_evidence_and_field_evidence() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        catalog["symbols"][0]["fieldEvidence"] = serde_json::json!({"madeUpField":"verified"});
+        write_package_with_catalog(directory.path(), &catalog);
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("field is not a schema-defined symbol attribute"));
+
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        catalog["symbols"][0]["evidence"][0]["sourceId"] = Value::String("platform-lib".into());
+        write_package_with_catalog(directory.path(), &catalog);
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("incompatible with source 'platform-lib'"));
     }
 
     #[test]

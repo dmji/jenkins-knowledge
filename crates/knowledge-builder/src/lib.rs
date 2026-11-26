@@ -1,4 +1,4 @@
-use catalog_validator::validate_catalog;
+use catalog_validator::{validate_catalog, validate_package_metadata};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -207,6 +207,8 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         "checksums":{"catalog.json":hex(&Sha256::digest(catalog_bytes.as_bytes()))},
         "toolVersions":{"knowledge-builder":env!("CARGO_PKG_VERSION")}
     });
+    validate_package_metadata(&catalog, &manifest)
+        .map_err(|error| BuildError::InvalidCatalog(format!("manifest/catalog consistency failed: {error}")))?;
     let manifest_schema: Value = serde_json::from_str(include_str!("../../../schemas/manifest.schema.json"))
         .expect("bundled manifest schema");
     let manifest_validator = jsonschema::validator_for(&manifest_schema)
@@ -273,6 +275,31 @@ mod tests {
         assert_eq!(merged["coverage"][0]["surface"], "pipeline-steps");
         assert_eq!(merged["coverage"][0]["status"], "inspected");
         assert_eq!(merged["controller"]["identity"]["id"], "jenkins-ci");
+    }
+
+    #[test]
+    fn writes_reconciled_source_revision_and_provenance_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            "profile: manifest-test\nfixtures:\n  - fixture.json\n",
+        ).unwrap();
+        fs::write(
+            directory.path().join("fixture.json"),
+            include_str!("../../../tests/fixtures/catalog-valid.json"),
+        ).unwrap();
+
+        let output = directory.path().join("package");
+        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        let catalog: Value = serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
+        let manifest: Value = serde_json::from_slice(&fs::read(output.join("manifest.json")).unwrap()).unwrap();
+        for source in catalog["sources"].as_array().unwrap() {
+            let id = source["id"].as_str().unwrap();
+            assert_eq!(manifest["sourceRevisions"][id], source["revision"]);
+            assert_eq!(manifest["provenance"][id]["name"], source["name"]);
+            assert_eq!(manifest["provenance"][id]["kind"], source["kind"]);
+            assert_eq!(manifest["provenance"][id]["revision"], source["revision"]);
+        }
     }
 
     #[test]
