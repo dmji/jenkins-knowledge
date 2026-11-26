@@ -24,6 +24,8 @@ Jenkins 2.356 is a weekly release. [Jenkins' Java support policy](https://www.je
 
 ## Permission matrix
 
+The Deep profile explicitly configures `hudson.model.Run` as its bounded API type root; this exercises the opt-in root path without broad package or classloader enumeration.
+
 The init script creates ephemeral users and API tokens:
 
 | Profile | Account | Granted permissions | Expected Script Console behavior |
