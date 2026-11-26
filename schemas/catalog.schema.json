@@ -815,7 +815,7 @@
               },
               "parameters": {
                 "type": "array",
-                "maxItems": 50,
+                "maxItems": 20,
                 "items": {
                   "$ref": "#/$defs/parameter"
                 }
