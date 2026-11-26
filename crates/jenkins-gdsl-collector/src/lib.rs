@@ -3,7 +3,7 @@ pub use discovery::{discover, DiscoveryError};
 pub mod script_console;
 pub use script_console::{collect_script_console, script_console_plan};
 
-use catalog_validator::{redact_sensitive_fields, validate_catalog};
+use catalog_validator::{redact_sensitive_fields, stamp_catalog_identity, validate_catalog, sha256_hex};
 use regex::Regex;
 use reqwest::blocking::Client;
 use reqwest::header::HeaderMap;
@@ -165,7 +165,8 @@ pub fn catalog_from_gdsl(
     let source_id = format!("jenkins-controller-{}", stable_id(&controller_url));
     let endpoint = endpoint_for(controller)?;
     let symbols = methods.into_iter().map(|method| {
-        let id = format!("{}:step:{}:{}", source_id, method.name, method.line);
+        let signature_hash = sha256_hex(method.signature.as_bytes());
+        let id = format!("{}:step:{}:{}", source_id, method.name, &signature_hash[7..23]);
         let mut symbol = json!({
             "id": id,
             "name": method.name,
@@ -195,7 +196,7 @@ pub fn catalog_from_gdsl(
             "kind": "jenkins-controller",
             "name": controller_url.trim_end_matches('/'),
             "version": version,
-            "revision": format!("retrieved:{retrieved_at}"),
+            "revision": sha256_hex(gdsl.as_bytes()),
             "url": controller_url.trim_end_matches('/'),
             "metadata": {
                 "endpoint": endpoint,
@@ -206,6 +207,7 @@ pub fn catalog_from_gdsl(
         "symbols": symbols
     });
     sanitize_collected_catalog(&mut catalog);
+    stamp_catalog_identity(&mut catalog).map_err(CollectorError::InvalidCatalog)?;
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json"))
         .map_err(|error| CollectorError::InvalidCatalog(error.to_string()))?;
     validate_catalog(&catalog, &schema)
@@ -777,9 +779,8 @@ fn extract_url(value: &str) -> Option<String> {
 }
 fn line_number(input: &str, offset: usize) -> usize { input[..offset].bytes().filter(|b| *b == b'\n').count() + 1 }
 fn stable_id(value: &str) -> String {
-    // Deterministic, non-cryptographic identifier; no credentials are accepted in the URL.
-    let hash = value.bytes().fold(2166136261u32, |h, b| (h ^ u32::from(b)).wrapping_mul(16777619));
-    format!("{hash:08x}")
+    let digest = sha256_hex(value.as_bytes());
+    digest[7..23].to_owned()
 }
 fn normalized_controller(controller: &str) -> Result<String, CollectorError> {
     let mut url = Url::parse(controller).map_err(|_| CollectorError::InvalidControllerUrl)?;
@@ -1064,6 +1065,24 @@ method(name: 'real')
                 "input should fail safely: {input}"
             );
         }
+    }
+
+    #[test]
+    fn gdsl_symbol_identity_is_independent_of_declaration_line_numbers() {
+        let headers = HeaderMap::new();
+        let first = catalog_from_gdsl(
+            "https://ci.example.test/jenkins",
+            &headers,
+            "method(name: 'sh', params: [script: 'script'])",
+        ).unwrap();
+        let second = catalog_from_gdsl(
+            "https://ci.example.test/jenkins",
+            &headers,
+            "// inserted comment\n\nmethod(name: 'sh', params: [script: 'script'])",
+        ).unwrap();
+        assert_eq!(first["symbols"][0]["id"], second["symbols"][0]["id"]);
+        assert_ne!(first["symbols"][0]["provenance"], second["symbols"][0]["provenance"]);
+        assert!(first["sources"][0]["revision"].as_str().unwrap().starts_with("sha256:"));
     }
 
 }
