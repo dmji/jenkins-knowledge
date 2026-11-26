@@ -114,7 +114,8 @@ fn scan_checkout_with_limits(
     for file in files {
         let relative = file.strip_prefix(&canonical_root).map_err(|e| ScanError::Io(e.to_string()))?;
         let path = relative.to_string_lossy().replace('\\', "/");
-        let content = fs::read_to_string(&file).map_err(|e| ScanError::Io(format!("{}: {e}", file.display())))?;
+        let content = fs::read_to_string(&file)
+            .map_err(|_| ScanError::Io(format!("cannot read source file {path}")))?;
         let dynamic = has_dynamic_constructs(&content);
         if dynamic {
             push_diagnostic(
@@ -365,6 +366,7 @@ fn run_git_inner(directory: &Path, args: &[&str], limit: u64) -> Result<String, 
                 let size = checkout_size(directory, limit)
                     .map_err(|_| ScanError::Git("cannot account for temporary checkout storage".into()))?;
                 if size > limit {
+                    terminate_git(&mut child);
                     return Err(ScanError::Git("Git checkout exceeded its configured storage budget".into()));
                 }
                 if !status.success() {
@@ -565,7 +567,7 @@ fn scan_global(
             || line.starts_with("private ") || line.starts_with("static ")
     }).unwrap_or(0);
     let (groovydoc_description, examples) = documentation(source, declaration_line);
-    let text_description = read_adjacent_documentation(file)?;
+    let text_description = read_adjacent_documentation(file, path)?;
     let description = groovydoc_description.or(text_description);
     let mut symbol = json!({
         "id": format!("{source_id}:{path}:global"),
@@ -598,13 +600,13 @@ fn scan_global(
     Ok(())
 }
 
-fn read_adjacent_documentation(groovy_file: &Path) -> Result<Option<String>, ScanError> {
+fn read_adjacent_documentation(groovy_file: &Path, relative_path: &str) -> Result<Option<String>, ScanError> {
     let documentation_file = groovy_file.with_extension("txt");
     let metadata = match fs::symlink_metadata(&documentation_file) {
         Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
         Ok(_) => return Ok(None),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(ScanError::Io(format!("cannot inspect adjacent documentation: {error}"))),
+        Err(_) => return Err(ScanError::Io(format!("cannot inspect adjacent documentation for {relative_path}"))),
     };
     if metadata.len() > 1_048_576 {
         return Err(ScanError::Io("adjacent documentation exceeds 1048576 bytes".into()));
@@ -619,7 +621,7 @@ fn read_adjacent_documentation(groovy_file: &Path) -> Result<Option<String>, Sca
             }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(ScanError::Io(format!("{}: {error}", documentation_file.display()))),
+        Err(_) => Err(ScanError::Io(format!("cannot read adjacent documentation for {relative_path}"))),
     }
 }
 
