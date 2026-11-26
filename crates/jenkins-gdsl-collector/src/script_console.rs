@@ -266,6 +266,8 @@ fn normalize_probe_output(value: &Value) -> Value {
                     item[field] = json!(truncate(text));
                 }
             }
+            if let Some(value) = raw_type.get("dynamicStatus").and_then(Value::as_str).filter(|v| matches!(*v, "possible" | "not-detected" | "unknown")) { item["dynamicStatus"] = json!(value); }
+            if let Some(value) = raw_type.get("inaccessibleMethodCount").and_then(Value::as_u64) { item["inaccessibleMethodCount"] = json!(value.min(50)); }
             if let Some(interfaces) = raw_type.get("interfaces").and_then(Value::as_array) {
                 item["interfaces"] = json!(interfaces.iter().filter_map(Value::as_str)
                     .filter(|v| !v.trim().is_empty()).take(16).map(truncate).collect::<Vec<_>>());
@@ -300,11 +302,13 @@ fn normalize_probe_output(value: &Value) -> Value {
                 for property in raw_properties.iter().take(50) {
                     let Some(property_name) = property.get("name").and_then(Value::as_str)
                         .filter(|v| !v.trim().is_empty()) else { continue; };
-                    properties.push(json!({
+                    let mut normalized_property = json!({
                         "name": truncate(property_name),
                         "readable": property.get("readable").and_then(Value::as_bool).unwrap_or(false),
                         "writable": property.get("writable").and_then(Value::as_bool).unwrap_or(false)
-                    }));
+                    });
+                    if let Some(value) = property.get("type").and_then(Value::as_str).filter(|v| !v.trim().is_empty()) { normalized_property["type"] = json!(truncate(value)); }
+                    properties.push(normalized_property);
                 }
             }
             item["properties"] = json!(properties);
