@@ -494,7 +494,12 @@ impl Runtime {
             warnings.push(json!({"code":"package-java-vendor-unavailable","status":java_vendor_status}));
         }
         if plugin_status != "available" || package_plugins.is_none() {
-            warnings.push(json!({"code":"package-plugin-inventory-unavailable","status":plugin_status}));
+            let code = match plugin_status {
+                "partial" => "package-plugin-inventory-partial",
+                "unknown" => "package-plugin-inventory-unknown",
+                _ => "package-plugin-inventory-unavailable",
+            };
+            warnings.push(json!({"code":code,"status":plugin_status}));
         }
         if !target_provided {
             warnings.push(json!({"code":"target-environment-not-provided"}));
