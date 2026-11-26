@@ -213,6 +213,18 @@ fn directory_size(directory: &Path) -> Result<u64, ScanError> {
     Ok(total)
 }
 
+#[cfg(unix)]
+#[repr(C)]
+struct ResourceLimit {
+    current: std::os::raw::c_ulong,
+    maximum: std::os::raw::c_ulong,
+}
+
+#[cfg(unix)]
+extern "C" {
+    fn setrlimit(resource: std::os::raw::c_int, limit: *const ResourceLimit) -> std::os::raw::c_int;
+}
+
 fn terminate_git(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
@@ -234,6 +246,22 @@ fn run_git_inner(directory: &Path, args: &[&str], budget: Option<u64>) -> Result
     {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
+        if let Some(limit) = budget {
+            let limit = std::os::raw::c_ulong::try_from(limit)
+                .map_err(|_| ScanError::InvalidConfig("Git checkout budget exceeds the platform file-size limit".into()))?;
+            // RLIMIT_FSIZE is inherited by Git's helper processes and prevents a
+            // single pack/index/checkout file from growing beyond the whole budget.
+            unsafe {
+                command.pre_exec(move || {
+                    let limit = ResourceLimit { current: limit, maximum: limit };
+                    if setrlimit(1, &limit) == 0 {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::last_os_error())
+                    }
+                });
+            }
+        }
     }
     let mut child = command.spawn()
         .map_err(|_| ScanError::Git("cannot start git".into()))?;
