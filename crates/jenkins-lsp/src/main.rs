@@ -755,8 +755,8 @@ mod tests {
                 def dollar = $/post { } pipeline { } escaped $/ slash and $$ sign /$
                 def interpolated = "value @@INTERP@@ [script: { steps { } }] }"
                 sh
-"#.replace("@@INTERP@@", "$" + "{");
-        let (_, contexts, _) = context_at_end(source);
+"#.replace("@@INTERP@@", "$".to_owned() + "{");
+        let (_, contexts, _) = context_at_end(&source);
         for expected in ["pipeline", "stages", "stage", "steps"] {
             assert!(contexts.iter().any(|context| context == expected), "{contexts:?}");
         }
