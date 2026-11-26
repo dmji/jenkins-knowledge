@@ -255,28 +255,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     if output.exists() { return Err(BuildError::OutputExists(output.display().to_string())); }
     let input = fs::read_to_string(profile_path).map_err(|e| BuildError::Io(format!("cannot read {}: {e}", profile_path.display())))?;
     let profile: Profile = serde_yaml::from_str(&input).map_err(|e| BuildError::Profile(e.to_string()))?;
-    if profile.profile.trim().is_empty() { return Err(BuildError::Profile("profile identity must not be empty".into())); }
-    for controller in &profile.jenkins.controllers {
-        source_security::validate_controller_url(&controller.url).map_err(|error| {
-            BuildError::Profile(format!("controller '{}' URL: {error}", controller.id))
-        })?;
-    }
-    for library in &profile.libraries {
-        source_security::validate_git_url(&library.url).map_err(|error| {
-            BuildError::Profile(format!("Shared Library '{}' URL: {error}", library.name))
-        })?;
-        source_security::validate_git_reference(&library.revision).map_err(|error| {
-            BuildError::Profile(format!("Shared Library '{}' revision: {error}", library.name))
-        })?;
-        if let Some(commit) = &library.commit {
-            if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-                return Err(BuildError::Profile(format!(
-                    "Shared Library '{}' commit must be a full 40-character SHA",
-                    library.name
-                )));
-            }
-        }
-    }
+    let selection = validate_profile(&profile)?;
     let base = profile_path.parent().unwrap_or(Path::new("."));
     let mut catalogs = Vec::new();
 
@@ -291,7 +270,34 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         for controller in &profile.jenkins.controllers {
             let catalog = jenkins_gdsl_collector::collect(&controller.url, env::var("JENKINS_USERNAME").ok().as_deref(), env::var("JENKINS_API_TOKEN").ok().as_deref())
                 .map_err(|e| BuildError::Source(format!("Jenkins controller '{}': {e}", controller.id)))?;
+            let core_version = catalog["controller"]["coreVersion"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_owned();
+            let controller_source_id = catalog["sources"][0]["id"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_owned();
             catalogs.push((format!("Jenkins controller '{}'", controller.id), catalog));
+            let core_source_id = format!("jenkins-core-{}", controller.id);
+            let core_catalog = json!({
+                "schemaVersion": "1.0.0",
+                "catalogId": core_source_id,
+                "generatedAt": build_timestamp(),
+                "sources": [{
+                    "id": core_source_id,
+                    "kind": "jenkins-core",
+                    "name": format!("Jenkins Core ({})", controller.id),
+                    "version": core_version,
+                    "revision": core_version,
+                    "metadata": {
+                        "controllerSourceId": controller_source_id,
+                        "evidence": "observed-controller-core-version"
+                    }
+                }],
+                "symbols": []
+            });
+            catalogs.push((format!("Jenkins Core for '{}'", controller.id), core_catalog));
         }
         for library in &profile.libraries {
             let config = shared_library_scanner::LibraryConfig { name: library.name.clone(), repository: library.url.clone(), reference: library.revision.clone() };
@@ -330,28 +336,44 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let mut provenance = BTreeMap::new();
     let mut controller_snapshot: Option<Value> = None;
     let mut controller_metadata: Option<Value> = None;
+    let mut included_source_counts = BTreeMap::<PackageSection, usize>::new();
     for (label, mut catalog) in catalogs {
         // Remove secret-bearing metadata before validation, merging, or serialization.
         redact_sensitive_fields(&mut catalog);
         let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
         validate_catalog(&catalog, &schema).map_err(|e| BuildError::Source(format!("{label}: {e}")))?;
-        if let Some(controller) = catalog.get("controller") {
-            let mut safe_controller = controller.clone();
-            if let Some(base_url) = safe_controller["identity"]["baseUrl"].as_str() {
-                safe_controller["identity"]["baseUrl"] = json!(source_security::redact_url(base_url));
-            }
-            if let Some(previous) = &controller_snapshot {
-                if previous != &safe_controller {
-                    return Err(BuildError::Source(format!(
-                        "{label}: controller snapshot differs from the other configured source snapshots; refusing to mix controller identities or revisions"
-                    )));
+
+        if selection.includes(PackageSection::Controller) {
+            if let Some(controller) = catalog.get("controller") {
+                let mut safe_controller = controller.clone();
+                if !selection.includes(PackageSection::Plugins) {
+                    safe_controller["plugins"] = json!([]);
                 }
-            } else {
-                controller_snapshot = Some(safe_controller.clone());
-                controller_metadata = Some(safe_controller);
+                if let Some(base_url) = safe_controller["identity"]["baseUrl"].as_str() {
+                    safe_controller["identity"]["baseUrl"] = json!(source_security::redact_url(base_url));
+                }
+                if let Some(previous) = &controller_snapshot {
+                    if previous != &safe_controller {
+                        return Err(BuildError::Source(format!(
+                            "{label}: controller snapshot differs from the other configured source snapshots; refusing to mix controller identities or revisions"
+                        )));
+                    }
+                } else {
+                    controller_snapshot = Some(safe_controller.clone());
+                    controller_metadata = Some(safe_controller);
+                }
             }
         }
+
+        let mut included_source_ids = HashSet::new();
         for source in catalog["sources"].as_array().into_iter().flatten() {
+            let kind = source["kind"].as_str().unwrap_or_default();
+            let section = PackageSection::for_source_kind(kind).ok_or_else(|| {
+                BuildError::Source(format!("{label}: source has unsupported kind"))
+            })?;
+            if !selection.includes(section) {
+                continue;
+            }
             let mut safe_source = source.clone();
             if let Some(url) = source["url"].as_str() {
                 safe_source["url"] = json!(source_security::redact_url(url));
@@ -364,6 +386,8 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     previous.0, previous.1, label, revision
                 )));
             }
+            included_source_ids.insert(id.to_owned());
+            *included_source_counts.entry(section).or_default() += 1;
             source_revisions.insert(id.to_owned(), revision.to_owned());
             provenance.insert(id.to_owned(), json!({
                 "name":safe_source["name"],
@@ -373,8 +397,40 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             }));
             sources.push(safe_source);
         }
-        symbols.extend(catalog["symbols"].as_array().into_iter().flatten().cloned());
-        coverage.extend(catalog["coverage"].as_array().into_iter().flatten().cloned());
+        symbols.extend(
+            catalog["symbols"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|symbol| {
+                    symbol["sourceId"]
+                        .as_str()
+                        .is_some_and(|source_id| included_source_ids.contains(source_id))
+                })
+                .cloned(),
+        );
+        coverage.extend(
+            catalog["coverage"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|entry| {
+                    entry["sourceId"]
+                        .as_str()
+                        .is_some_and(|source_id| included_source_ids.contains(source_id))
+                })
+                .cloned(),
+        );
+    }
+    if selection.explicit {
+        for section in &selection.included {
+            if included_source_counts.get(section).copied().unwrap_or_default() == 0 {
+                return Err(BuildError::Profile(format!(
+                    "package.include: selector '{}' matched no sources",
+                    section.as_str()
+                )));
+            }
+        }
     }
     sources.sort_by_key(|v| v["id"].as_str().unwrap_or("").to_owned());
     symbols.sort_by_key(|v| v["id"].as_str().unwrap_or("").to_owned());
@@ -386,7 +442,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     });
     let mut catalog = json!({
         "schemaVersion":"1.0.0",
-        "catalogId":profile.package.id.unwrap_or_else(|| profile.profile.clone()),
+        "catalogId":profile.package.id.clone().unwrap_or_else(|| profile.profile.clone()),
         "generatedAt":build_timestamp(),
         "sources":sources,
         "symbols":symbols,
