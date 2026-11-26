@@ -39,6 +39,8 @@ Supported `package.include` values:
 
 Filtering is applied by source ID: excluded sources, their symbols, and their coverage entries are removed together. When `controller` is selected without `plugins`, the controller snapshot is retained but its nested plugin inventory is empty. Omit `package.include` to include every available section; `include: []` is not an alias for the default.
 
+**Migration note:** earlier Builder versions accepted `package.include` but ignored it. It now actively filters the package. To preserve the previous all-sections output, remove `package.include` rather than setting it to an empty list. Review existing explicit selectors before upgrading; every requested section must match at least one source.
+
 A profile must select at least one source mode. Fixture catalogs cannot be mixed with live collection. Controller IDs and library names must be unique. URL, ref, commit, fixture-path, package-ID, and selector validation completes before any external collection starts. A requested section must match at least one source after collection; an unavailable plugin inventory therefore fails an explicit `plugins` selection instead of silently producing a partial package.
 
 ## Package layout and guarantees
