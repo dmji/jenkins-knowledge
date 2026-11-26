@@ -1289,12 +1289,20 @@ mod tests {
         let mut first = valid_catalog();
         first["generatedAt"] = json!("2026-11-26T10:00:00Z");
         first["sources"][0]["metadata"] = json!({"retrievedAt":"2026-11-26T10:00:00Z","stable":"value"});
+        let mut second_symbol = first["symbols"][0].clone();
+        second_symbol["id"] = json!("second-symbol");
+        second_symbol["name"] = json!("second");
+        first["symbols"].as_array_mut().unwrap().push(second_symbol);
         stamp_catalog_identity(&mut first).unwrap();
         let first_id = first["snapshotId"].as_str().unwrap().to_owned();
 
         let mut second = valid_catalog();
         second["generatedAt"] = json!("2026-11-27T10:00:00Z");
         second["sources"][0]["metadata"] = json!({"stable":"value","retrievedAt":"2026-11-27T10:00:00Z"});
+        let mut second_symbol = second["symbols"][0].clone();
+        second_symbol["id"] = json!("second-symbol");
+        second_symbol["name"] = json!("second");
+        second["symbols"].as_array_mut().unwrap().push(second_symbol);
         second["symbols"].as_array_mut().unwrap().reverse();
         stamp_catalog_identity(&mut second).unwrap();
 
