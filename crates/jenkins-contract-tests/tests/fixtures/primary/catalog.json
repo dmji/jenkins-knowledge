@@ -375,6 +375,42 @@
           "sourceKind": "jenkins-controller"
         }
       ]
+    },
+    {
+      "id": "plugin-a:workflow-step:unavailableStep",
+      "name": "unavailableStep",
+      "kind": "step",
+      "namespace": "plugin-a",
+      "sourceId": "plugin-a",
+      "signature": "unavailableStep()",
+      "description": "A sanitized fixture step whose required plugin is not installed.",
+      "confidence": "verified",
+      "contexts": [
+        "pipeline",
+        "steps"
+      ],
+      "fieldEvidence": {
+        "availability": "verified"
+      },
+      "availability": {
+        "status": "unavailable",
+        "reason": "required plugin is not installed",
+        "pluginSourceIds": [
+          "plugin-a"
+        ]
+      },
+      "provenance": [
+        "plugin:workflow-basic-steps"
+      ],
+      "evidence": [
+        {
+          "sourceId": "plugin-a",
+          "kind": "controller-observed",
+          "confidence": "verified",
+          "retrievedAt": "2026-01-01T00:00:00Z",
+          "revision": "1.0.0"
+        }
+      ]
     }
   ],
   "controller": {

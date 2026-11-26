@@ -576,6 +576,124 @@ pub fn invalidate_cache(profile_path: &Path) -> Result<usize, BuildError> {
     Ok(removed)
 }
 
+/// Build a network-free collection plan for a validated profile.
+pub fn collection_plan(profile_path: &Path) -> Result<Value, BuildError> {
+    let input = fs::read_to_string(profile_path)
+        .map_err(|error| BuildError::Io(format!("cannot read {}: {error}", profile_path.display())))?;
+    let profile: Profile = serde_yaml::from_str(&input)
+        .map_err(|error| BuildError::Profile(error.to_string()))?;
+    let selection = validate_profile(&profile)?;
+    let mut requests = Vec::new();
+
+    for controller in &profile.jenkins.controllers {
+        let base = source_security::redact_url(&controller.url).trim_end_matches('/').to_owned();
+        requests.extend([
+            json!({
+                "controller": controller.id,
+                "method": "GET",
+                "url": format!("{base}/api/json?tree=_class,nodeName,jenkinsVersion"),
+                "purpose": "required controller identity and Jenkins Core version",
+                "responseCapBytes": 1_048_576
+            }),
+            json!({
+                "controller": controller.id,
+                "method": "GET",
+                "url": format!("{base}/pluginManager/api/json?tree=plugins[shortName,version,active,enabled,dependencies[shortName,version,optional]]"),
+                "purpose": "optional installed plugin inventory",
+                "responseCapBytes": 4_194_304
+            }),
+            json!({
+                "controller": controller.id,
+                "method": "GET",
+                "url": format!("{base}/pipeline-syntax/gdsl"),
+                "headers": {"Range":"bytes=0-0"},
+                "purpose": "one-byte GDSL availability probe",
+                "responseReadCapBytes": 1
+            })
+        ]);
+        if matches!(profile.collection_profile.as_str(), "standard" | "deep") {
+            requests.push(json!({
+                "controller": controller.id,
+                "method": "GET",
+                "url": format!("{base}/pipeline-syntax/gdsl"),
+                "purpose": "bounded full Pipeline GDSL extraction",
+                "responseCapBytes": 4_194_304,
+                "maxSymbols": 10_000,
+                "maxParametersPerSymbol": 256
+            }));
+        }
+        if profile.collection_profile == "deep" {
+            requests.push(json!({
+                "controller": controller.id,
+                "method": "POST",
+                "url": format!("{base}/scriptText"),
+                "formFields": ["script"],
+                "probeTemplate": "src/probes/script_console_v1.groovy",
+                "templateVersion": "3",
+                "purpose": "explicitly confirmed fixed read-only runtime/extension/API metadata probe",
+                "responseCapBytes": 524_288,
+                "apiRoots": controller.api_roots,
+                "apiLimits": {
+                    "maxDepth": controller.api_limits.max_depth,
+                    "maxTypes": controller.api_limits.max_types,
+                    "maxMembersPerType": controller.api_limits.max_members_per_type,
+                    "maxTotalMembers": controller.api_limits.max_total_members
+                },
+                "confirmationRequired": true
+            }));
+        }
+    }
+
+    let libraries = if profile.collection_profile != "quick" && selection.includes(PackageSection::SharedLibraries) {
+        profile.libraries.iter().map(|library| json!({
+            "name": library.name,
+            "url": source_security::redact_url(&library.url),
+            "revision": library.revision,
+            "commit": library.commit,
+            "transport": "administrator-configured Git remote; bounded shallow/blob-filtered checkout"
+        })).collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let script_console = (profile.collection_profile == "deep"
+        && !profile.jenkins.controllers.is_empty())
+        .then(|| jenkins_gdsl_collector::script_console_plan()["scriptConsole"].clone());
+
+    Ok(json!({
+        "schemaVersion": "1.0.0",
+        "profile": profile.profile,
+        "collectionProfile": profile.collection_profile,
+        "packageId": profile.package.id.clone().unwrap_or_else(|| profile.profile.clone()),
+        "packageSections": selection.included.iter().map(|section| section.as_str()).collect::<Vec<_>>(),
+        "packageSectionsExplicit": selection.explicit,
+        "offlineFixtures": profile.fixtures,
+        "networkRequests": requests,
+        "requestCount": requests.len(),
+        "sharedLibraries": libraries,
+        "scriptConsole": script_console,
+        "timeouts": {"connectSeconds": 5, "requestSeconds": 15, "requestsSequential": true, "automaticRetries": false},
+        "limits": {
+            "controllerMetadataBytes": 1_048_576,
+            "pluginInventoryBytes": 4_194_304,
+            "gdslBytes": 4_194_304,
+            "gdslSymbols": 10_000,
+            "gdslParametersPerSymbol": 256,
+            "scriptConsoleBytes": 524_288,
+            "scriptConsoleApiRoots": controller_api_root_limit(&profile),
+            "scriptConsoleApiTypes": 40,
+            "scriptConsoleApiDepth": 2,
+            "scriptConsoleMethodsPerType": 12,
+            "scriptConsoleTotalMethods": 300
+        },
+        "credentials": {"source": "JENKINS_USERNAME and JENKINS_API_TOKEN environment variables", "valuesIncluded": false},
+        "callsMade": false
+    }))
+}
+
+fn controller_api_root_limit(profile: &Profile) -> usize {
+    profile.jenkins.controllers.iter().map(|controller| controller.api_roots.len()).sum()
+}
+
 pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildError> {
     build_package_with_options(profile_path, output, false)
 }
@@ -1361,9 +1479,9 @@ fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collec
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, runtime_api_type_symbols, runtime_symbols, valid_api_class_name, validate_profile, Profile};
+    use super::{build_package, collection_plan, runtime_api_type_symbols, runtime_symbols, valid_api_class_name, validate_profile, Profile};
     use serde_json::{json, Value};
-    use std::fs;
+    use std::{fs, path::Path};
 
     #[test]
     fn emits_distinct_controller_observed_symbols_for_duplicate_runtime_steps() {
@@ -1885,6 +2003,54 @@ fixtures:
         let mut core_changed = baseline;
         core_changed["controller"]["coreVersion"] = serde_json::json!("2.480.0");
         assert_ne!(baseline_fingerprint, super::controller_fingerprint(&core_changed).unwrap());
+    }
+
+    #[test]
+    fn collection_plan_is_network_free_and_lists_profile_specific_requests() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profile.yml");
+        for (profile, expected_requests) in [("quick", 3), ("standard", 4), ("deep", 5)] {
+            fs::write(&path, format!(
+                "profile: plan-test\ncollectionProfile: {profile}\njenkins:\n  controllers:\n    - id: ci\n      url: https://jenkins.example.test/\n      apiRoots:\n        - hudson.model.Run\nlibraries:\n  - name: platform\n    url: https://git.example.test/platform.git\n    revision: main\n"
+            )).unwrap();
+            let plan = collection_plan(&path).unwrap();
+            assert_eq!(plan["collectionProfile"], profile);
+            assert_eq!(plan["requestCount"], expected_requests);
+            assert_eq!(plan["networkRequests"].as_array().unwrap().len(), expected_requests);
+            assert_eq!(plan["callsMade"], false);
+            assert_eq!(plan["timeouts"]["requestsSequential"], true);
+            assert_eq!(plan["credentials"]["valuesIncluded"], false);
+            assert_eq!(plan["sharedLibraries"].as_array().unwrap().len(), usize::from(profile != "quick"));
+            assert_eq!(plan["scriptConsole"].is_object(), profile == "deep");
+            if profile == "deep" {
+                assert_eq!(plan["networkRequests"][4]["method"], "POST");
+                assert_eq!(plan["networkRequests"][4]["confirmationRequired"], true);
+                assert_eq!(plan["networkRequests"][4]["apiLimits"]["maxTypes"], 40);
+            } else {
+                assert!(!plan.to_string().contains("/scriptText"));
+            }
+        }
+    }
+
+    #[test]
+    fn fixture_collection_plan_never_schedules_network_requests() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/profile.yml");
+        let plan = collection_plan(&path).unwrap();
+        assert_eq!(plan["requestCount"], 0);
+        assert_eq!(plan["networkRequests"].as_array().unwrap().len(), 0);
+        assert_eq!(plan["callsMade"], false);
+        assert_eq!(plan["offlineFixtures"][0], "catalog.json");
+    }
+
+    #[test]
+    fn deep_fixture_plan_does_not_claim_a_script_console_request() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profile.yml");
+        fs::write(&path, "profile: offline-deep\ncollectionProfile: deep\nfixtures:\n  - catalog.json\n").unwrap();
+        let plan = collection_plan(&path).unwrap();
+        assert_eq!(plan["requestCount"], 0);
+        assert!(plan["scriptConsole"].is_null());
+        assert_eq!(plan["callsMade"], false);
     }
 
     #[test]

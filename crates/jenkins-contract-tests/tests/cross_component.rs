@@ -72,6 +72,23 @@ fn lsp_response(reader: &mut BufReader<ChildStdout>, id: u64) -> Value {
     }
 }
 
+fn lsp_response_with_notifications(
+    reader: &mut BufReader<ChildStdout>,
+    id: u64,
+) -> (Value, Vec<Value>) {
+    let mut notifications = Vec::new();
+    loop {
+        let message = lsp_read(reader);
+        if message.get("id") == Some(&json!(id)) {
+            return (message, notifications);
+        }
+        if message.get("method").and_then(Value::as_str) == Some("textDocument/publishDiagnostics")
+        {
+            notifications.push(message);
+        }
+    }
+}
+
 fn mcp_request(
     writer: &mut ChildStdin,
     reader: &mut BufReader<ChildStdout>,
@@ -136,7 +153,7 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
                 "uri":uri,
                 "languageId":"groovy",
                 "version":1,
-                "text":"node {\n  sh 'echo ok'\n  deployApp()\n}\n"
+                "text":"node {\n  sh 'echo ok'\n  unavailableStep()\n  deployApp()\n}\n"
             }}
         }),
     );
@@ -150,7 +167,19 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
             "params":{"textDocument":{"uri":uri},"position":{"line":1,"character":4}}
         }),
     );
-    let completion = lsp_response(&mut reader, 2);
+    let (completion, notifications) = lsp_response_with_notifications(&mut reader, 2);
+    let diagnostics = notifications
+        .iter()
+        .filter(|message| message["method"] == "textDocument/publishDiagnostics")
+        .flat_map(|message| {
+            message["params"]["diagnostics"]
+                .as_array()
+                .into_iter()
+                .flatten()
+        });
+    assert!(diagnostics
+        .into_iter()
+        .any(|diagnostic| diagnostic["code"] == "jenkins.plugin.unavailable"));
     let labels: Vec<_> = completion["result"]["items"]
         .as_array()
         .unwrap()
@@ -165,7 +194,7 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
             "jsonrpc":"2.0",
             "id":3,
             "method":"textDocument/hover",
-            "params":{"textDocument":{"uri":uri},"position":{"line":2,"character":6}}
+            "params":{"textDocument":{"uri":uri},"position":{"line":3,"character":6}}
         }),
     );
     let hover = lsp_response(&mut reader, 3);
@@ -497,6 +526,152 @@ fn one_builder_package_keeps_contracts_across_runtime_lsp_and_mcp() {
             panic!("Runtime, LSP, or MCP attempted to access the controller URL");
         }
         Err(error) => panic!("could not verify offline consumer behavior: {error}"),
+    }
+}
+
+#[test]
+fn offline_fixture_profiles_build_quick_standard_and_deep_packages() {
+    let workspace = tempfile::tempdir().unwrap();
+    for profile in ["quick", "standard", "deep"] {
+        let fixture = workspace.path().join(format!("{profile}-fixture"));
+        let package = workspace.path().join(format!("{profile}-package"));
+        copy_fixture("primary", &fixture, None);
+
+        let profile_path = fixture.join("profile.yml");
+        let mut profile_text = fs::read_to_string(&profile_path).unwrap();
+        profile_text = profile_text.replace(
+            "collectionProfile: deep",
+            &format!("collectionProfile: {profile}"),
+        );
+        fs::write(&profile_path, profile_text).unwrap();
+
+        let catalog_path = fixture.join("catalog.json");
+        let mut catalog: Value = serde_json::from_slice(&fs::read(&catalog_path).unwrap()).unwrap();
+        let manifest_path = fixture.join("manifest.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+
+        if profile == "quick" {
+            catalog["sources"] = json!(catalog["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|source| source["id"] != "shared-library-fixture")
+                .cloned()
+                .collect::<Vec<_>>());
+            catalog["symbols"] = json!(catalog["symbols"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|symbol| symbol["sourceId"] == "declarative-model-fixture")
+                .cloned()
+                .collect::<Vec<_>>());
+            catalog["coverage"] = json!(catalog["coverage"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .filter(|entry| entry["sourceId"] != "shared-library-fixture")
+                .cloned()
+                .collect::<Vec<_>>());
+        } else if profile == "standard" {
+            catalog["symbols"] = json!(catalog["symbols"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|symbol| symbol["sourceId"] != "controller-fixture"
+                    && symbol["sourceId"] != "jenkins-core-fixture")
+                .cloned()
+                .collect::<Vec<_>>());
+        }
+
+        if profile != "deep" {
+            if let Some(controller) = catalog.get_mut("controller").and_then(Value::as_object_mut) {
+                controller.remove("runtime");
+                controller["collection"]["profile"] = json!(profile);
+                controller["collection"]["requestCount"] =
+                    json!(if profile == "quick" { 3 } else { 4 });
+            }
+            for outcome in manifest["collection"]["sources"].as_array_mut().unwrap() {
+                let surface = outcome["surface"].as_str().unwrap_or_default();
+                let skip = surface == "script-console"
+                    || (profile == "quick"
+                        && (surface == "pipeline-gdsl" || surface == "library-source"));
+                if skip {
+                    outcome["status"] = json!("skipped-by-profile");
+                    if let Some(fields) = outcome.as_object_mut() {
+                        fields.remove("sourceId");
+                        fields.remove("revision");
+                        fields.remove("errorCode");
+                    }
+                }
+            }
+        }
+        manifest["collection"]["profile"] = json!(profile);
+        fs::write(&catalog_path, serde_json::to_vec_pretty(&catalog).unwrap()).unwrap();
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        build_package(&profile_path, &package).unwrap();
+        let runtime = Runtime::open(&package).unwrap();
+        assert_eq!(runtime.manifest()["collection"]["profile"], profile);
+        assert_eq!(runtime.catalog()["completeness"]["status"], "partial");
+        let symbols = runtime.symbols();
+        match profile {
+            "quick" => {
+                assert_eq!(symbols.len(), 3);
+                assert!(symbols
+                    .iter()
+                    .all(|symbol| symbol["kind"] == "declarative-directive"));
+                assert!(runtime.collection().unwrap()["sources"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|source| source["surface"] == "pipeline-gdsl"
+                        && source["status"] == "skipped-by-profile"));
+            }
+            "standard" => {
+                assert_eq!(symbols.len(), 12);
+                assert!(symbols.iter().any(|symbol| symbol["kind"] == "step"));
+                assert!(symbols
+                    .iter()
+                    .any(|symbol| symbol["sourceId"] == "shared-library-fixture"));
+                assert!(!symbols
+                    .iter()
+                    .any(|symbol| symbol["sourceId"] == "controller-fixture"));
+            }
+            "deep" => {
+                assert_eq!(symbols.len(), 15);
+                assert_eq!(
+                    symbols
+                        .iter()
+                        .filter(|symbol| symbol["confidence"] == "verified")
+                        .count(),
+                    11
+                );
+                assert_eq!(
+                    symbols
+                        .iter()
+                        .filter(|symbol| symbol["confidence"] == "inferred")
+                        .count(),
+                    2
+                );
+                assert_eq!(
+                    symbols
+                        .iter()
+                        .filter(|symbol| symbol["confidence"] == "unknown")
+                        .count(),
+                    2
+                );
+                assert!(symbols
+                    .iter()
+                    .any(|symbol| symbol["sourceId"] == "controller-fixture"));
+                assert!(runtime.catalog()["controller"]["runtime"].is_object());
+            }
+            _ => unreachable!(),
+        }
     }
 }
 

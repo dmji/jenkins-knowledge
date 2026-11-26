@@ -866,54 +866,8 @@ mod tests {
     }
 
     fn valid_probe_output() -> Value {
-        json!({
-            "schemaVersion": "1.0.0",
-            "templateVersion": "3",
-            "groovyVersion": "4.0.24",
-            "javaVersion": "17.0.12",
-            "javaVendor": "Eclipse Adoptium",
-            "jenkinsCoreVersion": "2.479.1",
-            "apiTypeInventoryStatus": "available",
-            "configuredApiRoots": [],
-            "apiTypes": [],
-            "extensionRegistries": [
-                {
-                    "name": "pipeline-steps",
-                    "status": "available",
-                    "items": [{
-                        "name": "sh",
-                        "className": "org.jenkinsci.plugins.workflow.steps.durable_task.ShellStep",
-                        "plugin": "workflow-durable-task-step"
-                    }],
-                    "truncated": false
-                },
-                {
-                    "name": "pipeline-globals",
-                    "status": "available",
-                    "items": [{
-                        "name": "env",
-                        "className": "org.jenkinsci.plugins.workflow.cps.EnvActionImpl",
-                        "plugin": "workflow-cps"
-                    }],
-                    "truncated": false
-                },
-                {
-                    "name": "declarative-extensions",
-                    "status": "available",
-                    "items": [{
-                        "category": "agent",
-                        "name": "any",
-                        "nameKind": "dsl-token",
-                        "className": "org.jenkinsci.plugins.pipeline.modeldefinition.agent.impl.Any",
-                        "descriptorClass": "org.jenkinsci.plugins.pipeline.modeldefinition.agent.impl.Any.DescriptorImpl",
-                        "contexts": ["pipeline", "stage"],
-                        "plugin": "pipeline-model-definition"
-                    }],
-                    "truncated": false
-                }
-            ],
-            "errors": []
-        })
+        serde_json::from_str(include_str!("../tests/fixtures/controller/script-console-v3.json"))
+            .expect("sanitized Script Console fixture is valid JSON")
     }
 
     #[test]
@@ -937,6 +891,9 @@ mod tests {
         assert_eq!(form[0].1, render_script(&[], &ApiTypeLimits::default()));
         assert_eq!(result["status"], "collected");
         assert_eq!(result["jenkinsCoreVersion"], "2.479.1");
+        assert_eq!(result["apiTypes"][0]["name"], "hudson.model.Run");
+        assert_eq!(result["apiTypes"][0]["methods"][0]["name"], "getNumber");
+        assert_eq!(result["extensionRegistries"][0]["items"][0]["name"], "sh");
     }
 
     #[test]
