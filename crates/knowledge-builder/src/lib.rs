@@ -659,6 +659,10 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     _ => 4
                 });
             }
+            let declarative_runtime = catalog
+                .get("controller")
+                .and_then(|value| value.get("runtime"))
+                .cloned();
             catalogs.push((format!("Jenkins controller '{}'", controller.id), catalog));
 
             if controller_metadata_available {
@@ -699,7 +703,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 let local_id = symbol["id"].as_str().unwrap_or("unknown").to_owned();
                 symbol["id"] = json!(format!("{source_id}:{local_id}"));
             }
-            if let Some(runtime) = catalog.get("controller").and_then(|value| value.get("runtime")) {
+            if let Some(runtime) = declarative_runtime.as_ref() {
                 model_symbols.extend(declarative_model::runtime_symbols(runtime, &source_id));
             }
             let model_catalog = json!({
