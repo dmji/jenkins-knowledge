@@ -455,7 +455,8 @@ apiRoots.unique().sort().take(MAX_API_TYPES).each { rootName ->
             current = current.getSuperclass()
             hierarchyDepth++
         }
-        typeRecord.methods = methodsBySignature.values().toList()\n        typeRecord.methodsTruncated = methodsBySignature.size() >= MAX_API_MEMBERS_PER_TYPE
+        typeRecord.methods = methodsBySignature.values().toList()
+        typeRecord.methodsTruncated = methodsBySignature.size() >= MAX_API_MEMBERS_PER_TYPE
         def propertyMap = new TreeMap<String, Object>()
         typeRecord.methods.each { method ->
             String methodName = method.name
@@ -469,7 +470,8 @@ apiRoots.unique().sort().take(MAX_API_TYPES).each { rootName ->
                 propertyMap[propertyName] = property
             }
         }
-        typeRecord.properties = propertyMap.values().toList()\n        typeRecord.propertiesTruncated = propertyMap.size() >= MAX_API_MEMBERS_PER_TYPE
+        typeRecord.properties = propertyMap.values().toList()
+        typeRecord.propertiesTruncated = propertyMap.size() >= MAX_API_MEMBERS_PER_TYPE
         try {
             def plugin = jenkins.getPluginManager().whichPlugin(root)
             if (plugin != null) typeRecord.plugin = safeText(plugin.getShortName())
