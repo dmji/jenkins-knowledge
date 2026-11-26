@@ -210,7 +210,6 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
                 }
             }
         }
-
     }
 
     validate_coverage_consistency(catalog, &source_kinds, errors);
@@ -556,9 +555,7 @@ fn reject_secret_fields(value: &Value, path: &str, errors: &mut Vec<String>) {
                     let is_url = normalized.ends_with("endpoint")
                         || normalized.ends_with("url")
                         || normalized.ends_with("uri");
-                    if is_url
-                        && child.as_str().is_some_and(url_has_credentials)
-                    {
+                    if is_url && child.as_str().is_some_and(url_has_credentials) {
                         errors.push(format!(
                             "{child_path}: URL contains embedded credentials or secret query parameters"
                         ));
@@ -992,7 +989,15 @@ mod tests {
         ] {
             assert!(is_secret_field_name(key), "{key}");
         }
-        for key in ["description", "displayName", "username", "apiBaseUrl", "repositoryUrl", "key", "signature"] {
+        for key in [
+            "description",
+            "displayName",
+            "username",
+            "apiBaseUrl",
+            "repositoryUrl",
+            "key",
+            "signature",
+        ] {
             assert!(!is_secret_field_name(key), "{key}");
         }
         assert!(is_secret_query_parameter("signature"));
@@ -1030,7 +1035,10 @@ mod tests {
         assert_eq!(value["headers"]["Content-Type"], "application/json");
         assert_eq!(value["documentationUrl"], "https://docs.example.test/step");
         assert_eq!(value["apiEndpoint"], "https://controller.example.test/api");
-        assert_eq!(value["repositoryUrl"], "github.example.test:team/library.git");
+        assert_eq!(
+            value["repositoryUrl"],
+            "github.example.test:team/library.git"
+        );
     }
 
     #[test]
@@ -1040,7 +1048,9 @@ mod tests {
             "safe": "preserved",
             "nested": [{"credentialId": "do-not-echo"}]
         });
-        let errors = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        let errors = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(errors.contains("/sources/0/metadata/nested/0/credentialId"));
         assert!(!errors.contains("do-not-echo"));
 
@@ -1069,8 +1079,9 @@ mod tests {
         let error = validate_package_metadata(&catalog, &manifest)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("/manifest/provenance/platform-lib/futureMetadata/nested/0/accessToken"));
+        assert!(
+            error.contains("/manifest/provenance/platform-lib/futureMetadata/nested/0/accessToken")
+        );
         assert!(!error.contains("do-not-echo"));
     }
-
 }
