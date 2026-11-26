@@ -419,6 +419,13 @@ fn validate_coverage_consistency(
     }
 }
 
+fn fragment_has_secrets(fragment: &str) -> bool {
+    fragment.split('&').any(|part| {
+        let key = part.split('=').next().unwrap_or_default();
+        is_secret_query_parameter(key)
+    })
+}
+
 fn url_has_credentials(value: &str) -> bool {
     let authority_has_credentials = value.split_once("://").is_some_and(|(_, remainder)| {
         remainder
@@ -433,7 +440,10 @@ fn url_has_credentials(value: &str) -> bool {
             is_secret_query_parameter(key)
         })
     });
-    authority_has_credentials || query_has_secrets
+    let fragment_has_secrets = value
+        .split_once('#')
+        .is_some_and(|(_, fragment)| fragment_has_secrets(fragment));
+    authority_has_credentials || query_has_secrets || fragment_has_secrets
 }
 
 fn redact_url_value(value: &str) -> String {
@@ -441,11 +451,17 @@ fn redact_url_value(value: &str) -> String {
         let _ = parsed.set_username("");
         let _ = parsed.set_password(None);
         parsed.set_query(None);
-        parsed.set_fragment(None);
+        if parsed.fragment().is_some_and(fragment_has_secrets) {
+            parsed.set_fragment(None);
+        }
         return parsed.to_string();
     }
 
-    let without_suffix = value.split(['?', '#']).next().unwrap_or(value);
+    let without_query = value.split_once('?').map_or(value, |(before, _)| before);
+    let without_suffix = without_query
+        .split_once('#')
+        .filter(|(_, fragment)| fragment_has_secrets(fragment))
+        .map_or(without_query, |(before, _)| before);
     if let Some((authority, path)) = without_suffix.split_once(':') {
         if authority.contains('@') && !authority.contains('/') {
             let host = authority
@@ -502,7 +518,7 @@ pub fn is_secret_field_name(key: &str) -> bool {
     .any(|needle| normalized.contains(needle))
 }
 
-/// Removes secret-bearing fields recursively and strips URL query/fragment modifiers.
+/// Removes secret-bearing fields recursively, strips URL queries, and removes secret-bearing fragments.
 /// Safe metadata and non-sensitive URL origins are retained. Returns the number of changes.
 pub fn redact_sensitive_fields(value: &mut Value) -> usize {
     match value {
@@ -1021,6 +1037,7 @@ mod tests {
             },
             "documentationUrl": "https://docs-user:top-secret-url@docs.example.test/step?access_token=top-secret#details",
             "apiEndpoint": "https://user:top-secret-endpoint@controller.example.test/api?token=top-secret-query#details",
+            "privateDocumentationUrl": "https://docs.example.test/page#access_token=top-secret-fragment",
             "repositoryUrl": "git@github.example.test:team/library.git"
         });
         let changes = redact_sensitive_fields(&mut value);
@@ -1033,8 +1050,9 @@ mod tests {
         assert_eq!(value["metadata"]["safeLabel"], "preserved");
         assert_eq!(value["metadata"]["nested"][0]["description"], "safe");
         assert_eq!(value["headers"]["Content-Type"], "application/json");
-        assert_eq!(value["documentationUrl"], "https://docs.example.test/step");
-        assert_eq!(value["apiEndpoint"], "https://controller.example.test/api");
+        assert_eq!(value["documentationUrl"], "https://docs.example.test/step#details");
+        assert_eq!(value["apiEndpoint"], "https://controller.example.test/api#details");
+        assert_eq!(value["privateDocumentationUrl"], "https://docs.example.test/page");
         assert_eq!(
             value["repositoryUrl"],
             "github.example.test:team/library.git"
@@ -1072,6 +1090,15 @@ mod tests {
             .to_string();
         assert!(errors.contains("/sources/0/metadata/apiEndpoint"));
         assert!(!errors.contains("password"));
+
+        let mut invalid = valid_catalog();
+        invalid["sources"][0]["metadata"] = json!({
+            "documentationUrl": "https://docs.example.test/page#access_token=do-not-echo"
+        });
+        let errors = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        assert!(errors.contains("/sources/0/metadata/documentationUrl"));
+        assert!(errors.contains("secret query parameters or fragments"));
+        assert!(!errors.contains("do-not-echo"));
     }
 
     #[test]
