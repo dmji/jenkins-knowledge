@@ -390,6 +390,11 @@ fn normalize_api_type(value: &Value) -> Option<Value> {
     if let Some(interfaces) = value.get("interfaces").and_then(Value::as_array) {
         normalized["interfaces"] = json!(interfaces.iter().filter_map(Value::as_str).take(20).map(truncate).collect::<Vec<_>>());
     }
+    if let Some(documentation_paths) = value.get("documentationPaths").and_then(Value::as_array) {
+        normalized["documentationPaths"] = json!(
+            documentation_paths.iter().filter_map(Value::as_str).take(8).map(truncate).collect::<Vec<_>>()
+        );
+    }
     for field in ["superClass", "plugin", "origin", "classLoader", "membersStatus"] {
         if let Some(text) = value.get(field).and_then(Value::as_str).filter(|text| !text.trim().is_empty()) {
             if field != "membersStatus" || text == "inaccessible" {
@@ -517,6 +522,13 @@ fn normalize_registry(
                 .filter(|value| !value.trim().is_empty())
             {
                 normalized["plugin"] = json!(truncate(plugin));
+            }
+            if let Some(documentation_path) = item
+                .get("documentationPath")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                normalized["documentationPath"] = json!(truncate(documentation_path));
             }
             if let Some(value) = item
                 .get("category")
