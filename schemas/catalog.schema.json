@@ -317,6 +317,9 @@
         },
         "collection": {
           "$ref": "#/$defs/collection"
+        },
+        "runtime": {
+          "$ref": "#/$defs/controllerRuntime"
         }
       }
     },
@@ -544,6 +547,173 @@
         "retrievedAt": {
           "type": "string",
           "format": "date-time"
+        }
+      }
+    },
+    "controllerRuntime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "templateVersion",
+        "source",
+        "status",
+        "collectedAt",
+        "extensionRegistries",
+        "errors"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "1.0.0"
+        },
+        "templateVersion": {
+          "const": "1"
+        },
+        "source": {
+          "const": "script-console"
+        },
+        "status": {
+          "enum": [
+            "collected",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "collectedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "groovyVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "javaVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "javaVendor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "jenkinsCoreVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "extensionRegistries": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/controllerExtensionRegistry"
+          }
+        },
+        "errors": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/controllerRuntimeError"
+          }
+        }
+      }
+    },
+    "controllerExtensionRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "status",
+        "items",
+        "truncated"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "pipeline-steps",
+            "pipeline-globals"
+          ]
+        },
+        "status": {
+          "enum": [
+            "available",
+            "unavailable",
+            "unknown"
+          ]
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "className"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "className": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "plugin": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            }
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "controllerRuntimeError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "probe",
+        "code"
+      ],
+      "properties": {
+        "probe": {
+          "enum": [
+            "script-console",
+            "groovy-version",
+            "java-version",
+            "java-vendor",
+            "jenkins-core-version",
+            "pipeline-steps",
+            "pipeline-globals",
+            "output"
+          ]
+        },
+        "code": {
+          "enum": [
+            "credentials-must-be-paired",
+            "invalid-controller-url",
+            "request-timeout",
+            "request-failed",
+            "permission-denied",
+            "endpoint-unavailable",
+            "http-error",
+            "response-too-large",
+            "invalid-response",
+            "incompatible-probe-output",
+            "probe-failed",
+            "jenkins-unavailable",
+            "extension-type-unavailable",
+            "enumeration-failed",
+            "output-truncated"
+          ]
         }
       }
     }
