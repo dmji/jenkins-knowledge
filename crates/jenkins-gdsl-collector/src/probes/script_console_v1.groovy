@@ -33,7 +33,7 @@ def safeText = { value ->
 
 def result = [
     schemaVersion: '1.0.0',
-    templateVersion: '2',
+    templateVersion: '3',
     groovyVersion: null,
     javaVersion: null,
     javaVendor: null,
