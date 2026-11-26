@@ -707,7 +707,7 @@
           "const": "1.0.0"
         },
         "templateVersion": {
-          "const": "1"
+          "const": "2"
         },
         "source": {
           "const": "script-console"
@@ -745,7 +745,7 @@
         },
         "extensionRegistries": {
           "type": "array",
-          "maxItems": 2,
+          "maxItems": 3,
           "items": {
             "$ref": "#/$defs/controllerExtensionRegistry"
           }
@@ -772,7 +772,8 @@
         "name": {
           "enum": [
             "pipeline-steps",
-            "pipeline-globals"
+            "pipeline-globals",
+            "declarative-extensions"
           ]
         },
         "status": {
@@ -821,6 +822,49 @@
                 }
               },
               "parametersTruncated": {
+                "type": "boolean"
+              },
+              "category": {
+                "enum": [
+                  "agent",
+                  "option",
+                  "when",
+                  "post-condition",
+                  "trigger",
+                  "parameter"
+                ]
+              },
+              "nameKind": {
+                "enum": [
+                  "dsl-token",
+                  "implementation-class"
+                ]
+              },
+              "descriptorClass": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "contexts": {
+                "type": "array",
+                "uniqueItems": true,
+                "maxItems": 2,
+                "items": {
+                  "enum": ["pipeline", "stage"]
+                }
+              },
+              "stageOnly": {
+                "type": "boolean"
+              },
+              "canUseInStage": {
+                "type": "boolean"
+              },
+              "allowedChildrenCount": {
+                "type": "integer",
+                "minimum": -1,
+                "maximum": 100
+              },
+              "invisible": {
                 "type": "boolean"
               }
             }
