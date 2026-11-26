@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -38,6 +40,8 @@ jobs:
           node-version: 20
 
       - name: Validate clean checkout and all project contracts
+        env:
+          VALIDATION_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: sh scripts/validate.sh
 
       - name: Upload fixture Knowledge Package
