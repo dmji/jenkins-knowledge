@@ -95,7 +95,6 @@ pub fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
                 },
                 "extensionCategory": category,
                 "nameKind": name_kind,
-                "descriptorClass": item["descriptorClass"],
                 "evidence": [{
                     "sourceId": source_id,
                     "kind": "controller-observed",
@@ -106,6 +105,9 @@ pub fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
                     "sourceKind": "jenkins-controller"
                 }]
             });
+            if let Some(descriptor_class) = item["descriptorClass"].as_str() {
+                symbol["descriptorClass"] = json!(descriptor_class);
+            }
             if let Some(plugin) = item["plugin"].as_str() {
                 symbol["namespace"] = json!(plugin);
             }
@@ -237,6 +239,19 @@ mod tests {
         assert_eq!(symbols[2]["confidence"], "unknown");
         assert_eq!(symbols[2]["fieldEvidence"]["name"], "unknown");
         assert_eq!(symbols[0]["evidence"][0]["kind"], "controller-observed");
+        let catalog = json!({
+            "schemaVersion": "1.0.0",
+            "catalogId": "declarative-runtime-test",
+            "generatedAt": "2026-11-26T00:00:00Z",
+            "sources": [{
+                "id": "declarative-model-controller",
+                "kind": "jenkins-controller",
+                "name": "test controller",
+                "revision": "runtime-test"
+            }],
+            "symbols": symbols
+        });
+        validate_catalog(&catalog, &schema()).unwrap();
     }
 
     #[test]
