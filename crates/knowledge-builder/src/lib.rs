@@ -132,6 +132,16 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
             "configure at least one Jenkins controller, Shared Library, or fixture catalog".into(),
         ));
     }
+    if profile.collection_profile == "quick" && profile.jenkins.controllers.is_empty() {
+        return Err(BuildError::Profile(
+            "collectionProfile: quick requires a Jenkins controller".into(),
+        ));
+    }
+    if profile.collection_profile == "deep" && profile.jenkins.controllers.is_empty() {
+        return Err(BuildError::Profile(
+            "collectionProfile: deep requires a Jenkins controller".into(),
+        ));
+    }
 
     let mut controller_ids = HashSet::new();
     for (index, controller) in profile.jenkins.controllers.iter().enumerate() {
@@ -532,13 +542,6 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 "status": "succeeded"
             }));
             catalogs.push((format!("Declarative model for '{}'", controller.id), model_catalog));
-            collection_outcomes.push(json!({
-                "id": format!("controller:{}:script-console", controller.id),
-                "kind": "script-console",
-                "name": controller.id,
-                "surface": "script-console",
-                "status": "not-configured"
-            }));
         }
         for library in &profile.libraries {
             if profile.collection_profile == "quick" {
@@ -732,7 +735,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     }
     for outcome in &mut collection_outcomes {
         let section = match outcome["kind"].as_str().unwrap_or_default() {
-            "controller" | "pipeline-gdsl" | "declarative-model" => Some(PackageSection::Controller),
+            "controller" | "pipeline-gdsl" | "declarative-model" | "script-console" => Some(PackageSection::Controller),
             "plugin-inventory" => Some(PackageSection::Plugins),
             "jenkins-core" => Some(PackageSection::JenkinsCore),
             "shared-library" => Some(PackageSection::SharedLibraries),
