@@ -784,6 +784,56 @@
             "$ref": "#/$defs/controllerExtensionRegistry"
           }
         },
+        "apiTypes": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "kind", "synthetic", "methods", "properties"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1, "maxLength": 256},
+              "kind": {"enum": ["class", "interface", "enum"]},
+              "superclass": {"type": "string", "maxLength": 256},
+              "interfaces": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 256}},
+              "modifiers": {"type": "string", "maxLength": 128},
+              "synthetic": {"type": "boolean"},
+              "plugin": {"type": "string", "maxLength": 256},
+              "methods": {
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "synthetic"],
+                  "properties": {
+                    "name": {"type": "string", "minLength": 1, "maxLength": 256},
+                    "signature": {"type": "string", "maxLength": 2048},
+                    "returnType": {"type": "string", "maxLength": 256},
+                    "parameterTypes": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 256}},
+                    "modifiers": {"type": "string", "maxLength": 128},
+                    "synthetic": {"type": "boolean"}
+                  }
+                }
+              },
+              "properties": {
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "readable", "writable"],
+                  "properties": {
+                    "name": {"type": "string", "minLength": 1, "maxLength": 256},
+                    "readable": {"type": "boolean"},
+                    "writable": {"type": "boolean"}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "apiTypesTruncated": {"type": "boolean"},
         "errors": {
           "type": "array",
           "maxItems": 32,
