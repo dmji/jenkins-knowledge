@@ -566,6 +566,7 @@ fn validate_completeness(catalog: &Value, sources: &[Value], errors: &mut Vec<St
         return;
     };
     let status = completeness["status"].as_str().unwrap_or_default();
+    let all_sources_reported = sources.iter().all(|source| source.get("collection").is_some());
     let mut has_partial_source = false;
     for (index, source) in sources.iter().enumerate() {
         if let Some(collection) = source.get("collection") {
@@ -593,12 +594,12 @@ fn validate_completeness(catalog: &Value, sources: &[Value], errors: &mut Vec<St
                 .into(),
         );
     }
-    if status == "partial" && !has_partial_source {
+    if status == "partial" && (!has_partial_source || !all_sources_reported) {
         errors.push(
             "/completeness/status: partial requires at least one failed, unavailable, permission-denied, or truncated source".into(),
         );
     }
-    if status == "unknown" && sources.iter().all(|source| source.get("collection").is_some()) {
+    if status == "unknown" && all_sources_reported {
         errors.push("/completeness/status: unknown is invalid when every source has an explicit collection outcome".into());
     }
 }
