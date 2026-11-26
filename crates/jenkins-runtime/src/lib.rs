@@ -325,7 +325,9 @@ impl Runtime {
                 _ => "unknown",
             };
         }
-        if self.controller().and_then(|controller| controller.get("plugins")).and_then(Value::as_array).is_some() {
+        if self.controller().and_then(|controller| controller.get("plugins"))
+            .and_then(Value::as_array).is_some_and(|plugins| !plugins.is_empty())
+        {
             "available"
         } else {
             "unknown"
@@ -352,6 +354,208 @@ impl Runtime {
             object.insert("profile".into(), json!(self.profile()));
         }
         Some(detail)
+    }
+
+    /// Summarizes the environment recorded by this package without probing Jenkins.
+    /// A caller may supply an independently observed target environment for an exact
+    /// inventory comparison; a match is never treated as proof of runtime compatibility.
+    pub fn compatibility_report(&self, target_environment: Option<&Value>) -> Value {
+        let controller = self.controller();
+        let core_version = controller
+            .and_then(|value| value["coreVersion"].as_str())
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("unknown"));
+        let runtime = controller.and_then(|value| value.get("runtime"));
+        let controller_collection = controller.and_then(|value| value.get("collection"));
+        let java_version = runtime
+            .and_then(|value| value["javaVersion"].as_str())
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("unknown"));
+        let java_vendor = runtime
+            .and_then(|value| value["javaVendor"].as_str())
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("unknown"));
+        let java_version_status = controller_collection
+            .and_then(|value| value["javaVersionStatus"].as_str())
+            .unwrap_or(if java_version.is_some() { "available" } else { "unknown" });
+        let java_vendor_status = controller_collection
+            .and_then(|value| value["javaVendorStatus"].as_str())
+            .unwrap_or(if java_vendor.is_some() { "available" } else { "unknown" });
+        let plugin_status = self.plugin_inventory_status();
+        let package_plugins = plugin_version_map(self.plugin_inventory());
+        let target = target_environment.filter(|value| value.is_object());
+        let target_core = target.and_then(|value| value["coreVersion"].as_str());
+        let target_java = target.and_then(|value| value["javaVersion"].as_str());
+        let target_vendor = target.and_then(|value| value["javaVendor"].as_str());
+        let target_plugins = target
+            .and_then(|value| value["plugins"].as_array())
+            .and_then(|plugins| plugin_version_map(plugins));
+        let target_provided = target.is_some();
+
+        let compare_value = |package: Option<&str>, target_value: Option<&str>| {
+            let status = if !target_provided {
+                "not-compared"
+            } else {
+                match (package, target_value) {
+                    (Some(package), Some(target)) if package == target => "matched",
+                    (Some(_), Some(_)) => "different",
+                    _ => "unknown",
+                }
+            };
+            json!({"status":status,"package":package,"target":target_value})
+        };
+        let core_comparison = compare_value(core_version, target_core);
+        let java_comparison = compare_value(
+            java_version.filter(|_| java_version_status == "available"),
+            target_java,
+        );
+        let vendor_comparison = compare_value(
+            java_vendor.filter(|_| java_vendor_status == "available"),
+            target_vendor,
+        );
+        let plugin_comparison_status = if !target_provided {
+            "not-compared"
+        } else if plugin_status != "available" || package_plugins.is_none() || target_plugins.is_none() {
+            "unknown"
+        } else if package_plugins == target_plugins {
+            "matched"
+        } else {
+            "different"
+        };
+        let plugin_comparison = json!({
+            "status":plugin_comparison_status,
+            "packageCount":self.plugin_inventory().len(),
+            "targetCount":target.and_then(|value| value["plugins"].as_array()).map_or(Value::Null, |plugins| json!(plugins.len()))
+        });
+
+        let field_statuses = [
+            core_comparison["status"].as_str().unwrap_or("unknown"),
+            java_comparison["status"].as_str().unwrap_or("unknown"),
+            vendor_comparison["status"].as_str().unwrap_or("unknown"),
+            plugin_comparison_status,
+        ];
+        let comparison_status = if !target_provided {
+            "not-compared"
+        } else if field_statuses.contains(&"different") {
+            "different"
+        } else if field_statuses.iter().all(|status| *status == "matched") {
+            "matched"
+        } else {
+            "unknown"
+        };
+        let completeness = self.catalog
+            .get("completeness")
+            .and_then(|value| value["status"].as_str())
+            .or_else(|| self.collection().and_then(|value| value["status"].as_str()))
+            .unwrap_or("unknown");
+        let environment_status = if controller.is_none() {
+            "unknown"
+        } else if core_version.is_some()
+            && java_version_status == "available"
+            && java_vendor_status == "available"
+            && plugin_status == "available"
+            && package_plugins.is_some()
+        {
+            "available"
+        } else if core_version.is_some() || java_version.is_some() || !self.plugin_inventory().is_empty() {
+            "partial"
+        } else {
+            "unknown"
+        };
+        let compatibility_status = if comparison_status == "different" {
+            "environment-different"
+        } else if comparison_status == "matched" && completeness == "complete" && environment_status == "available" {
+            "not-proven"
+        } else {
+            "unknown"
+        };
+
+        let mut warnings = Vec::new();
+        if completeness != "complete" {
+            warnings.push(json!({
+                "code":if completeness == "partial" {"package-incomplete"} else {"package-completeness-unknown"},
+                "completeness":completeness
+            }));
+        }
+        if controller.is_none() {
+            warnings.push(json!({"code":"controller-metadata-unavailable"}));
+        }
+        if core_version.is_none() {
+            warnings.push(json!({"code":"package-core-version-unknown"}));
+        }
+        if java_version_status != "available" {
+            warnings.push(json!({"code":"package-java-version-unavailable","status":java_version_status}));
+        }
+        if java_vendor_status != "available" {
+            warnings.push(json!({"code":"package-java-vendor-unavailable","status":java_vendor_status}));
+        }
+        if plugin_status != "available" || package_plugins.is_none() {
+            warnings.push(json!({"code":"package-plugin-inventory-unavailable","status":plugin_status}));
+        }
+        if !target_provided {
+            warnings.push(json!({"code":"target-environment-not-provided"}));
+        } else if comparison_status == "unknown" {
+            warnings.push(json!({"code":"environment-comparison-incomplete"}));
+        } else if comparison_status == "different" {
+            warnings.push(json!({"code":"target-environment-differs"}));
+        } else {
+            warnings.push(json!({"code":"environment-match-does-not-prove-compatibility"}));
+        }
+        if let Some(outcomes) = self.collection().and_then(|value| value["sources"].as_array()) {
+            for outcome in outcomes {
+                let status = outcome["status"].as_str().unwrap_or_default();
+                if !matches!(status, "succeeded") {
+                    let mut warning = json!({
+                        "code":format!("collection-{status}"),
+                        "surface":outcome["surface"],
+                        "name":outcome["name"],
+                        "sourceId":outcome["sourceId"],
+                        "errorCode":outcome["errorCode"]
+                    });
+                    if let Some(object) = warning.as_object_mut() {
+                        object.retain(|_, value| !value.is_null());
+                    }
+                    warnings.push(warning);
+                }
+            }
+        } else {
+            warnings.push(json!({"code":"collection-outcomes-not-recorded"}));
+        }
+
+        json!({
+            "status":compatibility_status,
+            "environmentComparisonStatus":comparison_status,
+            "package":{
+                "profile":self.profile(),
+                "createdAt":self.manifest["createdAt"],
+                "catalogId":self.catalog["catalogId"],
+                "snapshotId":self.catalog["snapshotId"],
+                "completeness":completeness
+            },
+            "packageEnvironment":{
+                "status":environment_status,
+                "controller":controller.and_then(|value| value["identity"].clone().into()),
+                "jenkinsCore":{"status":if core_version.is_some() {"available"} else {"unknown"},"version":core_version},
+                "java":{
+                    "versionStatus":java_version_status,
+                    "version":java_version,
+                    "vendorStatus":java_vendor_status,
+                    "vendor":java_vendor
+                },
+                "plugins":{"status":plugin_status,"count":self.plugin_inventory().len()}
+            },
+            "targetEnvironment":{
+                "status":if target_provided {"provided"} else {"not-provided"},
+                "coreVersion":target_core,
+                "javaVersion":target_java,
+                "javaVendor":target_vendor,
+                "pluginCount":plugin_comparison["targetCount"]
+            },
+            "comparison":{
+                "jenkinsCore":core_comparison,
+                "javaVersion":java_comparison,
+                "javaVendor":vendor_comparison,
+                "plugins":plugin_comparison
+            },
+            "warnings":warnings
+        })
     }
 
     pub fn search(&self, query: &str, kind: Option<&str>, source: Option<&str>) -> Vec<Value> {
@@ -702,6 +906,18 @@ impl Runtime {
     }
 }
 
+
+fn plugin_version_map(plugins: &[Value]) -> Option<BTreeMap<String, String>> {
+    let mut versions = BTreeMap::new();
+    for plugin in plugins {
+        let short_name = plugin["shortName"].as_str().filter(|value| !value.is_empty())?;
+        let version = plugin["version"].as_str().filter(|value| !value.is_empty())?;
+        if versions.insert(short_name.to_owned(), version.to_owned()).is_some() {
+            return None;
+        }
+    }
+    Some(versions)
+}
 
 fn build_source_index(catalog: &Value) -> BTreeMap<String, usize> {
     catalog["sources"].as_array().into_iter().flatten().enumerate()
