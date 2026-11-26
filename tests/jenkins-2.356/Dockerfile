@@ -7,7 +7,7 @@ COPY plugins.txt /usr/share/jenkins/ref/jenkins-knowledge-plugins.txt
 RUN jenkins-plugin-cli \
       --plugin-file /usr/share/jenkins/ref/jenkins-knowledge-plugins.txt \
       --plugin-download-directory /usr/share/jenkins/ref/plugins \
-    && plugin="$(find /usr/share/jenkins/ref/plugins -maxdepth 1 -type f -name 'matrix-auth.*' -print -quit)" \
+    && plugin="$(find /usr/share/jenkins/ref/plugins -maxdepth 1 -type f \\( -name 'matrix-auth.jpi' -o -name 'matrix-auth.hpi' \\) -print -quit)" \
     && test -n "$plugin" \
     && printf '%s  %s\n' 'f70d8ba943478fb4966375e7c4ab213e7a0665bd88e9558d9c12492f1dee7dbd' "$plugin" | sha256sum -c -
 USER jenkins
