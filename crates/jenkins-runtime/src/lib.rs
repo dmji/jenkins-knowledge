@@ -854,4 +854,13 @@ mod tests {
             .to_string()
             .contains("ambiguous"));
     }
+    #[test]
+    fn aggregate_package_size_accepts_boundary_and_rejects_first_byte_over() {
+        let mut total = 0;
+        add_package_bytes(&mut total, MAX_PACKAGE_BYTES).unwrap();
+        assert_eq!(total, MAX_PACKAGE_BYTES);
+        let error = add_package_bytes(&mut total, 1).unwrap_err().to_string();
+        assert!(error.contains("aggregate size limit"));
+    }
+
 }
