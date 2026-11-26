@@ -1492,6 +1492,11 @@ mod tests {
         stamp_catalog_identity(&mut catalog).unwrap();
         assert!(validate_catalog(&catalog, &schema()).is_ok());
 
+        catalog["sources"][0]["collection"]["status"] = json!("skipped-by-profile");
+        stamp_catalog_identity(&mut catalog).unwrap();
+        assert!(validate_catalog(&catalog, &schema()).is_ok());
+        catalog["sources"][0]["collection"]["status"] = json!("succeeded");
+
         catalog["sources"][0]["collection"]["status"] = json!("succeeded-with-truncation");
         let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
         assert!(error.contains("truncation flag must agree"));
@@ -1501,7 +1506,7 @@ mod tests {
         catalog["completeness"]["status"] = json!("partial");
         let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
         assert!(
-            error.contains("partial requires at least one explicit non-succeeded source outcome")
+            error.contains("partial requires at least one failed, unavailable, permission-denied, or truncated source")
         );
     }
 
