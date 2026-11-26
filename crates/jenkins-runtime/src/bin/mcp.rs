@@ -1,4 +1,4 @@
-use jenkins_runtime::{Runtime, SearchOptions, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_OFFSET, MAX_SEARCH_RESULTS};
+use jenkins_runtime::{Runtime, SearchOptions, SearchPage, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_OFFSET, MAX_SEARCH_RESULTS};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 
@@ -12,19 +12,37 @@ fn content(value: Value) -> Value {
 }
 fn tools() -> Value {
     json!([
-      {"name":"search_api","description":"Search catalog symbols with shared filters and a bounded result limit. Results include profile, confidence, and source provenance.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"kind":{"type":"string"},"source":{"type":"string"},"plugin":{"type":"string"},"owner":{"type":"string"},"type":{"type":"string"},"confidence":{"enum":["verified","inferred","unknown"]},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}},"limit":{"type":"integer"}},"required":["profile","results","limit"]}},
+      {"name":"search_api","description":"Search catalog symbols with shared filters and bounded pagination. Responses include total, returned, hasMore, and nextOffset.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"kind":{"type":"string"},"source":{"type":"string"},"plugin":{"type":"string"},"owner":{"type":"string"},"type":{"type":"string"},"confidence":{"enum":["verified","inferred","unknown"]},"offset":{"type":"integer","minimum":0,"maximum":10000},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}},"offset":{"type":"integer"},"limit":{"type":"integer"},"total":{"type":"integer"},"returned":{"type":"integer"},"hasMore":{"type":"boolean"},"nextOffset":{"type":["integer","null"]},"paginationLimitReached":{"type":"boolean"}},"required":["profile","results","offset","limit","total","returned","hasMore","nextOffset","paginationLimitReached"]}},
       {"name":"get_api_details","description":"Get one symbol by exact name or ID, including signature, parameters, provenance, profile, and confidence.","inputSchema":{"type":"object","properties":{"name_or_id":{"type":"string"}},"required":["name_or_id"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"}},"required":["id","name","profile","source","confidence"],"additionalProperties":true}},
-      {"name":"list_api","description":"List catalog symbols with shared filters and a bounded result limit.","inputSchema":{"type":"object","properties":{"kind":{"type":"string"},"source":{"type":"string"},"plugin":{"type":"string"},"owner":{"type":"string"},"type":{"type":"string"},"confidence":{"enum":["verified","inferred","unknown"]},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}},"limit":{"type":"integer"}},"required":["profile","results","limit"]}},
+      {"name":"list_api","description":"List catalog symbols with shared filters and bounded pagination. Responses include total, returned, hasMore, and nextOffset.","inputSchema":{"type":"object","properties":{"kind":{"type":"string"},"source":{"type":"string"},"plugin":{"type":"string"},"owner":{"type":"string"},"type":{"type":"string"},"confidence":{"enum":["verified","inferred","unknown"]},"offset":{"type":"integer","minimum":0,"maximum":10000},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}},"offset":{"type":"integer"},"limit":{"type":"integer"},"total":{"type":"integer"},"returned":{"type":"integer"},"hasMore":{"type":"boolean"},"nextOffset":{"type":["integer","null"]},"paginationLimitReached":{"type":"boolean"}},"required":["profile","results","offset","limit","total","returned","hasMore","nextOffset","paginationLimitReached"]}},
       {"name":"get_usage_examples","description":"Get catalog-backed usage examples for one exact symbol name or ID.","inputSchema":{"type":"object","properties":{"name_or_id":{"type":"string"}},"required":["name_or_id"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"},"examples":{"type":"array","items":{"type":"string"}}},"required":["id","name","profile","source","confidence","examples"],"additionalProperties":true}},
       {"name":"get_pipeline_step","description":"Get Jenkins Pipeline step metadata by exact name or symbol ID.","inputSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"}},"required":["id","name","profile","source","confidence"],"additionalProperties":true}}
     ])
 }
-fn query_options(args: &Value, include_query: bool) -> Result<SearchOptions, String> {
-    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(DEFAULT_SEARCH_LIMIT as u64) as usize;
-    if limit == 0 || limit > MAX_SEARCH_RESULTS {
-        return Err(format!("'limit' must be between 1 and {MAX_SEARCH_RESULTS}"));
+fn query_options(args: &Value, include_query: bool) -> Result<(SearchOptions, usize), String> {
+    let offset = match args.get("offset") {
+        None => 0,
+        Some(value) => value.as_u64()
+            .ok_or_else(|| "'offset' must be a non-negative integer".to_owned())?
+            .try_into()
+            .map_err(|_| "'offset' is too large".to_owned())?,
+    };
+    if offset > MAX_SEARCH_OFFSET {
+        return Err(format!("'offset' must not exceed {MAX_SEARCH_OFFSET}"));
     }
-    Ok(SearchOptions {
+
+    let limit = match args.get("limit") {
+        None => DEFAULT_SEARCH_LIMIT,
+        Some(value) => {
+            let limit = value.as_u64()
+                .ok_or_else(|| "'limit' must be an integer between 1 and 100".to_owned())?;
+            if !(1..=MAX_SEARCH_RESULTS as u64).contains(&limit) {
+                return Err(format!("'limit' must be between 1 and {MAX_SEARCH_RESULTS}"));
+            }
+            limit as usize
+        }
+    };
+    Ok((SearchOptions {
         query: if include_query { optional(args,"query").unwrap_or("").to_owned() } else { String::new() },
         kind: optional(args,"kind").map(str::to_owned),
         source: optional(args,"source").map(str::to_owned),
@@ -37,17 +55,45 @@ fn query_options(args: &Value, include_query: bool) -> Result<SearchOptions, Str
         kinds: None,
         source_kind: None,
         limit,
+    }, offset)
+}
+
+fn next_offset(offset: usize, returned: usize, has_more: bool) -> Option<usize> {
+    let next = offset.saturating_add(returned);
+    (has_more && next <= MAX_SEARCH_OFFSET).then_some(next)
+}
+
+fn page_metadata(page: &SearchPage) -> Value {
+    let returned = page.results.len();
+    let next = next_offset(page.offset, returned, page.has_more);
+    json!({
+        "offset": page.offset,
+        "limit": page.limit,
+        "total": page.total,
+        "returned": returned,
+        "hasMore": page.has_more,
+        "nextOffset": next,
+        "paginationLimitReached": page.has_more && next.is_none()
     })
 }
+
+fn paginated_results(rt: &Runtime, options: &SearchOptions, offset: usize) -> Result<Value, String> {
+    let page = rt.search_page(options, offset).map_err(|error| error.to_string())?;
+    let mut response = page_metadata(&page);
+    response["profile"] = json!(rt.profile());
+    response["results"] = json!(page.results);
+    Ok(content(response))
+}
+
 fn call_tool(rt: &Runtime, name: &str, args: &Value) -> Result<Value,String> {
     match name {
         "search_api" => {
-            let options = query_options(args, true)?;
-            Ok(content(json!({"profile":rt.profile(),"limit":options.limit,"results":rt.search_with_options(&options)})))
+            let (options, offset) = query_options(args, true)?;
+            paginated_results(rt, &options, offset)
         },
         "list_api" => {
-            let options = query_options(args, false)?;
-            Ok(content(json!({"profile":rt.profile(),"limit":options.limit,"results":rt.search_with_options(&options)})))
+            let (options, offset) = query_options(args, false)?;
+            paginated_results(rt, &options, offset)
         },
         "get_api_details" => rt.get(required(args,"name_or_id")?).map(content).map_err(|e|e.to_string()),
         "get_usage_examples" => rt.examples(required(args,"name_or_id")?).map(content).map_err(|e|e.to_string()),
@@ -99,17 +145,10 @@ fn read_resource(rt: &Runtime, uri: &str) -> Result<Value,String> {
                 ..SearchOptions::default()
             };
             let page = rt.search_page(&options, offset).map_err(|error| error.to_string())?;
-            let returned = page.results.len();
-            Ok(json!({
-                "profile": rt.profile(),
-                "steps": page.results,
-                "offset": page.offset,
-                "limit": page.limit,
-                "total": page.total,
-                "returned": returned,
-                "hasMore": page.has_more,
-                "nextOffset": if page.has_more { Some(page.offset + returned) } else { None }
-            }))
+            let mut response = page_metadata(&page);
+            response["profile"] = json!(rt.profile());
+            response["steps"] = json!(page.results);
+            Ok(response)
         },
         _ if uri.starts_with("jenkins://catalog/profiles/") => {
             let profile=uri.trim_start_matches("jenkins://catalog/profiles/");
