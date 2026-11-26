@@ -20,11 +20,11 @@ def safeHtmlText = { value ->
         return null
     }
     String text = (String) value
-    text = text.replaceAll(/(?is)<script\\b[^>]*>.*?<\\/script>/, ' ')
-    text = text.replaceAll(/(?is)<style\\b[^>]*>.*?<\\/style>/, ' ')
+    text = text.replaceAll(/(?is)<script\b[^>]*>.*?<\/script>/, ' ')
+    text = text.replaceAll(/(?is)<style\b[^>]*>.*?<\/style>/, ' ')
     text = text.replaceAll(/<[^>]*>/, ' ')
     text = text.replace('&nbsp;', ' ')
-    text = text.replaceAll(/\\s+/, ' ').trim()
+    text = text.replaceAll(/\s+/, ' ').trim()
     return safeText(text)
 }
 
