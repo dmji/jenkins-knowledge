@@ -1,7 +1,7 @@
 pub mod discovery;
 pub use discovery::{discover, DiscoveryError};
 
-use catalog_validator::validate_catalog;
+use catalog_validator::{redact_sensitive_fields, validate_catalog};
 use regex::Regex;
 use reqwest::blocking::Client;
 use reqwest::header::HeaderMap;
@@ -184,7 +184,7 @@ pub fn catalog_from_gdsl(
         }
         symbol
     }).collect::<Vec<_>>();
-    let catalog = json!({
+    let mut catalog = json!({
         "schemaVersion": "1.0.0",
         "catalogId": format!("jenkins-controller-{}", stable_id(&controller_url)),
         "generatedAt": retrieved_at,
@@ -203,6 +203,7 @@ pub fn catalog_from_gdsl(
         }],
         "symbols": symbols
     });
+    sanitize_collected_catalog(&mut catalog);
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json"))
         .map_err(|error| CollectorError::InvalidCatalog(error.to_string()))?;
     validate_catalog(&catalog, &schema)
@@ -218,6 +219,10 @@ struct Method {
     documentation_url: Option<String>,
     parameters: Vec<Value>,
     line: usize,
+}
+
+fn sanitize_collected_catalog(catalog: &mut Value) -> usize {
+    redact_sensitive_fields(catalog)
 }
 
 fn parse_methods(input: &str) -> Result<Vec<Method>, CollectorError> {
@@ -494,4 +499,30 @@ mod tests {
         assert!(!serialized.contains("secret"));
         assert!(!serialized.contains("token"));
     }
+    #[test]
+    fn collector_sanitizes_nested_secret_metadata_and_url_modifiers() {
+        let mut catalog = json!({
+            "sources": [{
+                "metadata": {
+                    "safeLabel": "preserve",
+                    "apiKey": "collector-secret-api",
+                    "nested": [{"Authorization": "collector-secret-auth"}],
+                    "endpoint": "https://jenkins.example.test/api?token=collector-secret-token"
+                }
+            }]
+        });
+        assert!(sanitize_collected_catalog(&mut catalog) >= 3);
+        let serialized = catalog.to_string();
+        assert!(!serialized.contains("collector-secret"));
+        assert_eq!(catalog["sources"][0]["metadata"]["safeLabel"], "preserve");
+        assert_eq!(
+            catalog["sources"][0]["metadata"]["endpoint"],
+            "https://jenkins.example.test/api"
+        );
+        assert!(catalog["sources"][0]["metadata"].get("apiKey").is_none());
+        assert!(catalog["sources"][0]["metadata"]["nested"][0]
+            .get("Authorization")
+            .is_none());
+    }
+
 }
