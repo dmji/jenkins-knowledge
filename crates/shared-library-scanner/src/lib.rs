@@ -128,7 +128,7 @@ pub fn scan_checkout(
     }
 
     let generated_at = timestamp();
-    let catalog = json!({
+    let mut catalog = json!({
         "schemaVersion": "1.0.0",
         "catalogId": format!("shared-library-{}-{}-{}", slug(&config.name), slug(&config.reference), &resolved_commit[..12]),
         "generatedAt": generated_at,
@@ -143,6 +143,7 @@ pub fn scan_checkout(
         }],
         "symbols": symbols
     });
+    redact_sensitive_fields(&mut catalog);
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json"))
         .map_err(|e| ScanError::InvalidCatalog(e.to_string()))?;
     catalog_validator::validate_catalog(&catalog, &schema)
@@ -866,6 +867,25 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_deep).is_err());
         let too_much = ScanLimits { total_bytes: 9, ..limits };
         assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_much).is_err());
+    }
+
+    #[test]
+    fn scanner_uses_shared_recursive_secret_redaction_policy() {
+        let mut catalog = serde_json::json!({
+            "sources": [{
+                "metadata": {
+                    "safe": "preserve",
+                    "privateKey": "scanner-secret-key",
+                    "nested": [{"sessionId": "scanner-secret-session"}]
+                }
+            }]
+        });
+        redact_sensitive_fields(&mut catalog);
+        let serialized = catalog.to_string();
+        assert!(!serialized.contains("scanner-secret"));
+        assert_eq!(catalog["sources"][0]["metadata"]["safe"], "preserve");
+        assert!(catalog["sources"][0]["metadata"].get("privateKey").is_none());
+        assert!(catalog["sources"][0]["metadata"]["nested"][0].get("sessionId").is_none());
     }
 
 }
