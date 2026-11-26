@@ -328,7 +328,7 @@ impl Runtime {
         if self.controller().and_then(|controller| controller.get("plugins"))
             .and_then(Value::as_array).is_some_and(|plugins| !plugins.is_empty())
         {
-            "available"
+            "partial"
         } else {
             "unknown"
         }
