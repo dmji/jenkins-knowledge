@@ -11,9 +11,10 @@ final int MAX_PARAMETERS_PER_STEP = 20
 final int MAX_DECLARATIVE_ITEMS = 100
 final int MAX_TEXT_LENGTH = 256
 final int MAX_OUTPUT_BYTES = 262144
-final int MAX_API_TYPES = 40
-final int MAX_API_DEPTH = 2
-final int MAX_API_MEMBERS_PER_TYPE = 12
+final int MAX_API_TYPES = __API_MAX_TYPES__
+final int MAX_API_DEPTH = __API_MAX_DEPTH__
+final int MAX_API_MEMBERS_PER_TYPE = __API_MAX_MEMBERS_PER_TYPE__
+final int MAX_API_TOTAL_MEMBERS = __API_MAX_TOTAL_MEMBERS__
 final int MAX_CONFIGURED_API_ROOTS = 20
 final List<String> CONFIGURED_API_ROOTS = __JENKINS_KNOWLEDGE_API_ROOTS__
 
@@ -604,7 +605,7 @@ def collectApiTypes = {
         def orderedMethods = methodMap.values().toList()
         if (orderedMethods.size() > MAX_API_MEMBERS_PER_TYPE) typeItem.methodsTruncated = true
         orderedMethods.take(MAX_API_MEMBERS_PER_TYPE).each { method ->
-            if (inspectedMembers >= 300) {
+            if (inspectedMembers >= MAX_API_TOTAL_MEMBERS) {
                 typeItem.methodsTruncated = true
                 return
             }
