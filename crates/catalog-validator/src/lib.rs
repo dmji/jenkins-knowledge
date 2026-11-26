@@ -54,7 +54,6 @@ pub fn stamp_catalog_identity(catalog: &mut Value) -> Result<(), String> {
     if catalog.get("completeness").is_none() {
         catalog["completeness"] = serde_json::json!({"status":"unknown"});
     }
-    canonicalize_arrays(catalog);
     let source_ids = catalog["sources"].as_array()
         .ok_or_else(|| "catalog sources must be an array".to_owned())?
         .iter().filter_map(|source| source["id"].as_str().map(str::to_owned)).collect::<Vec<_>>();
