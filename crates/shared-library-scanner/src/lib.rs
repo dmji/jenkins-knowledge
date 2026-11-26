@@ -78,12 +78,20 @@ pub fn scan_checkout(
     if resolved_commit.len() != 40 || !resolved_commit.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(ScanError::InvalidConfig("resolved commit must be a full 40-character Git SHA".into()));
     }
+    let limits = ScanLimits::from_environment()?;
+    scan_checkout_with_limits(config, checkout, resolved_commit, limits)
+}
 
+fn scan_checkout_with_limits(
+    config: &LibraryConfig,
+    checkout: &Path,
+    resolved_commit: &str,
+    limits: ScanLimits,
+) -> Result<ScanResult, ScanError> {
     let source_id = format!("shared-library:{}:{}@{}", slug(&config.name), slug(&config.reference), &resolved_commit[..12]);
     let mut symbols = Vec::new();
     let mut diagnostics = Vec::new();
     let canonical_root = checkout.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve checkout root: {e}")))?;
-    let limits = ScanLimits::from_environment()?;
     let mut files = Vec::new();
     let mut total_bytes = 0u64;
     let mut entries = 0usize;
@@ -411,6 +419,20 @@ struct ScanLimits {
     symbols: usize,
     catalog_bytes: usize,
 }
+impl Default for ScanLimits {
+    fn default() -> Self {
+        Self {
+            depth: 32,
+            files: 10_000,
+            entries: 100_000,
+            file_bytes: 1_048_576,
+            total_bytes: 33_554_432,
+            symbols: 50_000,
+            catalog_bytes: 67_108_864,
+        }
+    }
+}
+
 impl ScanLimits {
     fn from_environment() -> Result<Self, ScanError> {
         fn limit(name: &str, default: u64) -> Result<u64, ScanError> {
