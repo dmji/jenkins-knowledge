@@ -52,6 +52,94 @@ pub fn catalog_fragment(source_id: &str) -> Value {
     json!({ "symbols": catalog_symbols(source_id) })
 }
 
+pub fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
+    let mut symbols = Vec::new();
+    for registry in runtime["extensionRegistries"].as_array().into_iter().flatten() {
+        if registry["name"] != "declarative-extensions" {
+            continue;
+        }
+        for (index, item) in registry["items"].as_array().into_iter().flatten().enumerate() {
+            let (Some(category), Some(name), Some(class_name)) = (
+                item["category"].as_str(),
+                item["name"].as_str(),
+                item["className"].as_str(),
+            ) else {
+                continue;
+            };
+            if !matches!(
+                category,
+                "agent" | "option" | "when" | "post-condition" | "trigger" | "parameter"
+            ) {
+                continue;
+            }
+            let name_kind = item["nameKind"].as_str().unwrap_or("implementation-class");
+            let confidence = if name_kind == "dsl-token" {
+                "verified"
+            } else {
+                "unknown"
+            };
+            let id = format!(
+                "{source_id}:runtime:{category}:{name}:{class_name}:{index}"
+            );
+            let mut symbol = json!({
+                "id": id,
+                "name": name,
+                "kind": "declarative-directive",
+                "sourceId": source_id,
+                "signature": class_name,
+                "confidence": confidence,
+                "provenance": ["jenkins-script-console", "declarative-extensions", category],
+                "fieldEvidence": {
+                    "name": confidence,
+                    "signature": "verified"
+                },
+                "extensionCategory": category,
+                "nameKind": name_kind,
+                "evidence": [{
+                    "sourceId": source_id,
+                    "kind": "controller-observed",
+                    "confidence": confidence,
+                    "provenance": "Registered Declarative or Jenkins descriptor",
+                    "retrievedAt": runtime["collectedAt"],
+                    "location": format!("script-console/declarative-extensions/{category}"),
+                    "sourceKind": "jenkins-controller"
+                }]
+            });
+            if let Some(descriptor_class) = item["descriptorClass"].as_str() {
+                symbol["descriptorClass"] = json!(descriptor_class);
+            }
+            if let Some(plugin) = item["plugin"].as_str() {
+                symbol["namespace"] = json!(plugin);
+            }
+            if let Some(display_name) = item["displayName"].as_str() {
+                symbol["displayName"] = json!(display_name);
+            }
+            if let Some(contexts) = item["contexts"].as_array() {
+                symbol["contexts"] = json!(contexts);
+            }
+            if let Some(parameters) = item["parameters"].as_array() {
+                symbol["parameters"] = json!(parameters);
+                symbol["fieldEvidence"]["parameters"] = json!("verified");
+            }
+            for field in [
+                "stageOnly",
+                "canUseInStage",
+                "allowedChildrenCount",
+                "invisible",
+            ] {
+                if let Some(value) = item.get(field) {
+                    if value.is_boolean() || value.is_i64() {
+                        symbol[field] = value.clone();
+                    }
+                }
+            }
+            symbols.push(symbol);
+        }
+    }
+    symbols
+}
+
+
 pub fn validate_fragment(fragment: &Value, schema: &Value, source_id: &str) -> Result<(), String> {
     let symbols = fragment.get("symbols").and_then(Value::as_array)
         .ok_or_else(|| "fragment must contain a symbols array".to_string())?;
@@ -106,6 +194,115 @@ mod tests {
         validate_fragment(&fragment, &schema(), "controller-2-479").unwrap();
         assert!(fragment["symbols"].as_array().unwrap().iter()
             .all(|symbol| symbol["kind"] == "declarative-directive"));
+    }
+
+    #[test]
+    fn maps_core_and_plugin_declarative_extensions_with_explicit_evidence() {
+        let runtime = json!({
+            "collectedAt": "2026-11-26T00:00:00Z",
+            "extensionRegistries": [{
+                "name": "declarative-extensions",
+                "items": [
+                    {
+                        "category": "agent",
+                        "name": "any",
+                        "nameKind": "dsl-token",
+                        "className": "org.jenkinsci.plugins.pipeline.modeldefinition.agent.impl.Any",
+                        "contexts": ["pipeline", "stage"],
+                        "plugin": "pipeline-model-definition"
+                    },
+                    {
+                        "category": "agent",
+                        "name": "kubernetes",
+                        "nameKind": "dsl-token",
+                        "className": "org.csanchez.jenkins.plugins.kubernetes.pipeline.KubernetesDeclarativeAgent",
+                        "contexts": ["pipeline", "stage"],
+                        "plugin": "kubernetes",
+                        "parameters": [{"name": "label", "type": "java.lang.String"}]
+                    },
+                    {
+                        "category": "option",
+                        "name": "timeout",
+                        "nameKind": "dsl-token",
+                        "className": "org.jenkinsci.plugins.pipeline.modeldefinition.options.impl.Timeout",
+                        "contexts": ["pipeline", "stage"],
+                        "canUseInStage": true
+                    },
+                    {
+                        "category": "when",
+                        "name": "branch",
+                        "nameKind": "dsl-token",
+                        "className": "org.jenkinsci.plugins.pipeline.modeldefinition.when.impl.BranchConditional",
+                        "contexts": ["stage"],
+                        "allowedChildrenCount": 0
+                    },
+                    {
+                        "category": "post-condition",
+                        "name": "always",
+                        "nameKind": "dsl-token",
+                        "className": "org.jenkinsci.plugins.pipeline.modeldefinition.model.conditions.Always",
+                        "contexts": ["pipeline", "stage"]
+                    },
+                    {
+                        "category": "trigger",
+                        "name": "TimerTrigger",
+                        "nameKind": "implementation-class",
+                        "className": "hudson.triggers.TimerTrigger",
+                        "contexts": ["pipeline"]
+                    },
+                    {
+                        "category": "parameter",
+                        "name": "StringParameterDefinition",
+                        "nameKind": "implementation-class",
+                        "className": "hudson.model.StringParameterDefinition",
+                        "contexts": ["pipeline"]
+                    }
+                ]
+            }]
+        });
+        let symbols = runtime_symbols(&runtime, "declarative-model-controller");
+        assert_eq!(symbols.len(), 7);
+        assert_eq!(symbols[0]["name"], "any");
+        assert_eq!(symbols[0]["confidence"], "verified");
+        assert_eq!(symbols[1]["namespace"], "kubernetes");
+        assert_eq!(symbols[1]["parameters"][0]["name"], "label");
+        assert_eq!(symbols[2]["extensionCategory"], "option");
+        assert_eq!(symbols[3]["extensionCategory"], "when");
+        assert_eq!(symbols[3]["allowedChildrenCount"], 0);
+        assert_eq!(symbols[4]["extensionCategory"], "post-condition");
+        assert_eq!(symbols[5]["confidence"], "unknown");
+        assert_eq!(symbols[5]["fieldEvidence"]["name"], "unknown");
+        assert_eq!(symbols[6]["extensionCategory"], "parameter");
+        assert_eq!(symbols[0]["evidence"][0]["kind"], "controller-observed");
+        let catalog = json!({
+            "schemaVersion": "1.0.0",
+            "catalogId": "declarative-runtime-test",
+            "generatedAt": "2026-11-26T00:00:00Z",
+            "sources": [{
+                "id": "declarative-model-controller",
+                "kind": "jenkins-controller",
+                "name": "test controller",
+                "revision": "runtime-test"
+            }],
+            "symbols": symbols
+        });
+        validate_catalog(&catalog, &schema()).unwrap();
+    }
+
+    #[test]
+    fn keeps_inferred_static_model_when_runtime_registry_is_unavailable() {
+        let runtime = json!({
+            "extensionRegistries": [{
+                "name": "declarative-extensions",
+                "status": "unavailable",
+                "items": [],
+                "truncated": false
+            }]
+        });
+        assert!(runtime_symbols(&runtime, "controller").is_empty());
+        let fallback = catalog_symbols("controller");
+        assert!(fallback.iter().any(|symbol| symbol["name"] == "agent"));
+        assert!(fallback.iter().all(|symbol| symbol["confidence"] == "inferred"));
     }
 
     #[test]

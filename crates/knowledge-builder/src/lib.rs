@@ -1,4 +1,4 @@
-use catalog_validator::{redact_sensitive_fields, validate_catalog, validate_package_metadata};
+use catalog_validator::{completeness_reason_codes, redact_sensitive_fields, source_collection_summary, stamp_catalog_identity, validate_catalog, validate_package_metadata};
 use jenkins_gdsl_collector::{CollectorError, DiscoveryError};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -291,6 +291,62 @@ impl std::fmt::Display for BuildError {
 }
 impl std::error::Error for BuildError {}
 
+fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
+    let mut symbols = Vec::new();
+    for registry in runtime["extensionRegistries"].as_array().into_iter().flatten() {
+        let registry_name = registry["name"].as_str().unwrap_or_default();
+        let kind = match registry_name {
+            "pipeline-steps" => "step",
+            "pipeline-globals" => "global-variable",
+            _ => continue,
+        };
+        for (index, item) in registry["items"].as_array().into_iter().flatten().enumerate() {
+            let (Some(name), Some(class_name)) = (
+                item["name"].as_str(),
+                item["className"].as_str(),
+            ) else {
+                continue;
+            };
+            let id = format!("{}:runtime:{}:{}:{}:{}", source_id, registry_name, name, class_name, index);
+            let mut symbol = json!({
+                "id": id,
+                "name": name,
+                "kind": kind,
+                "sourceId": source_id,
+                "signature": class_name,
+                "confidence": "verified",
+                "provenance": ["jenkins-script-console", registry_name],
+                "fieldEvidence": {
+                    "name": "verified",
+                    "signature": "verified",
+                    "parameters": "unknown"
+                },
+                "evidence": [{
+                    "sourceId": source_id,
+                    "kind": "controller-observed",
+                    "confidence": "verified",
+                    "provenance": "Registered Jenkins extension descriptor",
+                    "retrievedAt": runtime["collectedAt"],
+                    "location": format!("script-console/{}", registry_name),
+                    "sourceKind": "jenkins-controller"
+                }]
+            });
+            if let Some(plugin) = item["plugin"].as_str() {
+                symbol["namespace"] = json!(plugin);
+            }
+            if let Some(display_name) = item["displayName"].as_str() {
+                symbol["displayName"] = json!(display_name);
+            }
+            if let Some(parameters) = item["parameters"].as_array() {
+                symbol["parameters"] = json!(parameters);
+                symbol["fieldEvidence"]["parameters"] = json!("verified");
+            }
+            symbols.push(symbol);
+        }
+    }
+    symbols
+}
+
 pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildError> {
     if output.exists() { return Err(BuildError::OutputExists(output.display().to_string())); }
     let input = fs::read_to_string(profile_path).map_err(|e| BuildError::Io(format!("cannot read {}: {e}", profile_path.display())))?;
@@ -306,13 +362,46 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             let path = base.join(fixture);
             let text = fs::read_to_string(&path).map_err(|e| BuildError::Source(format!("fixture {}: {e}", path.display())))?;
             let catalog: Value = serde_json::from_str(&text).map_err(|e| BuildError::Source(format!("fixture {} is invalid JSON: {e}", path.display())))?;
-            collection_outcomes.push(json!({
-                "id": format!("fixture:{fixture}"),
-                "kind": "fixture",
-                "name": fixture,
-                "surface": "catalog",
-                "status": "succeeded"
-            }));
+            // A sibling manifest preserves explicit partial outcomes in sanitized fixture packages.
+            let fixture_manifest_path = path
+                .parent()
+                .unwrap_or(base)
+                .join("manifest.json");
+            let fixture_outcomes = if fixture_manifest_path.is_file() {
+                let manifest_text = fs::read_to_string(&fixture_manifest_path).map_err(|error| {
+                    BuildError::Source(format!(
+                        "fixture manifest {}: {error}",
+                        fixture_manifest_path.display()
+                    ))
+                })?;
+                let manifest: Value = serde_json::from_str(&manifest_text).map_err(|error| {
+                    BuildError::Source(format!(
+                        "fixture manifest {} is invalid JSON: {error}",
+                        fixture_manifest_path.display()
+                    ))
+                })?;
+                manifest
+                    .pointer("/collection/sources")
+                    .and_then(Value::as_array)
+                    .cloned()
+            } else {
+                None
+            };
+            if let Some(outcomes) = fixture_outcomes {
+                collection_outcomes.extend(outcomes);
+            } else {
+                for source in catalog["sources"].as_array().into_iter().flatten() {
+                    collection_outcomes.push(json!({
+                        "id": format!("fixture:{fixture}:{}", source["id"].as_str().unwrap_or_default()),
+                        "kind": "fixture",
+                        "name": fixture,
+                        "surface": "catalog",
+                        "sourceId": source["id"],
+                        "revision": source["revision"],
+                        "status": "succeeded"
+                    }));
+                }
+            }
             catalogs.push((fixture.clone(), catalog));
         }
     } else {
@@ -409,6 +498,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     "kind": "plugin-inventory",
                     "name": controller.id,
                     "surface": "plugin-inventory",
+                    "sourceId": controller_source_id,
                     "status": plugin_status
                 });
                 if let Some(code) = plugin_error {
@@ -436,6 +526,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     "kind": "plugin-inventory",
                     "name": controller.id,
                     "surface": "plugin-inventory",
+                    "sourceId": controller_source_id,
                     "status": "skipped-by-profile"
                 }));
             }
@@ -532,6 +623,10 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     _ if runtime_error.as_deref() == Some("permission-denied") => ("permission-denied", runtime_error.clone()),
                     _ => ("unavailable", runtime_error.clone().or_else(|| Some("probe-failed".into()))),
                 };
+                let observed_symbols = runtime_symbols(&runtime_record, &controller_source_id);
+                if let Some(symbols) = catalog["symbols"].as_array_mut() {
+                    symbols.extend(observed_symbols);
+                }
                 catalog["controller"]["runtime"] = runtime_record;
                 let mut outcome = json!({
                     "id": format!("controller:{}:script-console", controller.id),
@@ -551,6 +646,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     "kind": "script-console",
                     "name": controller.id,
                     "surface": "script-console",
+                    "sourceId": controller_source_id,
                     "status": "skipped-by-profile"
                 }));
             }
@@ -563,6 +659,10 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     _ => 4
                 });
             }
+            let declarative_runtime = catalog
+                .get("controller")
+                .and_then(|value| value.get("runtime"))
+                .cloned();
             catalogs.push((format!("Jenkins controller '{}'", controller.id), catalog));
 
             if controller_metadata_available {
@@ -602,6 +702,9 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             for symbol in &mut model_symbols {
                 let local_id = symbol["id"].as_str().unwrap_or("unknown").to_owned();
                 symbol["id"] = json!(format!("{source_id}:{local_id}"));
+            }
+            if let Some(runtime) = declarative_runtime.as_ref() {
+                model_symbols.extend(declarative_model::runtime_symbols(runtime, &source_id));
             }
             let model_catalog = json!({
                 "schemaVersion":"1.0.0","catalogId":source_id,"generatedAt":build_timestamp(),
@@ -809,6 +912,10 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             }
         }
     }
+    let included_source_ids = sources
+        .iter()
+        .filter_map(|source| source["id"].as_str())
+        .collect::<HashSet<_>>();
     for outcome in &mut collection_outcomes {
         let kind = outcome["kind"].as_str().unwrap_or_default();
         let section = match kind {
@@ -817,8 +924,12 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             "shared-library" => Some(PackageSection::SharedLibraries),
             _ => None,
         };
+        let source_excluded = outcome["sourceId"]
+            .as_str()
+            .is_some_and(|source_id| !included_source_ids.contains(source_id));
         let excluded = section.is_some_and(|section| !selection.includes(section))
-            || (kind == "plugin-inventory" && !selection.includes(PackageSection::Plugins));
+            || (kind == "plugin-inventory" && !selection.includes(PackageSection::Plugins))
+            || source_excluded;
         if excluded {
             outcome["status"] = json!("skipped-by-profile");
             if let Some(fields) = outcome.as_object_mut() {
@@ -837,16 +948,49 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             v["surface"].as_str().unwrap_or("").to_owned(),
         )
     });
+    let collection_completed_at = build_timestamp();
+    for source in &mut sources {
+        let source_id = source["id"].as_str().unwrap_or_default();
+        source["collection"] = source_collection_summary(
+            source_id,
+            &collection_outcomes,
+            &profile.collection_profile,
+            &collection_started_at,
+            &collection_completed_at,
+        );
+    }
+    let all_sources_reported = sources.iter().all(|source| {
+        source["collection"]["status"].as_str().is_some_and(|status| status != "unknown")
+    });
+    let reason_codes = completeness_reason_codes(&collection_outcomes);
+    let completeness_status = if !all_sources_reported {
+        "unknown"
+    } else if !reason_codes.is_empty() {
+        "partial"
+    } else {
+        "complete"
+    };
     let mut catalog = json!({
         "schemaVersion":"1.0.0",
         "catalogId":profile.package.id.clone().unwrap_or_else(|| profile.profile.clone()),
         "generatedAt":build_timestamp(),
+        "completeness":{"status":completeness_status,"reasonCodes":reason_codes},
         "sources":sources,
         "symbols":symbols,
         "coverage":coverage
     });
     if let Some(controller) = controller_metadata {
         catalog["controller"] = controller;
+    }
+    stamp_catalog_identity(&mut catalog).map_err(BuildError::InvalidCatalog)?;
+    for source in catalog["sources"].as_array().into_iter().flatten() {
+        if let (Some(id), Some(fingerprint)) =
+            (source["id"].as_str(), source["fingerprint"].as_str())
+        {
+            if let Some(record) = provenance.get_mut(id) {
+                record["fingerprint"] = json!(fingerprint);
+            }
+        }
     }
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
     validate_catalog(&catalog, &schema).map_err(|e| BuildError::InvalidCatalog(e.to_string()))?;
@@ -871,15 +1015,10 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         "checksums":{"catalog.json":hex(&Sha256::digest(catalog_bytes.as_bytes()))},
         "toolVersions":{"knowledge-builder":env!("CARGO_PKG_VERSION")},
         "collection": {
-            "status": if collection_outcomes.iter().any(|outcome|
-                !matches!(outcome["status"].as_str(), Some("succeeded" | "skipped-by-profile" | "not-configured"))) {
-                "partial"
-            } else {
-                "complete"
-            },
+            "status": completeness_status,
             "profile": profile.collection_profile,
             "startedAt": collection_started_at,
-            "completedAt": build_timestamp(),
+            "completedAt": collection_completed_at,
             "sources": collection_outcomes
         }
     });
@@ -952,9 +1091,34 @@ fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collec
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, validate_profile, Profile};
+    use super::{build_package, runtime_symbols, validate_profile, Profile};
     use serde_json::{json, Value};
     use std::fs;
+
+    #[test]
+    fn emits_distinct_controller_observed_symbols_for_duplicate_runtime_steps() {
+        let runtime = json!({
+            "collectedAt": "2026-11-26T00:00:00Z",
+            "extensionRegistries": [{
+                "name": "pipeline-steps",
+                "items": [
+                    {"name":"deploy","className":"plugin.OneStep","plugin":"one","parameters":[{"name":"target","type":"java.lang.String","required":true}]},
+                    {"name":"deploy","className":"plugin.TwoStep","plugin":"two"}
+                ]
+            },{
+                "name":"pipeline-globals",
+                "items":[{"name":"env","className":"workflow.Env"}]
+            }]
+        });
+        let symbols = runtime_symbols(&runtime, "controller:test");
+        assert_eq!(symbols.len(), 3);
+        assert_ne!(symbols[0]["id"], symbols[1]["id"]);
+        assert_eq!(symbols[0]["kind"], "step");
+        assert_eq!(symbols[0]["parameters"][0]["name"], "target");
+        assert_eq!(symbols[1]["namespace"], "two");
+        assert_eq!(symbols[2]["kind"], "global-variable");
+        assert_eq!(symbols[0]["evidence"][0]["kind"], "controller-observed");
+    }
 
     #[test]
     fn preserves_collection_coverage_in_merged_catalog() {

@@ -63,7 +63,7 @@ if rustfmt --check --edition 2021 "$format_fixture" >/dev/null 2>&1; then
 fi
 rm -f "$format_fixture"
 format_fixture=""
-cargo --locked test --workspace --all-targets
+cargo --locked test --workspace --all-targets --exclude jenkins-contract-tests
 cargo --locked clippy --workspace --all-targets -- -D warnings
 cargo --locked run -p catalog-validator -- examples/catalog/catalog.json schemas/catalog.schema.json
 

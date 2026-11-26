@@ -572,7 +572,7 @@ fn main() {
     }
 }
 
-fn serve() -> Result<(), Box<dyn Error>> {
+pub fn serve() -> Result<(), Box<dyn Error>> {
     let (connection, io_threads) = Connection::stdio();
     let (initialize_id, initialization) = connection.initialize_start()?;
     connection.initialize_finish(initialize_id, json!({

@@ -196,21 +196,52 @@ fn handle(rt: &Runtime, req: Value) -> Option<Value> {
     };
     Some(match result { Ok(v)=>reply(id,v), Err(e)=>json!({"jsonrpc":"2.0","id":id,"error":e}) })
 }
-fn main() {
-    let mut args=std::env::args().skip(1); let mut package=None;
-    while let Some(arg)=args.next() { if arg=="--package" || arg=="-p" { package=args.next(); } }
-    let package=package.or_else(||std::env::var("JENKINS_KNOWLEDGE_PACKAGE").ok()).unwrap_or_else(||{
-        eprintln!("Usage: jenkins-mcp --package <knowledge-package-dir>"); std::process::exit(2)
-    });
-    let runtime=Runtime::open(package).unwrap_or_else(|e|{eprintln!("Cannot load Knowledge Package: {e}");std::process::exit(2)});
-    let stdin=io::stdin(); let mut stdout=io::BufWriter::new(io::stdout().lock());
+pub fn serve(package: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let runtime = Runtime::open(package)?;
+    let stdin = io::stdin();
+    let mut stdout = io::BufWriter::new(io::stdout().lock());
     for line in stdin.lock().lines() {
-        let Ok(line)=line else { break }; if line.trim().is_empty(){continue;}
-        let response=match serde_json::from_str::<Value>(&line) {
-            Ok(req)=>handle(&runtime,req),
-            Err(e)=>Some(json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":e.to_string()}}))
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let response = match serde_json::from_str::<Value>(&line) {
+            Ok(request) => handle(&runtime, request),
+            Err(error) => Some(json!({
+                "jsonrpc":"2.0",
+                "id":null,
+                "error":{"code":-32700,"message":error.to_string()}
+            }))
         };
-        if let Some(response)=response { if writeln!(stdout,"{response}").and_then(|_|stdout.flush()).is_err(){break;} }
+        if let Some(response) = response {
+            if writeln!(stdout, "{response}")
+                .and_then(|_| stdout.flush())
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn main() {
+    let mut args = std::env::args().skip(1);
+    let mut package = None;
+    while let Some(arg) = args.next() {
+        if arg == "--package" || arg == "-p" {
+            package = args.next();
+        }
+    }
+    let package = package
+        .or_else(|| std::env::var("JENKINS_KNOWLEDGE_PACKAGE").ok())
+        .unwrap_or_else(|| {
+            eprintln!("Usage: jenkins-mcp --package <knowledge-package-dir>");
+            std::process::exit(2)
+        });
+    if let Err(error) = serve(&package) {
+        eprintln!("Cannot serve Knowledge Package: {error}");
+        std::process::exit(2);
     }
 }
 

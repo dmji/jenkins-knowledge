@@ -1,0 +1,6 @@
+profile: contract-primary
+collectionProfile: deep
+fixtures:
+  - catalog.json
+package:
+  id: contract-primary

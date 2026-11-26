@@ -1,0 +1,5 @@
+profile: contract-alternate
+fixtures:
+  - catalog.json
+package:
+  id: contract-alternate
