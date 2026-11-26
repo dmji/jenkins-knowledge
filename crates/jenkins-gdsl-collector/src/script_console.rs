@@ -731,6 +731,23 @@ mod tests {
     }
 
     #[test]
+    fn preserves_step_and_global_results_when_declarative_plugin_is_unavailable() {
+        let mut output = valid_probe_output();
+        output["extensionRegistries"][2]["status"] = json!("unavailable");
+        output["extensionRegistries"][2]["items"] = json!([]);
+        output["extensionRegistries"][2]["errorCode"] = json!("extension-type-unavailable");
+        output["errors"] = json!([{
+            "probe": "declarative-extensions",
+            "code": "extension-type-unavailable"
+        }]);
+        let result = normalize_probe_output(&output);
+        assert_eq!(result["status"], "partial");
+        assert_eq!(result["extensionRegistries"][0]["status"], "available");
+        assert_eq!(result["extensionRegistries"][1]["status"], "available");
+        assert_eq!(result["extensionRegistries"][2]["status"], "unavailable");
+    }
+
+    #[test]
     fn rejects_incompatible_probe_versions_without_static_fallback() {
         let mut output = valid_probe_output();
         output["schemaVersion"] = json!("2.0.0");
@@ -848,6 +865,12 @@ mod tests {
     fn fixed_probe_source_does_not_accept_or_evaluate_caller_groovy() {
         assert!(SCRIPT_TEMPLATE.contains("StepDescriptor"));
         assert!(SCRIPT_TEMPLATE.contains("GlobalVariable"));
+        assert!(SCRIPT_TEMPLATE.contains("DeclarativeAgentDescriptor"));
+        assert!(SCRIPT_TEMPLATE.contains("DeclarativeOptionDescriptor"));
+        assert!(SCRIPT_TEMPLATE.contains("DeclarativeStageConditionalDescriptor"));
+        assert!(SCRIPT_TEMPLATE.contains("BuildCondition"));
+        assert!(SCRIPT_TEMPLATE.contains("ParameterDefinition"));
+        assert!(SCRIPT_TEMPLATE.contains("hudson.triggers.Trigger"));
         assert!(!SCRIPT_TEMPLATE.contains("GroovyShell"));
         assert!(!SCRIPT_TEMPLATE.contains("evaluate("));
         assert!(!SCRIPT_TEMPLATE.contains(".toString("));
@@ -869,6 +892,7 @@ mod tests {
         assert_eq!(plan["networkRequests"][3]["path"], "/scriptText");
         assert_eq!(plan["networkRequests"][3]["responseCapBytes"], MAX_SCRIPT_RESPONSE_BYTES);
         assert_eq!(plan["scriptConsole"]["registries"][0], "pipeline-steps");
+        assert_eq!(plan["scriptConsole"]["registries"][2], "declarative-extensions");
         assert_eq!(plan["scriptConsole"]["serverSideTerminationGuaranteed"], false);
         assert!(plan["scriptConsole"]["timeoutBehavior"].as_str().unwrap().contains("may continue"));
     }
