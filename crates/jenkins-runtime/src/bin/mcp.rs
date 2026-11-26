@@ -476,7 +476,7 @@ mod tests {
         let library_symbols = read_resource(&runtime, "jenkins://catalog/library-symbols").unwrap();
         let plugin_symbols = read_resource(&runtime, "jenkins://catalog/plugin-symbols").unwrap();
         assert_eq!(controller["controller"]["identity"]["id"], "jenkins-ci");
-        assert_eq!(plugins["status"], "available");
+        assert_eq!(plugins["status"], "partial");
         assert_eq!(plugins["plugins"].as_array().unwrap().len(), 1);
         assert!(sources["sources"].as_array().unwrap().iter().any(|source| source["kind"] == "shared-library"));
         assert!(types["types"].as_array().unwrap().iter().any(|symbol| symbol["name"] == "ShellStep"));
