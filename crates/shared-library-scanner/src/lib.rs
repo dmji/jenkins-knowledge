@@ -349,6 +349,11 @@ fn run_git_inner(directory: &Path, args: &[&str], limit: u64) -> Result<String, 
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     let mut child = command
         .spawn()
         .map_err(|_| ScanError::Git("cannot start git".into()))?;
