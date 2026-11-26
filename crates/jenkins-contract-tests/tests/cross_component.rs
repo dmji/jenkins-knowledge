@@ -285,6 +285,7 @@ fn run_mcp(package: &Path, expected: &Value) {
     assert!(tool_names.contains(&"search_api"));
     assert!(tool_names.contains(&"get_api_details"));
     assert!(tool_names.contains(&"get_pipeline_step"));
+    assert!(tool_names.contains(&"get_controller_inventory"));
 
     let search = mcp_request(
         &mut writer,
@@ -341,10 +342,48 @@ fn run_mcp(package: &Path, expected: &Value) {
         .iter()
         .any(|source| source["status"] == "permission-denied"));
 
-    let type_query = mcp_request(
+    let inventory = mcp_request(
         &mut writer,
         &mut reader,
         7,
+        "tools/call",
+        json!({"name":"get_controller_inventory","arguments":{}}),
+    );
+    let inventory = &inventory["result"]["structuredContent"];
+    assert_eq!(inventory["profile"], "contract-primary");
+    assert_eq!(
+        inventory["controller"]["identity"]["id"],
+        "controller-fixture"
+    );
+    assert_eq!(inventory["controller"]["coreVersion"], "2.500");
+    assert_eq!(inventory["plugins"]["status"], "unknown");
+    assert_eq!(inventory["plugins"]["items"].as_array().unwrap().len(), 2);
+    assert_eq!(inventory["capabilities"]["status"], "known");
+    assert_eq!(inventory["collection"]["controller"]["profile"], "deep");
+    assert_eq!(inventory["collection"]["package"]["status"], "partial");
+    assert_eq!(
+        inventory["freshness"]["controllerObservedAt"],
+        "2026-01-01T00:00:00Z"
+    );
+    assert!(inventory["provenance"]["controllerSource"]["manifestProvenance"].is_object());
+
+    let inventory_resource = mcp_request(
+        &mut writer,
+        &mut reader,
+        8,
+        "resources/read",
+        json!({"uri":"jenkins://catalog/controller-inventory"}),
+    );
+    let inventory_text = inventory_resource["result"]["contents"][0]["text"]
+        .as_str()
+        .unwrap();
+    let inventory_resource: Value = serde_json::from_str(inventory_text).unwrap();
+    assert_eq!(inventory_resource["plugins"]["status"], "unknown");
+
+    let type_query = mcp_request(
+        &mut writer,
+        &mut reader,
+        9,
         "tools/call",
         json!({"name":"search_api","arguments":{
             "query":"getInstance",
