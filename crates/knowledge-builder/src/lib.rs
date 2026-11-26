@@ -1202,6 +1202,48 @@ mod tests {
     }
 
     #[test]
+    fn publishes_bounded_api_types_methods_and_properties_with_provenance() {
+        let runtime = json!({
+            "collectedAt": "2026-11-26T00:00:00Z",
+            "extensionRegistries": [],
+            "apiTypes": [{
+                "name": "org.example.DeployStep",
+                "kind": "class",
+                "synthetic": false,
+                "superclass": "java.lang.Object",
+                "interfaces": ["java.io.Serializable"],
+                "plugin": "example-plugin",
+                "methods": [{
+                    "name": "deploy",
+                    "signature": "deploy(java.lang.String):void",
+                    "returnType": "void",
+                    "parameterTypes": ["java.lang.String"],
+                    "synthetic": false,
+                    "modifiers": "public"
+                }],
+                "properties": [{
+                    "name": "target",
+                    "type": "java.lang.String",
+                    "readable": true,
+                    "writable": false
+                }]
+            }]
+        });
+        let symbols = runtime_symbols(&runtime, "controller:test");
+        assert_eq!(symbols.len(), 3);
+        assert_eq!(symbols[0]["kind"], "class");
+        assert_eq!(symbols[0]["interfaces"][0], "java.io.Serializable");
+        assert_eq!(symbols[1]["kind"], "method");
+        assert_eq!(symbols[1]["namespace"], "org.example.DeployStep");
+        assert_eq!(symbols[1]["parameters"][0]["type"], "java.lang.String");
+        assert_eq!(symbols[2]["kind"], "property");
+        assert_eq!(symbols[2]["typeName"], "java.lang.String");
+        assert_eq!(symbols[2]["readable"], true);
+        assert_eq!(symbols[2]["writable"], false);
+        assert_eq!(symbols[0]["evidence"][0]["kind"], "controller-observed");
+    }
+
+    #[test]
     fn preserves_collection_coverage_in_merged_catalog() {
         let directory = tempfile::tempdir().unwrap();
         let mut catalog: Value = serde_json::from_str(include_str!(
