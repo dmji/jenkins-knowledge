@@ -563,6 +563,10 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     _ => 4
                 });
             }
+            // Builder enriches collector snapshots with profile and optional-surface
+            // outcomes. Recompute source fingerprints and snapshot identity after
+            // those deterministic mutations, before validating the merged package.
+            stamp_catalog_identity(&mut catalog).map_err(BuildError::InvalidCatalog)?;
             catalogs.push((format!("Jenkins controller '{}'", controller.id), catalog));
 
             if controller_metadata_available {
