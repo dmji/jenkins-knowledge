@@ -871,6 +871,8 @@ mod tests {
         assert!(SCRIPT_TEMPLATE.contains("BuildCondition"));
         assert!(SCRIPT_TEMPLATE.contains("ParameterDefinition"));
         assert!(SCRIPT_TEMPLATE.contains("hudson.triggers.Trigger"));
+        assert!(SCRIPT_TEMPLATE.contains("getKlass()"));
+        assert!(!SCRIPT_TEMPLATE.contains("getClazz()"));
         assert!(!SCRIPT_TEMPLATE.contains("GroovyShell"));
         assert!(!SCRIPT_TEMPLATE.contains("evaluate("));
         assert!(!SCRIPT_TEMPLATE.contains(".toString("));
