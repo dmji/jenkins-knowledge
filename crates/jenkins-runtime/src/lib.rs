@@ -587,14 +587,26 @@ mod tests {
         let catalog_bytes = serde_json::to_vec(catalog).unwrap();
         fs::write(directory.join("catalog.json"), &catalog_bytes).unwrap();
         let checksum = hex(&Sha256::digest(&catalog_bytes));
+        let mut source_revisions = serde_json::Map::new();
+        let mut provenance = serde_json::Map::new();
+        for source in catalog["sources"].as_array().into_iter().flatten() {
+            let Some(id) = source["id"].as_str() else { continue; };
+            source_revisions.insert(id.into(), source["revision"].clone());
+            provenance.insert(id.into(), serde_json::json!({
+                "name": source["name"],
+                "kind": source["kind"],
+                "revision": source["revision"],
+                "url": source.get("url").cloned().unwrap_or(Value::Null)
+            }));
+        }
         let manifest = serde_json::json!({
             "packageVersion": "1.0.0",
             "catalogSchemaVersion": "1.0.0",
             "profile": "test",
             "createdAt": "2026-01-01T00:00:00Z",
             "catalog": "catalog.json",
-            "sourceRevisions": {},
-            "provenance": {},
+            "sourceRevisions": source_revisions,
+            "provenance": provenance,
             "checksums": {"catalog.json": checksum},
             "toolVersions": {}
         });
