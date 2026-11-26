@@ -81,6 +81,10 @@ pub fn source_collection_summary(
     let truncated = related.iter().any(|outcome| {
         outcome["status"] == "succeeded-with-truncation"
             || outcome["truncated"].as_bool() == Some(true)
+            || matches!(
+                outcome["errorCode"].as_str(),
+                Some("output-truncated" | "limit-exceeded" | "response-too-large")
+            )
     });
     let all_skipped = !statuses.is_empty()
         && statuses.iter().all(|status| *status == "skipped-by-profile");
