@@ -1,5 +1,5 @@
 use catalog_validator::{redact_sensitive_fields, validate_catalog, validate_package_metadata};
-use jenkins_gdsl_collector::CollectorError;
+use jenkins_gdsl_collector::{CollectorError, DiscoveryError};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -321,66 +321,123 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         for controller in &profile.jenkins.controllers {
             // Core controller metadata is mandatory. Optional inventories and GDSL
             // are recorded independently so their failure cannot discard valid data.
-            let mut catalog = jenkins_gdsl_collector::discover(
+            let gdsl_only_profile = selection.explicit
+                && selection.included.len() == 1
+                && selection.includes(PackageSection::Controller)
+                && profile.collection_profile == "standard";
+            let discovery = jenkins_gdsl_collector::discover(
                 &controller.url,
                 username.as_deref(),
                 api_token.as_deref(),
-            )
-            .map_err(|error| BuildError::Source(format!(
-                "Jenkins controller '{}' mandatory metadata collection failed: {error}",
-                controller.id
-            )))?;
+            );
+            let (mut catalog, controller_metadata_available, discovery_failure) = match discovery {
+                Ok(snapshot) => (snapshot, true, None),
+                Err(error) if gdsl_only_profile => {
+                    // Preserve legacy GDSL-only profiles: when the caller explicitly
+                    // selects only the controller/GDSL section, Core metadata is not
+                    // a prerequisite for the requested catalog.
+                    let gdsl = jenkins_gdsl_collector::collect(
+                        &controller.url,
+                        username.as_deref(),
+                        api_token.as_deref(),
+                    )
+                    .map_err(|gdsl_error| BuildError::Source(format!(
+                        "Jenkins controller '{}' GDSL collection failed: {gdsl_error}",
+                        controller.id
+                    )))?;
+                    (gdsl, false, Some(error))
+                }
+                Err(error) => {
+                    return Err(BuildError::Source(format!(
+                        "Jenkins controller '{}' mandatory metadata collection failed: {error}",
+                        controller.id
+                    )));
+                }
+            };
             let controller_source_id = catalog["sources"][0]["id"]
                 .as_str()
-                .ok_or_else(|| BuildError::Source("controller discovery returned no source identity".into()))?
+                .ok_or_else(|| BuildError::Source("controller collection returned no source identity".into()))?
                 .to_owned();
             let core_version = catalog["controller"]["coreVersion"]
                 .as_str()
                 .unwrap_or("unknown")
                 .to_owned();
 
-            collection_outcomes.push(json!({
-                "id": format!("controller:{}", controller.id),
-                "kind": "controller",
-                "name": controller.id,
-                "surface": "controller-metadata",
-                "sourceId": controller_source_id,
-                "revision": catalog["sources"][0]["revision"],
-                "status": "succeeded"
-            }));
-
-            let plugin_coverage = catalog["coverage"].as_array()
-                .and_then(|entries| entries.iter().find(|entry| entry["surface"] == "plugin-inventory"));
-            let (plugin_status, plugin_error) = match plugin_coverage {
-                Some(entry) if entry["status"] == "inspected" => ("succeeded", None),
-                Some(entry) if entry["status"] == "unavailable" => {
-                    let details = entry["details"].as_str().unwrap_or_default();
-                    if details.contains("HTTP 401") || details.contains("HTTP 403") {
-                        ("permission-denied", Some("permission-denied"))
-                    } else {
-                        ("unavailable", Some("http-unavailable"))
-                    }
-                }
-                Some(entry) if entry["details"].as_str().unwrap_or_default().contains("exceeded the") =>
-                    ("failed", Some("limit-exceeded")),
-                Some(_) => ("failed", Some("invalid-response")),
-                None => ("failed", Some("missing-outcome")),
-            };
-            let mut plugin_outcome = json!({
-                "id": format!("controller:{}:plugin-inventory", controller.id),
-                "kind": "plugin-inventory",
-                "name": controller.id,
-                "surface": "plugin-inventory",
-                "status": plugin_status
-            });
-            if let Some(code) = plugin_error {
-                plugin_outcome["errorCode"] = json!(code);
+            if controller_metadata_available {
+                collection_outcomes.push(json!({
+                    "id": format!("controller:{}", controller.id),
+                    "kind": "controller",
+                    "name": controller.id,
+                    "surface": "controller-metadata",
+                    "sourceId": controller_source_id,
+                    "revision": catalog["sources"][0]["revision"],
+                    "status": "succeeded"
+                }));
+            } else {
+                let (status, code) = discovery_outcome(discovery_failure.as_ref().expect("fallback has discovery error"));
+                collection_outcomes.push(json!({
+                    "id": format!("controller:{}", controller.id),
+                    "kind": "controller",
+                    "name": controller.id,
+                    "surface": "controller-metadata",
+                    "sourceId": controller_source_id,
+                    "status": status,
+                    "errorCode": code
+                }));
             }
-            collection_outcomes.push(plugin_outcome);
+
+            if controller_metadata_available {
+                let plugin_coverage = catalog["coverage"].as_array()
+                    .and_then(|entries| entries.iter().find(|entry| entry["surface"] == "plugin-inventory"));
+                let (plugin_status, plugin_error) = match plugin_coverage {
+                    Some(entry) if entry["status"] == "inspected" => ("succeeded", None),
+                    Some(entry) if entry["status"] == "unavailable" => {
+                        let details = entry["details"].as_str().unwrap_or_default();
+                        if details.contains("HTTP 401") || details.contains("HTTP 403") {
+                            ("permission-denied", Some("permission-denied"))
+                        } else {
+                            ("unavailable", Some("http-unavailable"))
+                        }
+                    }
+                    Some(entry) if entry["details"].as_str().unwrap_or_default().contains("exceeded the") =>
+                        ("failed", Some("limit-exceeded")),
+                    Some(_) => ("failed", Some("invalid-response")),
+                    None => ("failed", Some("missing-outcome")),
+                };
+                let mut plugin_outcome = json!({
+                    "id": format!("controller:{}:plugin-inventory", controller.id),
+                    "kind": "plugin-inventory",
+                    "name": controller.id,
+                    "surface": "plugin-inventory",
+                    "status": plugin_status
+                });
+                if let Some(code) = plugin_error {
+                    plugin_outcome["errorCode"] = json!(code);
+                }
+                collection_outcomes.push(plugin_outcome);
+            } else {
+                collection_outcomes.push(json!({
+                    "id": format!("controller:{}:plugin-inventory", controller.id),
+                    "kind": "plugin-inventory",
+                    "name": controller.id,
+                    "surface": "plugin-inventory",
+                    "status": "skipped-by-profile"
+                }));
+            }
 
             // Full GDSL extraction is part of standard/deep; quick only performs
             // the bounded one-byte availability probe in discover().
-            if profile.collection_profile == "quick" {
+            if !controller_metadata_available {
+                collection_outcomes.push(json!({
+                    "id": format!("controller:{}:pipeline-gdsl", controller.id),
+                    "kind": "pipeline-gdsl",
+                    "name": controller.id,
+                    "surface": "pipeline-gdsl",
+                    "sourceId": controller_source_id,
+                    "revision": catalog["sources"][0]["revision"],
+                    "status": "succeeded"
+                }));
+            } else if profile.collection_profile == "quick" {
                 collection_outcomes.push(json!({
                     "id": format!("controller:{}:pipeline-gdsl", controller.id),
                     "kind": "pipeline-gdsl",
@@ -442,7 +499,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     }
                 }
             }
-            if profile.collection_profile == "deep" {
+            if profile.collection_profile == "deep" && controller_metadata_available {
                 let mut runtime_record = jenkins_gdsl_collector::collect_script_console(
                     &controller.url,
                     username.as_deref(),
@@ -482,15 +539,18 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     "status": "skipped-by-profile"
                 }));
             }
-            catalog["controller"]["collection"]["profile"] = json!(profile.collection_profile);
-            catalog["controller"]["collection"]["requestCount"] = json!(match profile.collection_profile.as_str() {
-                "quick" => 3,
-                "standard" => 4,
-                "deep" => 5,
-                _ => 4
-            });
+            if controller_metadata_available {
+                catalog["controller"]["collection"]["profile"] = json!(profile.collection_profile);
+                catalog["controller"]["collection"]["requestCount"] = json!(match profile.collection_profile.as_str() {
+                    "quick" => 3,
+                    "standard" => 4,
+                    "deep" => 5,
+                    _ => 4
+                });
+            }
             catalogs.push((format!("Jenkins controller '{}'", controller.id), catalog));
 
+            if controller_metadata_available {
             let core_source_id = format!("jenkins-core-{}", controller.id);
             let core_catalog = json!({
                 "schemaVersion": "1.0.0",
@@ -519,6 +579,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 "status": "succeeded"
             }));
             catalogs.push((format!("Jenkins Core for '{}'", controller.id), core_catalog));
+            }
 
             let source_id = format!("declarative-model-{}", controller.id);
             let fragment = declarative_model::catalog_fragment(&source_id);
@@ -825,6 +886,24 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     fs::rename(staging.path(), output)
         .map_err(|error| BuildError::Io(format!("cannot publish package {}: {error}", output.display())))?;
     Ok(())
+}
+
+fn discovery_outcome(error: &DiscoveryError) -> (&'static str, &'static str) {
+    match error {
+        DiscoveryError::AuthenticationFailed { .. } | DiscoveryError::Unavailable { status: 401 | 403, .. } =>
+            ("permission-denied", "permission-denied"),
+        DiscoveryError::Unavailable { .. } => ("unavailable", "http-unavailable"),
+        DiscoveryError::RequestTimeout { .. } => ("failed", "request-timeout"),
+        DiscoveryError::ResponseTooLarge { .. } => ("failed", "response-too-large"),
+        DiscoveryError::MalformedJson { .. } | DiscoveryError::InvalidPluginInventory =>
+            ("failed", "invalid-response"),
+        DiscoveryError::TooManyPlugins { .. } | DiscoveryError::TooManyDependencies { .. } =>
+            ("failed", "limit-exceeded"),
+        DiscoveryError::InvalidCatalog(_) => ("failed", "invalid-catalog"),
+        DiscoveryError::InvalidControllerUrl => ("failed", "invalid-controller-url"),
+        DiscoveryError::CredentialsMustBePaired => ("failed", "credentials-must-be-paired"),
+        DiscoveryError::RequestFailed { .. } => ("failed", "request-failed"),
+    }
 }
 
 fn collector_outcome(error: &CollectorError) -> (&'static str, &'static str) {
