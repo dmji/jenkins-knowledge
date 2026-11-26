@@ -892,6 +892,7 @@
             "jenkins-core-version",
             "pipeline-steps",
             "pipeline-globals",
+            "declarative-extensions",
             "output"
           ]
         },
