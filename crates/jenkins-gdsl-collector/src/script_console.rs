@@ -244,6 +244,74 @@ fn normalize_probe_output(value: &Value) -> Value {
     }
     runtime["extensionRegistries"] = json!(registry_results);
 
+    // Keep the API inventory separate from Jenkins extension symbols. Accept only
+    // bounded, explicitly-shaped reflection metadata from the fixed probe.
+    let mut api_types = Vec::new();
+    if let Some(raw_types) = value.get("apiTypes").and_then(Value::as_array) {
+        for raw_type in raw_types.iter().take(50) {
+            let Some(name) = raw_type.get("name").and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty()) else { continue; };
+            let kind = raw_type.get("kind").and_then(Value::as_str)
+                .filter(|value| matches!(*value, "class" | "interface" | "enum"))
+                .unwrap_or("class");
+            let mut item = json!({
+                "name": truncate(name),
+                "kind": kind,
+                "synthetic": raw_type.get("synthetic").and_then(Value::as_bool).unwrap_or(false),
+                "methods": [],
+                "properties": []
+            });
+            for field in ["superclass", "modifiers", "plugin"] {
+                if let Some(text) = raw_type.get(field).and_then(Value::as_str).filter(|v| !v.trim().is_empty()) {
+                    item[field] = json!(truncate(text));
+                }
+            }
+            if let Some(interfaces) = raw_type.get("interfaces").and_then(Value::as_array) {
+                item["interfaces"] = json!(interfaces.iter().filter_map(Value::as_str)
+                    .filter(|v| !v.trim().is_empty()).take(16).map(truncate).collect::<Vec<_>>());
+            }
+            let mut methods = Vec::new();
+            if let Some(raw_methods) = raw_type.get("methods").and_then(Value::as_array) {
+                for method in raw_methods.iter().take(50) {
+                    let Some(method_name) = method.get("name").and_then(Value::as_str)
+                        .filter(|v| !v.trim().is_empty()) else { continue; };
+                    let mut normalized = json!({
+                        "name": truncate(method_name),
+                        "synthetic": method.get("synthetic").and_then(Value::as_bool).unwrap_or(false)
+                    });
+                    for field in ["signature", "returnType", "modifiers"] {
+                        if let Some(text) = method.get(field).and_then(Value::as_str).filter(|v| !v.trim().is_empty()) {
+                            normalized[field] = json!(truncate(text));
+                        }
+                    }
+                    if let Some(types) = method.get("parameterTypes").and_then(Value::as_array) {
+                        normalized["parameterTypes"] = json!(types.iter().filter_map(Value::as_str)
+                            .take(16).map(truncate).collect::<Vec<_>>());
+                    }
+                    methods.push(normalized);
+                }
+            }
+            item["methods"] = json!(methods);
+            let mut properties = Vec::new();
+            if let Some(raw_properties) = raw_type.get("properties").and_then(Value::as_array) {
+                for property in raw_properties.iter().take(50) {
+                    let Some(property_name) = property.get("name").and_then(Value::as_str)
+                        .filter(|v| !v.trim().is_empty()) else { continue; };
+                    properties.push(json!({
+                        "name": truncate(property_name),
+                        "readable": property.get("readable").and_then(Value::as_bool).unwrap_or(false),
+                        "writable": property.get("writable").and_then(Value::as_bool).unwrap_or(false)
+                    }));
+                }
+            }
+            item["properties"] = json!(properties);
+            api_types.push(item);
+        }
+    }
+    runtime["apiTypes"] = json!(api_types);
+    runtime["apiTypesTruncated"] = json!(value.get("apiTypesTruncated").and_then(Value::as_bool).unwrap_or(false)
+        || value.get("apiTypes").and_then(Value::as_array).is_some_and(|items| items.len() > 50));
+
     if let Some(raw_errors) = value.get("errors").and_then(Value::as_array) {
         for error in raw_errors.iter().take(16) {
             let probe = error
