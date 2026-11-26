@@ -431,7 +431,7 @@ fn url_has_credentials(value: &str) -> bool {
     let query_has_secrets = value.split_once('?').is_some_and(|(_, query)| {
         query.split('&').any(|part| {
             let key = part.split('=').next().unwrap_or_default();
-            is_secret_field_name(key)
+            is_secret_query_parameter(key)
         })
     });
     authority_has_credentials || query_has_secrets
@@ -442,6 +442,12 @@ fn normalized_secret_key(key: &str) -> String {
         .filter(|character| character.is_ascii_alphanumeric())
         .map(|character| character.to_ascii_lowercase())
         .collect()
+}
+
+fn is_secret_query_parameter(key: &str) -> bool {
+    let normalized = normalized_secret_key(key);
+    is_secret_field_name(key)
+        || matches!(normalized.as_str(), "sig" | "signature" | "xamzsignature" | "xgoogsignature")
 }
 
 /// Shared key policy used by catalog validation and ingestion-time redaction.
@@ -468,7 +474,6 @@ pub fn is_secret_field_name(key: &str) -> bool {
         "authmaterial",
         "basicauth",
         "bearer",
-        "signature",
     ]
     .iter()
     .any(|needle| normalized.contains(needle))
@@ -964,7 +969,7 @@ mod tests {
         ] {
             assert!(is_secret_field_name(key), "{key}");
         }
-        for key in ["description", "displayName", "username", "apiBaseUrl", "repositoryUrl", "key"] {
+        for key in ["description", "displayName", "username", "apiBaseUrl", "repositoryUrl", "key", "signature"] {
             assert!(!is_secret_field_name(key), "{key}");
         }
     }
