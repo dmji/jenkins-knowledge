@@ -325,10 +325,12 @@ fn normalize_registry(
             {
                 normalized["plugin"] = json!(truncate(plugin));
             }
-            for field in ["displayName"] {
-                if let Some(value) = item.get(field).and_then(Value::as_str).filter(|value| !value.trim().is_empty()) {
-                    normalized[field] = json!(truncate(value));
-                }
+            if let Some(value) = item
+                .get("displayName")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                normalized["displayName"] = json!(truncate(value));
             }
             if let Some(value) = item.get("parametersTruncated").and_then(Value::as_bool) {
                 normalized["parametersTruncated"] = json!(value);
