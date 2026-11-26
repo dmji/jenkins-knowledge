@@ -723,9 +723,16 @@ def collectApiTypes = {
             }
         }
     }
-    if (!pending.isEmpty() || unresolvedRoots > 0 || errors.any { it.probe == 'api-types' }) {
+    if (!pending.isEmpty() || unresolvedRoots > 0 ||
+        result.apiTypes.any { it.status != 'available' } ||
+        errors.any { it.probe == 'api-types' }) {
         result.apiTypeInventoryStatus = 'partial'
-        if (!errors.any { it.probe == 'api-types' && it.code == 'type-traversal-truncated' }) {
+        if (result.apiTypes.any { it.status == 'partial' } &&
+            !errors.any { it.probe == 'api-types' && it.code == 'member-inspection-failed' }) {
+            errors << [probe: 'api-types', code: 'member-inspection-failed']
+        }
+        if ((!pending.isEmpty() || unresolvedRoots > 0) &&
+            !errors.any { it.probe == 'api-types' && it.code == 'type-traversal-truncated' }) {
             errors << [probe: 'api-types', code: 'type-traversal-truncated']
         }
     } else if (!result.apiTypes.isEmpty()) {
