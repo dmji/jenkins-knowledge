@@ -185,7 +185,7 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
         for (root_index, root) in controller.api_roots.iter().enumerate() {
             if !valid_api_class_name(root) {
                 return Err(BuildError::Profile(format!(
-                    "jenkins.controllers[{index}].apiRoots[{root_index}]: expected a fully-qualified Jenkins/plugin Java class name"
+                    "jenkins.controllers[{index}].apiRoots[{root_index}]: expected a fully-qualified Java class name; Groovy runtime roots are excluded"
                 )));
             }
             if !api_roots.insert(root) {
