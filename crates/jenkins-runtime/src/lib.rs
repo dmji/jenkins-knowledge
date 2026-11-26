@@ -35,6 +35,7 @@ pub struct SearchOptions {
     pub prefix: Option<String>,
     pub contexts: Option<Vec<String>>,
     pub kinds: Option<Vec<String>>,
+    pub source_kind: Option<String>,
     pub limit: usize,
 }
 
@@ -51,6 +52,7 @@ impl Default for SearchOptions {
             prefix: None,
             contexts: None,
             kinds: None,
+            source_kind: None,
             limit: DEFAULT_SEARCH_LIMIT,
         }
     }
@@ -336,12 +338,14 @@ impl Runtime {
             let matches_kind = options.kinds.as_ref().is_none_or(|kinds| {
                 kinds.iter().any(|kind| symbol["kind"].as_str() == Some(kind))
             });
+            let matches_source_kind = options.source_kind.as_deref().is_none_or(|kind| source_kind == kind);
             let matches = (query.is_empty() || ["name", "description", "signature", "namespace", "returnType"]
                 .iter().filter_map(|key| symbol.get(key).and_then(Value::as_str))
                 .any(|value| value.to_lowercase().contains(&query)))
                 && matches_prefix
                 && matches_context
                 && matches_kind
+                && matches_source_kind
                 && options.kind.as_deref().is_none_or(|value| symbol["kind"].as_str() == Some(value))
                 && options.source.as_deref().is_none_or(|value| source_id == value)
                 && matches_plugin
