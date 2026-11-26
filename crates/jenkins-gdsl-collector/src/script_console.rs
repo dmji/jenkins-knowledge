@@ -261,6 +261,7 @@ fn normalize_probe_output(value: &Value) -> Value {
                 "methods": [],
                 "properties": []
             });
+            if let Some(depth) = raw_type.get("depth").and_then(Value::as_u64).filter(|v| *v <= 1) { item["depth"] = json!(depth); }
             for field in ["superclass", "modifiers", "plugin"] {
                 if let Some(text) = raw_type.get(field).and_then(Value::as_str).filter(|v| !v.trim().is_empty()) {
                     item[field] = json!(truncate(text));
