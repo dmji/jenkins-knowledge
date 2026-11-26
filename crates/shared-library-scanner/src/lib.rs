@@ -63,12 +63,13 @@ pub fn scan_library(config: &LibraryConfig) -> Result<ScanResult, ScanError> {
 pub fn scan_library_at(config: &LibraryConfig, fetch_ref: &str) -> Result<ScanResult, ScanError> {
     validate_config(config)?;
     validate_git_reference(fetch_ref).map_err(ScanError::InvalidConfig)?;
-    let temp = tempfile::tempdir().map_err(|e| ScanError::Io(e.to_string()))?;
+    let checkout_budget = git_checkout_budget_from_environment()?;
+    let temp = tempfile::tempdir().map_err(|e| ScanError::Io(format!("cannot create temporary checkout: {e}")))?;
     run_git(temp.path(), &["init", "--quiet"])?;
     run_git(temp.path(), &["remote", "add", "origin", &config.repository])?;
-    run_git(temp.path(), &["fetch", "--quiet", "--no-tags", "--depth", "1", "--filter=blob:limit=2m", "origin", fetch_ref])?;
+    run_git_with_budget(temp.path(), &["fetch", "--quiet", "--no-tags", "--depth", "1", "--filter=blob:limit=2m", "origin", fetch_ref], checkout_budget)?;
     let commit = git_output(temp.path(), &["rev-parse", "FETCH_HEAD"])?;
-    run_git(temp.path(), &["checkout", "--quiet", "--detach", "FETCH_HEAD"])?;
+    run_git_with_budget(temp.path(), &["checkout", "--quiet", "--detach", "FETCH_HEAD"], checkout_budget)?;
     scan_checkout(config, temp.path(), commit.trim())
 }
 
@@ -165,30 +166,157 @@ fn validate_config(config: &LibraryConfig) -> Result<(), ScanError> {
 }
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(120);
-fn run_git(directory: &Path, args: &[&str]) -> Result<(), ScanError> { run_git_inner(directory, args).map(|_| ()) }
-fn git_output(directory: &Path, args: &[&str]) -> Result<String, ScanError> { run_git_inner(directory, args) }
-fn run_git_inner(directory: &Path, args: &[&str]) -> Result<String, ScanError> {
-    let mut child = Command::new("git").args(args).current_dir(directory)
+const GIT_RESOURCE_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const DEFAULT_GIT_CHECKOUT_BYTES: u64 = 256 * 1024 * 1024;
+
+fn git_checkout_budget_from_environment() -> Result<u64, ScanError> {
+    const NAME: &str = "JENKINS_KNOWLEDGE_GIT_MAX_CHECKOUT_BYTES";
+    match std::env::var(NAME) {
+        Ok(value) => value.parse::<u64>().ok().filter(|limit| *limit > 0)
+            .ok_or_else(|| ScanError::InvalidConfig(format!("{NAME} must be a positive integer"))),
+        Err(_) => Ok(DEFAULT_GIT_CHECKOUT_BYTES),
+    }
+}
+
+fn run_git(directory: &Path, args: &[&str]) -> Result<(), ScanError> {
+    run_git_inner(directory, args, None).map(|_| ())
+}
+fn git_output(directory: &Path, args: &[&str]) -> Result<String, ScanError> {
+    run_git_inner(directory, args, None)
+}
+fn run_git_with_budget(directory: &Path, args: &[&str], budget: u64) -> Result<(), ScanError> {
+    run_git_inner(directory, args, Some(budget)).map(|_| ())
+}
+
+/// Count the temporary checkout without following symlinks. This includes .git objects,
+/// pack files, indexes, and checked-out content, not just source files.
+fn directory_size(directory: &Path) -> Result<u64, ScanError> {
+    let mut total = 0u64;
+    let entries = fs::read_dir(directory)
+        .map_err(|_| ScanError::Io("cannot inspect temporary Git checkout".into()))?;
+    for entry in entries {
+        let entry = entry.map_err(|_| ScanError::Io("cannot inspect temporary Git checkout entry".into()))?;
+        let metadata = match fs::symlink_metadata(entry.path()) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return Err(ScanError::Io("cannot inspect temporary Git checkout entry".into())),
+        };
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        if metadata.is_dir() {
+            total = total.saturating_add(directory_size(&entry.path())?);
+        } else if metadata.is_file() {
+            total = total.saturating_add(metadata.len());
+        }
+    }
+    Ok(total)
+}
+
+#[cfg(unix)]
+#[repr(C)]
+struct ResourceLimit {
+    current: std::os::raw::c_ulong,
+    maximum: std::os::raw::c_ulong,
+}
+
+#[cfg(unix)]
+extern "C" {
+    fn setrlimit(resource: std::os::raw::c_int, limit: *const ResourceLimit) -> std::os::raw::c_int;
+}
+
+fn terminate_git(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // Git may spawn index-pack, remote helpers, and checkout workers. They inherit
+        // this process group, so terminate the group rather than leaving descendants.
+        let group = format!("-{}", child.id());
+        let _ = Command::new("/bin/kill").args(["-KILL", &group]).status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn run_git_inner(directory: &Path, args: &[&str], budget: Option<u64>) -> Result<String, ScanError> {
+    let mut command = Command::new("git");
+    command.args(args).current_dir(directory)
         .env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null())
-        .stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+        .stdout(Stdio::piped()).stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+        if let Some(limit) = budget {
+            let limit = std::os::raw::c_ulong::try_from(limit)
+                .map_err(|_| ScanError::InvalidConfig("Git checkout budget exceeds the platform file-size limit".into()))?;
+            // RLIMIT_FSIZE is inherited by Git's helper processes and prevents a
+            // single pack/index/checkout file from growing beyond the whole budget.
+            unsafe {
+                command.pre_exec(move || {
+                    let limit = ResourceLimit { current: limit, maximum: limit };
+                    if setrlimit(1, &limit) == 0 {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::last_os_error())
+                    }
+                });
+            }
+        }
+    }
+    let mut child = command.spawn()
         .map_err(|_| ScanError::Git("cannot start git".into()))?;
     let started = std::time::Instant::now();
     loop {
-        match child.try_wait().map_err(|_| ScanError::Git("cannot wait for git".into()))? {
+        if let Some(limit) = budget {
+            match directory_size(directory) {
+                Ok(size) if size > limit => {
+                    terminate_git(&mut child);
+                    return Err(ScanError::Git(format!(
+                        "temporary Git checkout exceeded the configured storage budget of {limit} bytes; Git process group terminated"
+                    )));
+                }
+                Err(error) => {
+                    terminate_git(&mut child);
+                    return Err(error);
+                }
+                _ => {}
+            }
+        }
+        let status = match child.try_wait() {
+            Ok(status) => status,
+            Err(_) => {
+                terminate_git(&mut child);
+                return Err(ScanError::Git("cannot wait for git".into()));
+            }
+        };
+        match status {
             Some(status) => {
-                if !status.success() { return Err(ScanError::Git("git command failed; remote details are redacted".into())); }
+                // Check once more after exit before classifying a failed write. RLIMIT_FSIZE
+                // can stop a packfile exactly at its per-file ceiling before the next poll.
+                if let Some(limit) = budget {
+                    let size = directory_size(directory)?;
+                    if size > limit {
+                        return Err(ScanError::Git(format!(
+                            "temporary Git checkout exceeded the configured storage budget of {limit} bytes"
+                        )));
+                    }
+                }
+                if !status.success() {
+                    return Err(ScanError::Git("git command failed; remote details are redacted".into()));
+                }
                 let mut output = String::new();
                 if let Some(stdout) = child.stdout.take() {
                     use std::io::Read;
-                    stdout.take(4096).read_to_string(&mut output).map_err(|_| ScanError::Git("cannot read git output".into()))?;
+                    stdout.take(4096).read_to_string(&mut output)
+                        .map_err(|_| ScanError::Git("cannot read git output".into()))?;
                 }
                 return Ok(output.trim().to_owned());
             }
             None if started.elapsed() >= GIT_TIMEOUT => {
-                let _ = child.kill(); let _ = child.wait();
-                return Err(ScanError::Git("git command timed out after 120 seconds; child process terminated".into()));
+                terminate_git(&mut child);
+                return Err(ScanError::Git("git command timed out after 120 seconds; child process group terminated".into()));
             }
-            None => thread::sleep(Duration::from_millis(100)),
+            None => thread::sleep(GIT_RESOURCE_POLL_INTERVAL),
         }
     }
 }
@@ -868,6 +996,57 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_deep).is_err());
         let too_much = ScanLimits { total_bytes: 9, ..limits };
         assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_much).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stops_git_fetch_when_checkout_storage_budget_is_exceeded() {
+        use std::process::Command;
+
+        let source = tempfile::tempdir().unwrap();
+        let checkout = tempfile::tempdir().unwrap();
+        let git = |directory: &Path, args: &[&str]| {
+            let status = Command::new("git")
+                .args(args)
+                .current_dir(directory)
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        };
+
+        git(source.path(), &["init", "--quiet"]);
+        git(source.path(), &["config", "user.email", "scanner-test@example.invalid"]);
+        git(source.path(), &["config", "user.name", "Scanner Test"]);
+        // Simulate a remote that does not support partial-clone filtering.
+        git(source.path(), &["config", "uploadpack.allowFilter", "false"]);
+        // Pseudorandom bytes remain incompressible and force a substantial packfile.
+        let mut state = 0x1234_5678u32;
+        let mut payload = vec![0u8; 16 * 1024 * 1024];
+        for byte in &mut payload {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            *byte = (state >> 24) as u8;
+        }
+        fs::write(source.path().join("large.bin"), payload).unwrap();
+        git(source.path(), &["add", "large.bin"]);
+        git(source.path(), &["commit", "--quiet", "-m", "large fixture"]);
+
+        let checkout_path = checkout.path().to_owned();
+        run_git(checkout.path(), &["init", "--quiet"]).unwrap();
+        let remote = format!("file://{}", source.path().display());
+        let error = run_git_with_budget(
+            checkout.path(),
+            &["fetch", "--quiet", "--no-tags", "--depth", "1", "--filter=blob:limit=2m", &remote, "HEAD"],
+            64 * 1024,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("storage budget"), "{error}");
+        // The TempDir owner removes the partial checkout even after budget exhaustion.
+        drop(checkout);
+        assert!(!checkout_path.exists());
     }
 
     #[test]
