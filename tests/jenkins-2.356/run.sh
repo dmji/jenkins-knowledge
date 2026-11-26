@@ -103,7 +103,7 @@ fi
 # Prove that the reader has Overall/Read without granting Overall/Administer.
 curl --silent --show-error --fail --user "reader:$reader_token" "$JENKINS_URL/api/json" >/dev/null
 docker exec "$CONTAINER" java -version 2> "$OUT/java-version.txt"
-grep -q '17\.' "$OUT/java-version.txt"
+grep -q '17\.0\.3' "$OUT/java-version.txt"
 
 # Save the exact plugin inventory observed from this digest-pinned controller.
 curl --silent --show-error --fail --user "admin:$admin_token" \
