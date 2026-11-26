@@ -62,7 +62,13 @@
               "inspected",
               "unavailable",
               "unsupported",
-              "not-collected"
+              "not-collected",
+              "succeeded",
+              "succeeded-with-truncation",
+              "permission-denied",
+              "failed",
+              "skipped-by-profile",
+              "not-configured"
             ]
           },
           "details": {
@@ -74,6 +80,41 @@
     "controller": {
       "$ref": "#/$defs/controller",
       "description": "Optional controller-specific runtime snapshot. Omitted for catalogs without controller discovery."
+    },
+    "snapshotId": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "SHA-256 of the canonical logical catalog snapshot; collection timestamps are excluded."
+    },
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ]
+        },
+        "reasonCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "optional-source-unavailable",
+              "permission-denied",
+              "source-failed",
+              "source-truncated",
+              "source-skipped",
+              "source-not-configured"
+            ]
+          }
+        }
+      }
     }
   },
   "$defs": {
@@ -120,6 +161,52 @@
         },
         "metadata": {
           "type": "object"
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "Canonical SHA-256 of this source snapshot, its symbols, coverage, and associated controller/plugin observation."
+        },
+        "collection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profile",
+            "status",
+            "truncated"
+          ],
+          "properties": {
+            "profile": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "enum": [
+                "succeeded",
+                "succeeded-with-truncation",
+                "unavailable",
+                "permission-denied",
+                "failed",
+                "skipped-by-profile",
+                "not-configured"
+              ]
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "completedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "errorCode": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
         }
       }
     },
@@ -547,6 +634,16 @@
         "retrievedAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Source revision to which this evidence record applies; when present it must match the referenced source."
+        },
+        "location": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Structured or human-readable location within the source snapshot."
         }
       }
     },
