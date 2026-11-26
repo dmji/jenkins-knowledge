@@ -1520,7 +1520,7 @@ mod tests {
             .to_string();
         assert!(error.contains("does not match referenced source revision"));
     }
- 
+
     #[test]
     fn partial_completeness_requires_and_accepts_an_explicit_failed_source() {
         let mut catalog = valid_catalog();
