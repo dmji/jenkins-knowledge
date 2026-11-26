@@ -3,7 +3,7 @@ pub use discovery::{discover, DiscoveryError};
 pub mod script_console;
 pub use script_console::{collect_script_console, script_console_plan};
 
-use catalog_validator::{redact_sensitive_fields, validate_catalog};
+use catalog_validator::{redact_sensitive_fields, stamp_catalog_identity, validate_catalog, sha256_hex};
 use regex::Regex;
 use reqwest::blocking::Client;
 use reqwest::header::HeaderMap;
@@ -165,7 +165,8 @@ pub fn catalog_from_gdsl(
     let source_id = format!("jenkins-controller-{}", stable_id(&controller_url));
     let endpoint = endpoint_for(controller)?;
     let symbols = methods.into_iter().map(|method| {
-        let id = format!("{}:step:{}:{}", source_id, method.name, method.line);
+        let signature_hash = sha256_hex(method.signature.as_bytes());
+        let id = format!("{}:step:{}:{}", source_id, method.name, &signature_hash[7..23]);
         let mut symbol = json!({
             "id": id,
             "name": method.name,
@@ -195,7 +196,7 @@ pub fn catalog_from_gdsl(
             "kind": "jenkins-controller",
             "name": controller_url.trim_end_matches('/'),
             "version": version,
-            "revision": format!("retrieved:{retrieved_at}"),
+            "revision": sha256_hex(gdsl.as_bytes()),
             "url": controller_url.trim_end_matches('/'),
             "metadata": {
                 "endpoint": endpoint,
@@ -206,6 +207,8 @@ pub fn catalog_from_gdsl(
         "symbols": symbols
     });
     sanitize_collected_catalog(&mut catalog);
+    catalog["symbols"].as_array_mut().unwrap().sort_by_key(|symbol| symbol["id"].as_str().unwrap_or_default().to_owned());
+    stamp_catalog_identity(&mut catalog).map_err(|error| CollectorError::InvalidCatalog(error))?;
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json"))
         .map_err(|error| CollectorError::InvalidCatalog(error.to_string()))?;
     validate_catalog(&catalog, &schema)
