@@ -452,12 +452,13 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 let runtime_status = runtime_record["status"].as_str().unwrap_or("unavailable");
                 let runtime_error = runtime_record["errors"].as_array()
                     .and_then(|errors| errors.first())
-                    .and_then(|error| error["code"].as_str());
+                    .and_then(|error| error["code"].as_str())
+                    .map(str::to_owned);
                 let (status, error_code) = match runtime_status {
                     "collected" => ("succeeded", None),
-                    "partial" => ("partial", runtime_error),
-                    _ if runtime_error == Some("permission-denied") => ("permission-denied", runtime_error),
-                    _ => ("unavailable", runtime_error.or(Some("probe-failed"))),
+                    "partial" => ("partial", runtime_error.clone()),
+                    _ if runtime_error.as_deref() == Some("permission-denied") => ("permission-denied", runtime_error.clone()),
+                    _ => ("unavailable", runtime_error.clone().or_else(|| Some("probe-failed".into()))),
                 };
                 catalog["controller"]["runtime"] = runtime_record;
                 let mut outcome = json!({
