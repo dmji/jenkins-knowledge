@@ -1018,4 +1018,17 @@ mod tests {
         assert!(!errors.contains("do-not-echo"));
     }
 
+    #[test]
+    fn rejects_secret_fields_in_forward_compatible_manifest_metadata() {
+        let catalog = valid_catalog();
+        let mut manifest = manifest_for(&catalog);
+        manifest["provenance"]["platform-lib"]["futureMetadata"] =
+            json!({"nested": [{"accessToken": "do-not-echo"}]});
+        let error = validate_package_metadata(&catalog, &manifest)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("/manifest/provenance/platform-lib/futureMetadata/nested/0/accessToken"));
+        assert!(!error.contains("do-not-echo"));
+    }
+
 }
