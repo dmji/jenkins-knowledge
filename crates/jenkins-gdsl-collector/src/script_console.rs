@@ -142,7 +142,12 @@ fn valid_api_roots(api_roots: &[String]) -> bool {
     }
     let mut unique = std::collections::HashSet::new();
     api_roots.iter().all(|root| {
-        if root.is_empty() || root.len() > MAX_TEXT_LENGTH || root.trim() != root {
+        if root.is_empty()
+            || root.len() > MAX_TEXT_LENGTH
+            || root.trim() != root
+            || root.starts_with("groovy.")
+            || root.starts_with("org.codehaus.groovy.")
+        {
             return false;
         }
         let valid = root.split('.').all(|part| {
