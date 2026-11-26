@@ -1161,6 +1161,7 @@
           "enum": [
             "credentials-must-be-paired",
             "invalid-api-roots",
+            "invalid-api-limits",
             "class-unavailable",
             "type-traversal-truncated",
             "member-inspection-failed",
