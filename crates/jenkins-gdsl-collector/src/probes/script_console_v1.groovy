@@ -452,6 +452,8 @@ while (apiQueue && result.apiTypes.size() < MAX_API_TYPES) {
         try { if (root.getSuperclass() != null) typeRecord.superclass = safeText(root.getSuperclass().getName()) } catch (Throwable ignored) {}
         try { typeRecord.interfaces = root.getInterfaces().collect { safeText(it.getName()) }.findAll { it != null }.take(16) } catch (Throwable ignored) {}
         def methodsBySignature = new TreeMap<String, Object>()
+        typeRecord.methodsTruncated = false
+        typeRecord.propertiesTruncated = false
         def current = root
         int hierarchyDepth = 0
         while (current != null && hierarchyDepth <= 8) {
@@ -467,23 +469,28 @@ while (apiQueue && result.apiTypes.size() < MAX_API_TYPES) {
                 String returnType = safeText(method.getGenericReturnType().getTypeName())
                 String signature = methodName + '(' + parameterTypes.join(',') + '):' + (returnType ?: 'unknown')
                 if (apiDepth < MAX_API_TYPE_DEPTH) {
-                    [method.getReturnType()] .plus(method.getParameterTypes() as List).each { referencedType ->
+                    def referencedTypes = [method.getReturnType()]
+                    referencedTypes.addAll(method.getParameterTypes().toList())
+                    referencedTypes.each { referencedType ->
                         if (referencedType != null && !referencedType.isPrimitive() && apiQueue.size() < MAX_API_TYPE_QUEUE) {
                             String referencedName = safeText(referencedType.getName())
                             if (referencedName != null && !seenApiTypes.contains(referencedName)) apiQueue << [name: referencedName, depth: apiDepth + 1]
                         }
                     }
                 }
-                if (!methodsBySignature.containsKey(signature) && methodsBySignature.size() < MAX_API_MEMBERS_PER_TYPE) {
-                    methodsBySignature[signature] = [name: methodName, signature: signature, returnType: returnType,
-                        parameterTypes: parameterTypes, modifiers: java.lang.reflect.Modifier.toString(modifiers), synthetic: method.isSynthetic()]
+                if (!methodsBySignature.containsKey(signature)) {
+                    if (methodsBySignature.size() < MAX_API_MEMBERS_PER_TYPE) {
+                        methodsBySignature[signature] = [name: methodName, signature: signature, returnType: returnType,
+                            parameterTypes: parameterTypes, modifiers: java.lang.reflect.Modifier.toString(modifiers), synthetic: method.isSynthetic()]
+                    } else {
+                        typeRecord.methodsTruncated = true
+                    }
                 }
             }
             current = current.getSuperclass()
             hierarchyDepth++
         }
         typeRecord.methods = methodsBySignature.values().toList()
-        typeRecord.methodsTruncated = methodsBySignature.size() >= MAX_API_MEMBERS_PER_TYPE
         def propertyMap = new TreeMap<String, Object>()
         typeRecord.methods.each { method ->
             String methodName = method.name
@@ -491,7 +498,11 @@ while (apiQueue && result.apiTypes.size() < MAX_API_TYPES) {
             if (methodName.startsWith('get') && methodName.length() > 3 && method.parameterTypes.isEmpty() && method.returnType != 'void') propertyName = methodName.substring(3).uncapitalize()
             if (methodName.startsWith('is') && methodName.length() > 2 && method.parameterTypes.isEmpty()) propertyName = methodName.substring(2).uncapitalize()
             if (methodName.startsWith('set') && methodName.length() > 3 && method.parameterTypes.size() == 1) propertyName = methodName.substring(3).uncapitalize()
-            if (propertyName != null && propertyName.length() <= MAX_API_TEXT_LENGTH && propertyMap.size() < MAX_API_MEMBERS_PER_TYPE) {
+            if (propertyName != null && propertyName.length() <= MAX_API_TEXT_LENGTH) {
+                if (!propertyMap.containsKey(propertyName) && propertyMap.size() >= MAX_API_MEMBERS_PER_TYPE) {
+                    typeRecord.propertiesTruncated = true
+                    return
+                }
                 def property = propertyMap[propertyName] ?: [name: propertyName, readable: false, writable: false]
                 if (methodName.startsWith('set')) {
                     property.writable = true
@@ -504,7 +515,6 @@ while (apiQueue && result.apiTypes.size() < MAX_API_TYPES) {
             }
         }
         typeRecord.properties = propertyMap.values().toList()
-        typeRecord.propertiesTruncated = propertyMap.size() >= MAX_API_MEMBERS_PER_TYPE
         try {
             def plugin = jenkins.getPluginManager().whichPlugin(root)
             if (plugin != null) typeRecord.plugin = safeText(plugin.getShortName())
@@ -520,6 +530,8 @@ def output = JsonOutput.toJson(result)
 if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
     result.apiTypes = result.apiTypes.take(5)
     result.apiTypes.each { type ->
+        type.methodsTruncated = type.methodsTruncated == true || (type.methods ?: []).size() > 10
+        type.propertiesTruncated = type.propertiesTruncated == true || (type.properties ?: []).size() > 10
         type.methods = (type.methods ?: []).take(10)
         type.properties = (type.properties ?: []).take(10)
     }
