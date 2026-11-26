@@ -425,7 +425,9 @@ result.extensionRegistries.each { registry ->
         if (rootName != null && !rootName.trim().isEmpty()) apiRoots << rootName
     }
 }
-def apiQueue = apiRoots.unique().sort().collect { [name: it, depth: 0] }
+def uniqueApiRoots = apiRoots.unique().sort()
+def apiQueue = uniqueApiRoots.take(MAX_API_TYPE_QUEUE).collect { [name: it, depth: 0] }
+if (uniqueApiRoots.size() > MAX_API_TYPE_QUEUE) result.apiTypesTruncated = true
 EXPLICIT_API_TYPE_ROOTS.findAll { it instanceof String && it ==~ /[A-Za-z_$][A-Za-z0-9_$.]*/ }.each { rootName ->
     if (apiQueue.size() < MAX_API_TYPE_QUEUE) apiQueue << [name: rootName, depth: 0]
 }
@@ -512,7 +514,7 @@ while (apiQueue && result.apiTypes.size() < MAX_API_TYPES) {
         errors << [probe: 'api-types', code: 'type-unresolved']
     }
 }
-if (apiRoots.size() > MAX_API_TYPE_QUEUE || apiQueue) result.apiTypesTruncated = true
+if (apiQueue) result.apiTypesTruncated = true
 
 def output = JsonOutput.toJson(result)
 if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
