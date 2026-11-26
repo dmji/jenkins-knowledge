@@ -1875,6 +1875,25 @@ mod tests {
     }
 
     #[test]
+    fn profile_skips_and_unconfigured_surfaces_do_not_reduce_completeness() {
+        let outcomes = vec![
+            json!({"sourceId":"controller","status":"succeeded"}),
+            json!({"sourceId":"controller","status":"skipped-by-profile"}),
+            json!({"sourceId":"library","status":"not-configured"}),
+        ];
+
+        assert!(completeness_reason_codes(&outcomes).is_empty());
+        let summary = source_collection_summary(
+            "controller",
+            &outcomes,
+            "quick",
+            "2026-11-26T10:00:00Z",
+            "2026-11-26T10:01:00Z",
+        );
+        assert_eq!(summary["status"], "succeeded");
+    }
+
+    #[test]
     fn completeness_is_derived_from_explicit_source_outcomes() {
         let mut catalog = valid_catalog();
         let sources = catalog["sources"].as_array().unwrap().clone();
