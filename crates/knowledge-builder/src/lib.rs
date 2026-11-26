@@ -510,7 +510,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         })
     });
     catalog["completeness"] = json!({
-        "status": if has_failed_source { "partial" } else if has_collection_outcomes && all_sources_succeeded { "complete" } else { "unknown" }
+        "status": if has_collection_outcomes && has_failed_source { "partial" } else if has_collection_outcomes && all_sources_succeeded { "complete" } else { "unknown" }
     });
     stamp_catalog_identity(&mut catalog).map_err(BuildError::InvalidCatalog)?;
     for source in catalog["sources"].as_array().into_iter().flatten() {
