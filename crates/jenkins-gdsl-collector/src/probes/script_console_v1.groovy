@@ -2,6 +2,7 @@ import groovy.json.JsonOutput
 import jenkins.model.Jenkins
 
 final int MAX_ITEMS_PER_REGISTRY = 100
+final int MAX_PARAMETERS_PER_STEP = 20
 final int MAX_TEXT_LENGTH = 256
 final int MAX_OUTPUT_BYTES = 262144
 
@@ -125,7 +126,7 @@ registrySpecs.each { spec ->
                     def model = modelType.getMethod('of', Class).invoke(null, extension.getClazz())
                     def parameters = []
                     for (def parameter : model.getParameters()) {
-                        if (parameters.size() >= 50) {
+                        if (parameters.size() >= MAX_PARAMETERS_PER_STEP) {
                             item.parametersTruncated = true
                             break
                         }
@@ -188,8 +189,8 @@ registrySpecs.each { spec ->
 def output = JsonOutput.toJson(result)
 if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
     result.extensionRegistries.each { registry ->
-        if (registry.items.size() > 25) {
-            registry.items = registry.items.take(25)
+        if (registry.items.size() > 10) {
+            registry.items = registry.items.take(10)
             registry.truncated = true
         }
     }
