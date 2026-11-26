@@ -20,6 +20,14 @@ if [ ! -f Cargo.lock ] || [ ! -f editors/vscode/package-lock.json ]; then
   exit 1
 fi
 printf 'Validating commit %s\n' "$actual_sha"
+if [ "$(rustc --version | awk '{print $2}')" != "1.100.0" ]; then
+  echo "Rust 1.100.0 is required; use the pinned rust-toolchain.toml" >&2
+  exit 1
+fi
+if [ "$(node --version)" != "v26.13.1" ] || [ "$(npm --version)" != "11.20.0" ]; then
+  echo "Node.js 26.13.1 and npm 11.20.0 are required" >&2
+  exit 1
+fi
 
 # Check new Rust files and files whose base revision is already formatted.
 # Preserve existing formatting debt instead of silently rewriting source.
