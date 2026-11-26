@@ -18,8 +18,11 @@ BASE_IMAGE = (
     "211419c659bd04b2d065ead531aad35ea47471489dcf714ab2c8a30cb9870850"
 )
 BASE_PLUGINS = {
+    "bouncycastle-api": "2.25",
+    "command-launcher": "1.2",
     "javax-activation-api": "1.2.0-2",
     "javax-mail-api": "1.6.2-5",
+    "jdk-tool": "1.0",
     "sshd": "3.0.3",
 }
 ROOT_SHA256 = {
