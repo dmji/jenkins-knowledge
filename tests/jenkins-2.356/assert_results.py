@@ -65,8 +65,9 @@ deep, deep_manifest = assert_controller("deep", "deep")
 runtime = deep["controller"]["runtime"]
 assert deep["controller"]["collection"]["javaVersionStatus"] == "available"
 assert deep["controller"]["collection"]["javaVendorStatus"] == "available"
-assert runtime["javaVersion"].startswith("17."), runtime.get("javaVersion")
-assert runtime["javaVendor"].strip(), runtime.get("javaVendor")
+assert runtime["javaVersion"] == "17.0.3", runtime.get("javaVersion")
+assert runtime["javaVendor"] == "Eclipse Adoptium", runtime.get("javaVendor")
+assert runtime["apiTypeInventoryStatus"] in {"available", "partial"}
 assert_optional_success(deep_manifest, "script-console")
 assert_optional_success(deep_manifest, "pipeline-gdsl")
 assert outcome(deep_manifest, "library-source", "gsa-examples")["status"] == "succeeded"
@@ -93,6 +94,7 @@ assert plugin_by_name["pipeline-model-definition"]["version"] == "2.2114.v2654ca
 assert plugin_by_name["workflow-cps"]["version"] == "2759.2761.vd6e8d2a_15980"
 
 lock = json.loads((ROOT / "plugins.lock.json").read_text(encoding="utf-8"))
+assert (ROOT / "image.txt").read_text(encoding="utf-8").strip() == lock["baseImage"]
 expected_plugin_versions = dict(lock["basePlugins"])
 expected_plugin_versions.update(
     {plugin["name"]: plugin["version"] for plugin in lock["plugins"]}
