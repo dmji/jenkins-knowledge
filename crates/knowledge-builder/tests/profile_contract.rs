@@ -147,7 +147,7 @@ fn omitted_include_selects_all_available_sections() {
     write_fixture(directory.path());
     let profile = write_profile(
         directory.path(),
-        "profile: all-sections\\nfixtures: [fixture.json]\\n",
+        "profile: all-sections\nfixtures: [fixture.json]\n",
     );
     let output = directory.path().join("package");
     build_package(&profile, &output).unwrap();
@@ -181,7 +181,7 @@ fn jenkins_core_selection_is_independent_of_controller_snapshot() {
     write_fixture(directory.path());
     let profile = write_profile(
         directory.path(),
-        "profile: core-only\\nfixtures: [fixture.json]\\npackage:\\n  include: [jenkins-core]\\n",
+        "profile: core-only\nfixtures: [fixture.json]\npackage:\n  include: [jenkins-core]\n",
     );
     let output = directory.path().join("package");
     build_package(&profile, &output).unwrap();
@@ -197,13 +197,13 @@ fn jenkins_core_selection_is_independent_of_controller_snapshot() {
 #[test]
 fn rejects_invalid_profile_defaults_and_absolute_fixture_paths() {
     let directory = tempfile::tempdir().unwrap();
-    let empty = write_profile(directory.path(), "profile: empty\\njenkins: {}\\n");
+    let empty = write_profile(directory.path(), "profile: empty\njenkins: {}\n");
     let error = build_package(&empty, &directory.path().join("empty-package")).unwrap_err();
     assert!(error.to_string().contains("configure at least one"));
 
     let absolute = write_profile(
         directory.path(),
-        "profile: absolute\\nfixtures: [/tmp/outside.json]\\n",
+        "profile: absolute\nfixtures: [/tmp/outside.json]\n",
     );
     let error = build_package(&absolute, &directory.path().join("absolute-package")).unwrap_err();
     assert!(error.to_string().contains("relative path"));
@@ -275,7 +275,7 @@ fn rejects_duplicate_controller_ids_and_library_names() {
     let directory = tempfile::tempdir().unwrap();
     let duplicate_controllers = write_profile(
         directory.path(),
-        "profile: duplicate-controllers\\njenkins:\\n  controllers:\\n    - id: ci\\n      url: https://jenkins.example.test\\n    - id: ci\\n      url: https://jenkins-two.example.test\\n",
+        "profile: duplicate-controllers\njenkins:\n  controllers:\n    - id: ci\n      url: https://jenkins.example.test\n    - id: ci\n      url: https://jenkins-two.example.test\n",
     );
     let error = build_package(
         &duplicate_controllers,
@@ -286,7 +286,7 @@ fn rejects_duplicate_controller_ids_and_library_names() {
 
     let duplicate_libraries = write_profile(
         directory.path(),
-        "profile: duplicate-libraries\\nlibraries:\\n  - name: shared\\n    url: https://git.example.test/one.git\\n    revision: main\\n  - name: shared\\n    url: https://git.example.test/two.git\\n    revision: main\\n",
+        "profile: duplicate-libraries\nlibraries:\n  - name: shared\n    url: https://git.example.test/one.git\n    revision: main\n  - name: shared\n    url: https://git.example.test/two.git\n    revision: main\n",
     );
     let error = build_package(
         &duplicate_libraries,
@@ -301,7 +301,7 @@ fn rejects_multiple_live_controllers_before_network_collection() {
     let directory = tempfile::tempdir().unwrap();
     let profile = write_profile(
         directory.path(),
-        "profile: multiple\\njenkins:\\n  controllers:\\n    - id: one\\n      url: https://one.example.test\\n    - id: two\\n      url: https://two.example.test\\n",
+        "profile: multiple\njenkins:\n  controllers:\n    - id: one\n      url: https://one.example.test\n    - id: two\n      url: https://two.example.test\n",
     );
     let error = build_package(&profile, &directory.path().join("multiple-package")).unwrap_err();
     assert!(error.to_string().contains("one controller per package"));
@@ -312,7 +312,7 @@ fn rejects_invalid_and_conflicting_library_commit_pins_before_network() {
     let directory = tempfile::tempdir().unwrap();
     let invalid = write_profile(
         directory.path(),
-        "profile: invalid-commit\\nlibraries:\\n  - name: lib\\n    url: https://git.example.test/lib.git\\n    revision: main\\n    commit: not-a-sha\\n",
+        "profile: invalid-commit\nlibraries:\n  - name: lib\n    url: https://git.example.test/lib.git\n    revision: main\n    commit: not-a-sha\n",
     );
     let error =
         build_package(&invalid, &directory.path().join("invalid-commit-package")).unwrap_err();
@@ -320,7 +320,7 @@ fn rejects_invalid_and_conflicting_library_commit_pins_before_network() {
 
     let conflict = write_profile(
         directory.path(),
-        "profile: conflicting-pin\\nlibraries:\\n  - name: lib\\n    url: https://git.example.test/lib.git\\n    revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n    commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n",
+        "profile: conflicting-pin\nlibraries:\n  - name: lib\n    url: https://git.example.test/lib.git\n    revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n    commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n",
     );
     let error =
         build_package(&conflict, &directory.path().join("conflicting-pin-package")).unwrap_err();
@@ -334,7 +334,7 @@ fn validates_selector_requirements_before_live_collection() {
     let directory = tempfile::tempdir().unwrap();
     let profile = write_profile(
         directory.path(),
-        "profile: wrong-section\\nlibraries:\\n  - name: lib\\n    url: https://git.example.test/lib.git\\n    revision: main\\npackage:\\n  include: [plugins]\\n",
+        "profile: wrong-section\nlibraries:\n  - name: lib\n    url: https://git.example.test/lib.git\n    revision: main\npackage:\n  include: [plugins]\n",
     );
     let error =
         build_package(&profile, &directory.path().join("wrong-section-package")).unwrap_err();
