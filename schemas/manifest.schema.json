@@ -57,8 +57,8 @@
               "surface": { "type": "string", "minLength": 1 },
               "sourceId": { "type": "string", "minLength": 1 },
               "revision": { "type": "string", "minLength": 1 },
-              "status": { "enum": ["succeeded", "succeeded-with-truncation", "unavailable", "permission-denied", "failed", "skipped-by-profile", "not-configured"] },
-              "errorCode": { "enum": ["permission-denied", "http-unavailable", "request-timeout", "response-too-large", "invalid-encoding", "limit-exceeded", "empty-response", "malformed-response", "invalid-catalog", "invalid-controller-url", "request-failed", "collection-failed", "invalid-response", "missing-outcome"] }
+              "status": { "enum": ["succeeded", "succeeded-with-truncation", "partial", "unavailable", "permission-denied", "failed", "skipped-by-profile", "not-configured"] },
+              "errorCode": { "enum": ["permission-denied", "http-unavailable", "request-timeout", "response-too-large", "invalid-encoding", "limit-exceeded", "empty-response", "malformed-response", "invalid-catalog", "invalid-controller-url", "request-failed", "collection-failed", "invalid-response", "missing-outcome", "credentials-must-be-paired", "endpoint-unavailable", "http-error", "incompatible-probe-output", "probe-failed", "jenkins-unavailable", "extension-type-unavailable", "enumeration-failed", "output-truncated"] }
             }
           }
         }
