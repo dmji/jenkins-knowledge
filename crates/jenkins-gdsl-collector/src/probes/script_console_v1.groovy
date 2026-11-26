@@ -738,6 +738,7 @@ if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
         type.propertiesTruncated = true
     }
     result.extensionRegistries.each { registry ->
+        if (registry.items.size() > 5) registry.truncated = true
         registry.items = registry.items.take(5)
         registry.items.each { item ->
             if (item.parameters instanceof List && item.parameters.size() > 5) {
@@ -759,6 +760,7 @@ if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
         type.methodsTruncated = true
         type.propertiesTruncated = true
     }
+    result.apiTypeInventoryStatus = 'partial'
     errors << [probe: 'output', code: 'output-truncated']
     output = JsonOutput.toJson(result)
 }
@@ -769,6 +771,7 @@ if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
         registry.truncated = true
     }
     result.apiTypes = []
+    result.apiTypeInventoryStatus = 'partial'
     result.errors = [[probe: 'output', code: 'output-truncated']]
     result.status = 'partial'
     output = JsonOutput.toJson(result)
