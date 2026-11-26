@@ -60,7 +60,14 @@
           "status": {
             "enum": [
               "inspected",
+              "succeeded",
+              "succeeded-with-truncation",
+              "partial",
               "unavailable",
+              "permission-denied",
+              "failed",
+              "skipped-by-profile",
+              "not-configured",
               "unsupported",
               "not-collected"
             ]
@@ -74,6 +81,65 @@
     "controller": {
       "$ref": "#/$defs/controller",
       "description": "Optional controller-specific runtime snapshot. Omitted for catalogs without controller discovery."
+    },
+    "snapshotId": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "Stable SHA-256 identity of the canonical logical catalog snapshot; collection timestamps are excluded."
+    },
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ]
+        },
+        "reasonCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "optional-source-unavailable",
+              "permission-denied",
+              "source-failed",
+              "source-truncated",
+              "source-skipped",
+              "source-not-configured"
+            ]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "partial"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "reasonCodes"
+            ],
+            "properties": {
+              "reasonCodes": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "$defs": {
@@ -120,6 +186,58 @@
         },
         "metadata": {
           "type": "object"
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "Canonical SHA-256 of the source snapshot, associated symbols, coverage, and controller/plugin observations."
+        },
+        "collection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profile",
+            "status",
+            "truncated"
+          ],
+          "properties": {
+            "profile": {
+              "enum": [
+                "quick",
+                "standard",
+                "deep",
+                "custom"
+              ]
+            },
+            "status": {
+              "enum": [
+                "succeeded",
+                "succeeded-with-truncation",
+                "partial",
+                "unavailable",
+                "permission-denied",
+                "failed",
+                "skipped-by-profile",
+                "not-configured",
+                "unknown"
+              ]
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "completedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "errorCode": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
         }
       }
     },
@@ -547,6 +665,24 @@
         "retrievedAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Source revision to which this evidence record applies."
+        },
+        "location": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Location within the source snapshot, such as endpoint/probe or file path."
+        },
+        "sourceKind": {
+          "enum": [
+            "jenkins-controller",
+            "jenkins-core",
+            "shared-library",
+            "plugin"
+          ]
         }
       }
     },

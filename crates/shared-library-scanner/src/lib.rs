@@ -88,7 +88,9 @@ fn scan_checkout_with_limits(
     resolved_commit: &str,
     limits: ScanLimits,
 ) -> Result<ScanResult, ScanError> {
-    let source_id = format!("shared-library:{}:{}@{}", slug(&config.name), slug(&config.reference), &resolved_commit[..12]);
+    let source_identity = format!("{}\n{}\n{}", config.name, config.repository, config.reference);
+    let identity_hash = catalog_validator::sha256_hex(source_identity.as_bytes());
+    let source_id = format!("shared-library:{}:{}", slug(&config.name), &identity_hash[7..23]);
     let mut symbols = Vec::new();
     let mut diagnostics = Vec::new();
     let canonical_root = checkout.canonicalize().map_err(|e| ScanError::Io(format!("cannot resolve checkout root: {e}")))?;
@@ -150,7 +152,7 @@ fn scan_checkout_with_limits(
     let generated_at = timestamp();
     let mut catalog = json!({
         "schemaVersion": "1.0.0",
-        "catalogId": format!("shared-library-{}-{}-{}", slug(&config.name), slug(&config.reference), &resolved_commit[..12]),
+        "catalogId": format!("shared-library-{}-{}", slug(&config.name), &identity_hash[7..23]),
         "generatedAt": generated_at,
         "sources": [{
             "id": source_id,
@@ -164,6 +166,8 @@ fn scan_checkout_with_limits(
         "symbols": symbols
     });
     redact_sensitive_fields(&mut catalog);
+    catalog_validator::stamp_catalog_identity(&mut catalog)
+        .map_err(ScanError::InvalidCatalog)?;
     let catalog_size = serde_json::to_vec_pretty(&catalog)
         .map_err(|_| ScanError::InvalidCatalog("cannot serialize generated catalog".into()))?
         .len();
@@ -640,7 +644,7 @@ fn scan_classes_and_methods(path: &str, source: &str, source_id: &str, confidenc
         if let Some((name, signature)) = parse_class_declaration(trimmed) {
             let line_no = index + 1;
             let mut symbol = json!({
-                "id": format!("{source_id}:{path}:class:{name}:{line_no}"),
+                "id": format!("{source_id}:{path}:class:{name}"),
                 "name": name, "kind": "class", "sourceId": source_id,
                 "confidence": confidence, "provenance": [format!("{path}:{line_no}")]
             });
@@ -656,7 +660,7 @@ fn scan_classes_and_methods(path: &str, source: &str, source_id: &str, confidenc
                 if let Some((name, ty)) = parse_property_declaration(trimmed) {
                     let class_name = owner.as_deref().unwrap_or_default();
                     symbols.push(json!({
-                        "id": format!("{source_id}:{path}:property:{class_name}:{name}:{}", index + 1),
+                        "id": format!("{source_id}:{path}:property:{class_name}:{name}"),
                         "name": name, "kind": "property", "sourceId": source_id,
                         "namespace": class_name, "signature": ty, "confidence": confidence,
                         "provenance": [format!("{path}:{}", index + 1)]
@@ -899,8 +903,14 @@ fn valid_identifier(value: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 fn method_symbol(path: &str, source_id: &str, confidence: &str, method: Method, kind: &str, owner: Option<&str>) -> Value {
+    let signature_hash = catalog_validator::sha256_hex(method.signature.as_bytes());
     let mut symbol = json!({
-        "id": format!("{source_id}:{path}:{}:{}:{}", method.name, method.line, slug(&method.signature)),
+        "id": format!(
+            "{source_id}:{path}:{kind}:{}:{}:{}",
+            owner.unwrap_or("global"),
+            method.name,
+            &signature_hash[7..23]
+        ),
         "name": method.name,
         "kind": kind,
         "sourceId": source_id,
@@ -1038,6 +1048,7 @@ mod tests {
         let a = scan_checkout(&config("release/1"), &fixture(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
         let b = scan_checkout(&config("release/2"), &fixture(), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").unwrap();
         assert_ne!(a.catalog["sources"][0]["id"], b.catalog["sources"][0]["id"]);
+        assert_ne!(a.catalog["symbols"][0]["id"], b.catalog["symbols"][0]["id"]);
         assert_eq!(a.catalog["sources"][0]["version"], "release/1");
         assert_eq!(b.catalog["sources"][0]["version"], "release/2");
     }
@@ -1385,6 +1396,28 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         assert!(catalog["sources"][0]["metadata"].get("privateKey").is_none());
         assert!(catalog["sources"][0]["metadata"]["nested"][0].get("sessionId").is_none());
         assert_eq!(catalog["sources"][0]["metadata"]["repositoryUrl"], "https://github.example.test/team/repo.git");
+    }
+
+    #[test]
+    fn source_and_symbol_identity_survive_a_moving_branch_revision() {
+        let first = scan_checkout(
+            &config("main"),
+            &fixture(),
+            "0123456789abcdef0123456789abcdef01234567",
+        )
+        .unwrap();
+        let second = scan_checkout(
+            &config("main"),
+            &fixture(),
+            "89abcdef0123456789abcdef0123456789abcdef",
+        )
+        .unwrap();
+
+        assert_eq!(first.catalog["sources"][0]["id"], second.catalog["sources"][0]["id"]);
+        assert_eq!(first.catalog["catalogId"], second.catalog["catalogId"]);
+        assert_eq!(first.catalog["symbols"][0]["id"], second.catalog["symbols"][0]["id"]);
+        assert_ne!(first.catalog["sources"][0]["revision"], second.catalog["sources"][0]["revision"]);
+        assert_ne!(first.catalog["snapshotId"], second.catalog["snapshotId"]);
     }
 
 }

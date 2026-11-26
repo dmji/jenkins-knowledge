@@ -1,4 +1,4 @@
-use catalog_validator::{redact_sensitive_fields, validate_catalog, validate_package_metadata};
+use catalog_validator::{completeness_reason_codes, redact_sensitive_fields, source_collection_summary, stamp_catalog_identity, validate_catalog, validate_package_metadata};
 use jenkins_gdsl_collector::{CollectorError, DiscoveryError};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -306,13 +306,17 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             let path = base.join(fixture);
             let text = fs::read_to_string(&path).map_err(|e| BuildError::Source(format!("fixture {}: {e}", path.display())))?;
             let catalog: Value = serde_json::from_str(&text).map_err(|e| BuildError::Source(format!("fixture {} is invalid JSON: {e}", path.display())))?;
-            collection_outcomes.push(json!({
-                "id": format!("fixture:{fixture}"),
-                "kind": "fixture",
-                "name": fixture,
-                "surface": "catalog",
-                "status": "succeeded"
-            }));
+            for source in catalog["sources"].as_array().into_iter().flatten() {
+                collection_outcomes.push(json!({
+                    "id": format!("fixture:{fixture}:{}", source["id"].as_str().unwrap_or_default()),
+                    "kind": "fixture",
+                    "name": fixture,
+                    "surface": "catalog",
+                    "sourceId": source["id"],
+                    "revision": source["revision"],
+                    "status": "succeeded"
+                }));
+            }
             catalogs.push((fixture.clone(), catalog));
         }
     } else {
@@ -409,6 +413,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     "kind": "plugin-inventory",
                     "name": controller.id,
                     "surface": "plugin-inventory",
+                    "sourceId": controller_source_id,
                     "status": plugin_status
                 });
                 if let Some(code) = plugin_error {
@@ -436,6 +441,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     "kind": "plugin-inventory",
                     "name": controller.id,
                     "surface": "plugin-inventory",
+                    "sourceId": controller_source_id,
                     "status": "skipped-by-profile"
                 }));
             }
@@ -551,6 +557,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     "kind": "script-console",
                     "name": controller.id,
                     "surface": "script-console",
+                    "sourceId": controller_source_id,
                     "status": "skipped-by-profile"
                 }));
             }
@@ -809,6 +816,10 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             }
         }
     }
+    let included_source_ids = sources
+        .iter()
+        .filter_map(|source| source["id"].as_str())
+        .collect::<HashSet<_>>();
     for outcome in &mut collection_outcomes {
         let kind = outcome["kind"].as_str().unwrap_or_default();
         let section = match kind {
@@ -817,8 +828,12 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             "shared-library" => Some(PackageSection::SharedLibraries),
             _ => None,
         };
+        let source_excluded = outcome["sourceId"]
+            .as_str()
+            .is_some_and(|source_id| !included_source_ids.contains(source_id));
         let excluded = section.is_some_and(|section| !selection.includes(section))
-            || (kind == "plugin-inventory" && !selection.includes(PackageSection::Plugins));
+            || (kind == "plugin-inventory" && !selection.includes(PackageSection::Plugins))
+            || source_excluded;
         if excluded {
             outcome["status"] = json!("skipped-by-profile");
             if let Some(fields) = outcome.as_object_mut() {
@@ -837,16 +852,49 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             v["surface"].as_str().unwrap_or("").to_owned(),
         )
     });
+    let collection_completed_at = build_timestamp();
+    for source in &mut sources {
+        let source_id = source["id"].as_str().unwrap_or_default();
+        source["collection"] = source_collection_summary(
+            source_id,
+            &collection_outcomes,
+            &profile.collection_profile,
+            &collection_started_at,
+            &collection_completed_at,
+        );
+    }
+    let all_sources_reported = sources.iter().all(|source| {
+        source["collection"]["status"].as_str().is_some_and(|status| status != "unknown")
+    });
+    let reason_codes = completeness_reason_codes(&collection_outcomes);
+    let completeness_status = if !all_sources_reported {
+        "unknown"
+    } else if !reason_codes.is_empty() {
+        "partial"
+    } else {
+        "complete"
+    };
     let mut catalog = json!({
         "schemaVersion":"1.0.0",
         "catalogId":profile.package.id.clone().unwrap_or_else(|| profile.profile.clone()),
         "generatedAt":build_timestamp(),
+        "completeness":{"status":completeness_status,"reasonCodes":reason_codes},
         "sources":sources,
         "symbols":symbols,
         "coverage":coverage
     });
     if let Some(controller) = controller_metadata {
         catalog["controller"] = controller;
+    }
+    stamp_catalog_identity(&mut catalog).map_err(BuildError::InvalidCatalog)?;
+    for source in catalog["sources"].as_array().into_iter().flatten() {
+        if let (Some(id), Some(fingerprint)) =
+            (source["id"].as_str(), source["fingerprint"].as_str())
+        {
+            if let Some(record) = provenance.get_mut(id) {
+                record["fingerprint"] = json!(fingerprint);
+            }
+        }
     }
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
     validate_catalog(&catalog, &schema).map_err(|e| BuildError::InvalidCatalog(e.to_string()))?;
@@ -871,15 +919,10 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         "checksums":{"catalog.json":hex(&Sha256::digest(catalog_bytes.as_bytes()))},
         "toolVersions":{"knowledge-builder":env!("CARGO_PKG_VERSION")},
         "collection": {
-            "status": if collection_outcomes.iter().any(|outcome|
-                !matches!(outcome["status"].as_str(), Some("succeeded" | "skipped-by-profile" | "not-configured"))) {
-                "partial"
-            } else {
-                "complete"
-            },
+            "status": completeness_status,
             "profile": profile.collection_profile,
             "startedAt": collection_started_at,
-            "completedAt": build_timestamp(),
+            "completedAt": collection_completed_at,
             "sources": collection_outcomes
         }
     });
