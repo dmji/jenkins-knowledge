@@ -50,7 +50,7 @@ assert quick["controller"]["collection"]["javaVersionStatus"] == "not-collected-
 assert quick["controller"]["collection"]["javaVendorStatus"] == "not-collected-by-profile"
 assert outcome(quick_manifest, "script-console")["status"] == "skipped-by-profile"
 assert outcome(quick_manifest, "library-source", "gsa-examples")["status"] == "skipped-by-profile"
-assert_optional_success(quick_manifest, "pipeline-gdsl")
+assert outcome(quick_manifest, "pipeline-gdsl")["status"] == "skipped-by-profile"
 
 standard, standard_manifest = assert_controller("standard", "standard")
 assert standard["controller"]["collection"]["javaVersionStatus"] == "not-collected-by-profile"
@@ -104,6 +104,7 @@ deep_readonly, deep_readonly_manifest = assert_controller("deep-readonly", "deep
 assert deep_readonly["controller"]["collection"]["javaVersionStatus"] == "unavailable"
 assert deep_readonly["controller"]["collection"]["javaVendorStatus"] == "unavailable"
 assert outcome(deep_readonly_manifest, "script-console")["status"] == "permission-denied"
+assert_optional_success(deep_readonly_manifest, "pipeline-gdsl")
 assert deep_readonly_manifest["collection"]["status"] == "partial"
 
 summary = {
