@@ -739,6 +739,52 @@ mod tests {
     }
 
     #[test]
+    fn rejects_manifest_source_revision_mismatch() {
+        let directory = tempfile::tempdir().unwrap();
+        write_package(directory.path());
+        let manifest_path = directory.path().join("manifest.json");
+        let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["sourceRevisions"]["platform-lib"] = Value::String("wrong-revision".into());
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("/sourceRevisions/platform-lib"));
+        assert!(error.contains("does not match catalog source revision"));
+    }
+
+    #[test]
+    fn rejects_manifest_provenance_mismatch() {
+        let directory = tempfile::tempdir().unwrap();
+        write_package(directory.path());
+        let manifest_path = directory.path().join("manifest.json");
+        let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["provenance"]["platform-lib"]["name"] = Value::String("different-library".into());
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("/provenance/platform-lib/name"));
+    }
+
+    #[test]
+    fn runtime_uses_catalog_semantics_for_evidence_and_field_evidence() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        catalog["symbols"][0]["fieldEvidence"] = serde_json::json!({"madeUpField":"verified"});
+        write_package_with_catalog(directory.path(), &catalog);
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("field is not a schema-defined symbol attribute"));
+
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        catalog["symbols"][0]["evidence"][0]["sourceId"] = Value::String("platform-lib".into());
+        write_package_with_catalog(directory.path(), &catalog);
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("incompatible with source 'platform-lib'"));
+    }
+
+    #[test]
     fn rejects_catalog_tampering_before_json_parsing() {
         let directory = tempfile::tempdir().unwrap();
         write_package(directory.path());
