@@ -109,6 +109,55 @@ registrySpecs.each { spec ->
                 name: safeText(itemName),
                 className: safeText(extension.getClass().getName())
             ]
+            if (spec.name == 'pipeline-steps') {
+                try {
+                    item.displayName = safeText(extension.getDisplayName())
+                } catch (Throwable ignored) {
+                    // Display metadata is optional across Jenkins/plugin versions.
+                }
+                try {
+                    Class modelType = Class.forName(
+                        'org.jenkinsci.plugins.structs.describable.DescribableModel',
+                        false,
+                        jenkins.getPluginManager().getUberClassLoader()
+                    )
+                    def model = modelType.getMethod('of', Class).invoke(null, extension.getClazz())
+                    def parameters = []
+                    for (def parameter : model.getParameters()) {
+                        if (parameters.size() >= 50) {
+                            item.parametersTruncated = true
+                            break
+                        }
+                        def parameterName = safeText(parameter.getName())
+                        if (parameterName == null || parameterName.trim().isEmpty()) {
+                            continue
+                        }
+                        def parameterRecord = [name: parameterName]
+                        try {
+                            Class parameterType = parameter.getType()
+                            if (parameterType != null) {
+                                parameterRecord.type = safeText(parameterType.getName())
+                            }
+                        } catch (Throwable ignored) {}
+                        try {
+                            parameterRecord.required = parameter.isRequired() == true
+                        } catch (Throwable ignored) {}
+                        try {
+                            parameterRecord.description = safeText(parameter.getDescription())
+                        } catch (Throwable ignored) {}
+                        try {
+                            def defaultValue = parameter.getDefaultParameterValue()
+                            if (defaultValue instanceof String || defaultValue instanceof Number || defaultValue instanceof Boolean) {
+                                parameterRecord.default = defaultValue
+                            }
+                        } catch (Throwable ignored) {}
+                        parameters << parameterRecord
+                    }
+                    item.parameters = parameters
+                } catch (Throwable ignored) {
+                    // structs-plugin metadata is optional; preserve the descriptor itself.
+                }
+            }
             try {
                 def plugin = jenkins.getPluginManager().whichPlugin(extension.getClass())
                 if (plugin != null) {
