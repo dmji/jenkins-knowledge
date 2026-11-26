@@ -447,7 +447,10 @@ fn normalized_secret_key(key: &str) -> String {
 fn is_secret_query_parameter(key: &str) -> bool {
     let normalized = normalized_secret_key(key);
     is_secret_field_name(key)
-        || matches!(normalized.as_str(), "sig" | "signature" | "xamzsignature" | "xgoogsignature")
+        || matches!(
+            normalized.as_str(),
+            "key" | "auth" | "sig" | "signature" | "xamzsignature" | "xgoogsignature"
+        )
 }
 
 /// Shared key policy used by catalog validation and ingestion-time redaction.
@@ -966,6 +969,10 @@ mod tests {
             "authHeader",
             "bearerToken",
             "signature",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionId",
+            "authHeader",
+            "bearerToken",
         ] {
             assert!(is_secret_field_name(key), "{key}");
         }
