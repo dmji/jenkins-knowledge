@@ -12,3 +12,8 @@ This is a context heuristic, not a complete Groovy parser. Block names are consi
 ## Collection completeness
 
 The LSP preserves the package's collection status separately from symbol confidence. The custom request `jenkinsKnowledge/collection` returns the manifest's package-level completeness and per-source outcomes, including permission-denied, unavailable, failed, skipped-by-profile, and not-configured states. `jenkinsKnowledge/coverage` remains the API-surface coverage view. Older packages without the additive manifest collection object return an explicit `unknown` status; absence is never upgraded to complete.
+
+
+The custom request `jenkinsKnowledge/search` accepts the same package-scoped selectors as Runtime: `query`, `kind`, `source`, `controller`, `sourceKind`, `plugin`, `owner`, `type`, `context`, `confidence`, and `limit`. Search results include the source and selected controller identity plus an `executionConstraintsSummary`; absent CPS, Sandbox, context, or plugin-availability evidence remains `unknown`.
+
+Additional read-only requests are available: `jenkinsKnowledge/list` (the same filters plus `offset`/`limit` pagination), `jenkinsKnowledge/get` (`nameOrId` or `id` for detailed symbol/type/member relationships), `jenkinsKnowledge/controller`, `jenkinsKnowledge/plugins`, and `jenkinsKnowledge/sources`. Use `kind` to list Pipeline steps (`step`), globals (`global-variable`), Declarative directives (`declarative-directive`), or Groovy types (`class`); use `sourceKind` for plugin or Shared Library symbols. All requests read only the selected local package and make no Jenkins or network calls.

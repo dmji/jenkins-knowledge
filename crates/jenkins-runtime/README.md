@@ -40,3 +40,27 @@ The MCP resource \`jenkins://catalog/pipeline-steps\` remains valid and returns 
 ## Collection completeness
 
 Runtime exposes the optional manifest `collection` object through `Runtime::collection()`. It reports package-level completeness and per-source outcomes independently from symbol confidence and catalog API-surface coverage. Older packages without this additive field return `None`; consumers must treat that as unknown, not complete. MCP and LSP expose the same status without modifying symbol confidence.
+
+## Controller-aware queries and details
+
+Runtime search/list filters apply across the symbols in the selected package: `--source` selects an exact source ID, `--controller` selects the package controller by ID, display name, base URL, or controller source ID, `--source-kind` selects `jenkins-controller`, `plugin`, `jenkins-core`, or `shared-library`, `--plugin` selects symbols supplied by or explicitly dependent on a plugin, `--kind` selects a symbol kind, `--context` selects an explicitly declared Pipeline/Declarative context, and `--confidence` filters `verified`, `inferred`, or `unknown` evidence. A context filter does not match symbols with missing context metadata.
+
+Examples:
+
+```sh
+jenkins-runtime --package ./knowledge-package steps --controller jenkins-ci --context steps
+jenkins-runtime --package ./knowledge-package globals --source-kind shared-library
+jenkins-runtime --package ./knowledge-package declarative
+jenkins-runtime --package ./knowledge-package types --controller jenkins-ci
+jenkins-runtime --package ./knowledge-package library-symbols --confidence inferred
+jenkins-runtime --package ./knowledge-package plugin-symbols --plugin workflow-basic-steps
+jenkins-runtime --package ./knowledge-package search deploy --source-kind shared-library --confidence inferred
+jenkins-runtime --package ./knowledge-package get ShellStep
+jenkins-runtime --package ./knowledge-package controller
+jenkins-runtime --package ./knowledge-package plugins
+jenkins-runtime --package ./knowledge-package sources
+```
+
+Search/list results also carry controller identity and `executionConstraintsSummary`, with missing evidence explicitly marked `unknown`. `get` and `step` results preserve catalog confidence, evidence, source revision, and profile. They add `members` only when member declarations are linked to a class by `declaringClass` (plus properties embedded in the class record), and `typeReferences` for catalog-declared superclass, interface, return, and parameter types. Each type reference reports `resolved`, `partial`, `ambiguous`, `unknown`, or `inaccessible`; Runtime does not guess a type relationship from a matching word. Member status similarly distinguishes `available`, `partial`, `unknown`, and `inaccessible`. `executionConstraintsSummary` exposes CPS, Sandbox, declared contexts, and plugin availability. Missing evidence is reported as `unknown`, never upgraded to verified. Raw catalog `executionConstraints`, `availability`, `confidence`, and `provenance` remain unchanged.
+
+The MCP server exposes the same filters on `search_api` and `list_api` (`controller`, `sourceKind`, `context` are additive inputs). Read-only resources include controller metadata, plugin inventory, sources, Pipeline steps, globals, Declarative constructs, Groovy types/members, plugin symbols, and Shared Library symbols. Symbol resources are paginated with `?offset=0&limit=50`; `jenkins://catalog/types` and `jenkins://catalog/pipeline-steps` return detailed records. Existing tools and resources remain available.

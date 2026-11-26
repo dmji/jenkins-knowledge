@@ -1,4 +1,4 @@
-use jenkins_runtime::{Runtime, SearchOptions, MAX_SEARCH_RESULTS};
+use jenkins_runtime::{Runtime, SearchOptions, MAX_SEARCH_OFFSET, MAX_SEARCH_RESULTS};
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use serde_json::{json, Value};
 use std::{collections::HashMap, error::Error, process};
@@ -499,6 +499,73 @@ fn run(connection: Connection, initialization: Value) -> Result<(), Box<dyn Erro
     Ok(())
 }
 
+fn search_options(params: &Value, limit: usize) -> SearchOptions {
+    SearchOptions {
+        query: params.get("query").and_then(Value::as_str).unwrap_or("").to_owned(),
+        kind: params.get("kind").and_then(Value::as_str).map(str::to_owned),
+        source: params.get("source").and_then(Value::as_str).map(str::to_owned),
+        controller: params.get("controller").and_then(Value::as_str).map(str::to_owned),
+        plugin: params.get("plugin").and_then(Value::as_str).map(str::to_owned),
+        owner: params.get("owner").and_then(Value::as_str).map(str::to_owned),
+        type_name: params.get("type").and_then(Value::as_str).map(str::to_owned),
+        confidence: params.get("confidence").and_then(Value::as_str).map(str::to_owned),
+        prefix: None,
+        contexts: params.get("context").and_then(Value::as_str).map(|value| vec![value.to_owned()]),
+        kinds: None,
+        source_kind: params.get("sourceKind").and_then(Value::as_str).map(str::to_owned),
+        limit,
+    }
+}
+
+fn dispatch_knowledge_request(runtime: &Runtime, method: &str, params: &Value) -> Result<Value, String> {
+    match method {
+        "jenkinsKnowledge/list" => {
+            let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+            if !(1..=MAX_SEARCH_RESULTS).contains(&limit) {
+                return Err(format!("limit must be between 1 and {MAX_SEARCH_RESULTS}"));
+            }
+            let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
+            if offset > MAX_SEARCH_OFFSET {
+                return Err(format!("offset must be between 0 and {MAX_SEARCH_OFFSET}"));
+            }
+            let options = search_options(params, limit);
+            let page = runtime.search_page(&options, offset).map_err(|error| error.to_string())?;
+            let returned = page.results.len();
+            let next_offset = if page.has_more { Some(page.offset + returned) } else { None };
+            Ok(json!({
+                "profile":runtime.profile(),
+                "offset":page.offset,
+                "limit":page.limit,
+                "total":page.total,
+                "returned":returned,
+                "hasMore":page.has_more,
+                "nextOffset":next_offset,
+                "results":page.results
+            }))
+        }
+        "jenkinsKnowledge/get" => {
+            let name = params.get("nameOrId").or_else(|| params.get("id"))
+                .and_then(Value::as_str).filter(|value| !value.is_empty())
+                .ok_or_else(|| "nameOrId or id is required".to_string())?;
+            runtime.get(name).map_err(|error| error.to_string())
+        }
+        "jenkinsKnowledge/controller" => Ok(json!({
+            "profile":runtime.profile(),
+            "controller":runtime.controller_details()
+        })),
+        "jenkinsKnowledge/plugins" => Ok(json!({
+            "profile":runtime.profile(),
+            "status":runtime.plugin_inventory_status(),
+            "plugins":runtime.plugins()
+        })),
+        "jenkinsKnowledge/sources" => Ok(json!({
+            "profile":runtime.profile(),
+            "sources":runtime.source_details()
+        })),
+        _ => Err(format!("unsupported Knowledge request: {method}")),
+    }
+}
+
 fn handle_request(connection: &Connection, request: Request, runtime: Option<&Runtime>,
     documents: &HashMap<String, String>) -> Result<(), Box<dyn Error>> {
     let result = match request.method.as_str() {
@@ -531,21 +598,26 @@ fn handle_request(connection: &Connection, request: Request, runtime: Option<&Ru
                 )))?;
                 return Ok(());
             }
-            let options = SearchOptions {
-                query: request.params.get("query").and_then(Value::as_str).unwrap_or("").to_owned(),
-                kind: request.params.get("kind").and_then(Value::as_str).map(str::to_owned),
-                source: request.params.get("source").and_then(Value::as_str).map(str::to_owned),
-                plugin: request.params.get("plugin").and_then(Value::as_str).map(str::to_owned),
-                owner: request.params.get("owner").and_then(Value::as_str).map(str::to_owned),
-                type_name: request.params.get("type").and_then(Value::as_str).map(str::to_owned),
-                confidence: request.params.get("confidence").and_then(Value::as_str).map(str::to_owned),
-                prefix: None,
-                contexts: None,
-                kinds: None,
-                source_kind: None,
-                limit,
-            };
+            let options = search_options(&request.params, limit);
             json!({"profile": runtime.profile(), "limit": limit, "results": runtime.search_with_options(&options)})
+        },
+        "jenkinsKnowledge/list" | "jenkinsKnowledge/get" | "jenkinsKnowledge/controller" | "jenkinsKnowledge/plugins" | "jenkinsKnowledge/sources" => {
+            let Some(runtime) = runtime else {
+                connection.sender.send(Message::Response(Response::new_err(
+                    request.id, lsp_server::ErrorCode::InvalidRequest as i32,
+                    "No Knowledge Package is loaded".to_string()
+                )))?;
+                return Ok(());
+            };
+            match dispatch_knowledge_request(runtime, &request.method, &request.params) {
+                Ok(result) => result,
+                Err(error) => {
+                    connection.sender.send(Message::Response(Response::new_err(
+                        request.id, lsp_server::ErrorCode::InvalidParams as i32, error
+                    )))?;
+                    return Ok(());
+                }
+            }
         },
         "textDocument/hover" => {
             let uri = request.params.pointer("/textDocument/uri").and_then(Value::as_str).unwrap_or_default();
@@ -925,5 +997,42 @@ mod tests {
         assert_eq!(result["isIncomplete"], false);
     }
 
+
+
+    #[test]
+    fn lsp_search_options_preserve_controller_context_and_source_filters() {
+        let runtime = fixture_runtime("fixture");
+        let options = search_options(&json!({
+            "controller":"jenkins-ci",
+            "sourceKind":"jenkins-controller",
+            "context":"steps"
+        }), 50);
+        let page = runtime.search_page(&options, 0).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.results[0]["name"], "sh");
+    }
+
+
+    #[test]
+    fn lsp_read_only_detail_and_list_requests_share_runtime_metadata() {
+        let runtime = fixture_runtime("fixture");
+        let detail = dispatch_knowledge_request(&runtime, "jenkinsKnowledge/get", &json!({"nameOrId":"sh"})).unwrap();
+        assert_eq!(detail["confidence"], "verified");
+        assert_eq!(detail["executionConstraintsSummary"]["pluginAvailability"]["status"], "available");
+
+        let list = dispatch_knowledge_request(&runtime, "jenkinsKnowledge/list", &json!({
+            "sourceKind":"shared-library", "limit":1, "offset":0
+        })).unwrap();
+        assert_eq!(list["total"], 1);
+        assert_eq!(list["results"][0]["name"], "deployApp");
+        assert_eq!(list["results"][0]["source"]["manifestProvenance"]["kind"], "shared-library");
+
+        let controller = dispatch_knowledge_request(&runtime, "jenkinsKnowledge/controller", &json!({})).unwrap();
+        let plugins = dispatch_knowledge_request(&runtime, "jenkinsKnowledge/plugins", &json!({})).unwrap();
+        let sources = dispatch_knowledge_request(&runtime, "jenkinsKnowledge/sources", &json!({})).unwrap();
+        assert_eq!(controller["controller"]["identity"]["id"], "jenkins-ci");
+        assert_eq!(plugins["status"], "available");
+        assert!(sources["sources"].as_array().unwrap().iter().any(|source| source["kind"] == "shared-library"));
+    }
 
 }
