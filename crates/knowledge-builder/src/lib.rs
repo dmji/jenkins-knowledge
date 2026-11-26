@@ -278,6 +278,31 @@ mod tests {
     }
 
     #[test]
+    fn writes_reconciled_source_revision_and_provenance_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            "profile: manifest-test\nfixtures:\n  - fixture.json\n",
+        ).unwrap();
+        fs::write(
+            directory.path().join("fixture.json"),
+            include_str!("../../../tests/fixtures/catalog-valid.json"),
+        ).unwrap();
+
+        let output = directory.path().join("package");
+        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        let catalog: Value = serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
+        let manifest: Value = serde_json::from_slice(&fs::read(output.join("manifest.json")).unwrap()).unwrap();
+        for source in catalog["sources"].as_array().unwrap() {
+            let id = source["id"].as_str().unwrap();
+            assert_eq!(manifest["sourceRevisions"][id], source["revision"]);
+            assert_eq!(manifest["provenance"][id]["name"], source["name"]);
+            assert_eq!(manifest["provenance"][id]["kind"], source["kind"]);
+            assert_eq!(manifest["provenance"][id]["revision"], source["revision"]);
+        }
+    }
+
+    #[test]
     fn rejects_conflicting_source_revisions_in_fixture_merge() {
         let directory = tempfile::tempdir().unwrap();
         let fixture = include_str!("../../../tests/fixtures/catalog-valid.json");
