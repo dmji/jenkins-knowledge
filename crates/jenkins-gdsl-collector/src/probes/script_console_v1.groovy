@@ -561,7 +561,7 @@ def collectApiTypes = {
             (type.getDeclaredMethods() as List).each { method ->
                 int modifiers = method.getModifiers()
                 if (Modifier.isPublic(modifiers) || Modifier.isProtected(modifiers)) {
-                    methodMap[method.getName() + '(' + method.getParameterTypes().collect { it.getName() }.join(',') + ')'] = method
+                    methodMap[method.getName() + '(' + method.getParameterTypes().collect { it.getName() }.join(',') + ')->' + method.getReturnType().getName()] = method
                 }
             }
         } catch (Throwable ignored) {
