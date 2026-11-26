@@ -1755,4 +1755,129 @@ mod tests {
         );
         assert!(!error.contains("do-not-echo"));
     }
+    #[test]
+    fn canonical_snapshot_identity_ignores_volatile_timestamps_and_symbol_order() {
+        let mut first = valid_catalog();
+        first["sources"][0]["metadata"] =
+            json!({"stable":"value","retrievedAt":"2026-11-26T10:00:00Z"});
+        let mut second_symbol = first["symbols"][0].clone();
+        second_symbol["id"] = json!("second-symbol");
+        second_symbol["name"] = json!("second");
+        first["symbols"].as_array_mut().unwrap().push(second_symbol);
+        stamp_catalog_identity(&mut first).unwrap();
+
+        let mut second = first.clone();
+        second["generatedAt"] = json!("2026-11-27T10:00:00Z");
+        second["sources"][0]["metadata"]["retrievedAt"] = json!("2026-11-27T10:00:00Z");
+        second["symbols"].as_array_mut().unwrap().reverse();
+        stamp_catalog_identity(&mut second).unwrap();
+
+        assert_eq!(first["snapshotId"], second["snapshotId"]);
+        assert_eq!(first["sources"][0]["fingerprint"], second["sources"][0]["fingerprint"]);
+    }
+
+    #[test]
+    fn source_fingerprint_and_snapshot_detect_stable_metadata_changes() {
+        let mut catalog = valid_catalog();
+        stamp_catalog_identity(&mut catalog).unwrap();
+        catalog["sources"][0]["metadata"]["description"] = json!("changed");
+        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        assert!(error.contains("fingerprint"));
+        assert!(error.contains("snapshotId"));
+    }
+
+    #[test]
+    fn source_collection_summary_aggregates_surface_outcomes() {
+        let outcomes = vec![
+            json!({"sourceId":"controller","status":"succeeded"}),
+            json!({"sourceId":"controller","status":"permission-denied","errorCode":"permission-denied"})
+        ];
+        let summary = source_collection_summary(
+            "controller",
+            &outcomes,
+            "standard",
+            "2026-11-26T10:00:00Z",
+            "2026-11-26T10:01:00Z",
+        );
+        assert_eq!(summary["status"], "partial");
+        assert_eq!(summary["errorCode"], "permission-denied");
+        assert_eq!(summary["truncated"], false);
+    }
+
+    #[test]
+    fn stamp_adds_revision_and_location_to_symbol_evidence() {
+        let mut catalog = valid_catalog();
+        catalog["symbols"][0]["evidence"][0].as_object_mut().unwrap().remove("revision");
+        catalog["symbols"][0]["evidence"][0].as_object_mut().unwrap().remove("location");
+        stamp_catalog_identity(&mut catalog).unwrap();
+        let source_id = catalog["symbols"][0]["evidence"][0]["sourceId"]
+            .as_str()
+            .unwrap();
+        let source_revision = catalog["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|source| source["id"].as_str() == Some(source_id))
+            .unwrap()["revision"]
+            .as_str()
+            .unwrap();
+        assert_eq!(catalog["symbols"][0]["evidence"][0]["revision"], source_revision);
+        assert!(catalog["symbols"][0]["evidence"][0]["location"].is_string());
+    }
+
+    #[test]
+    fn rejects_evidence_revision_that_does_not_match_its_source() {
+        let mut catalog = valid_catalog();
+        stamp_catalog_identity(&mut catalog).unwrap();
+        catalog["symbols"][0]["evidence"][0]["revision"] = json!("stale-revision");
+        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        assert!(error.contains("evidence"));
+        assert!(error.contains("revision"));
+    }
+
+    #[test]
+    fn completeness_is_derived_from_explicit_source_outcomes() {
+        let mut catalog = valid_catalog();
+        let sources = catalog["sources"].as_array().unwrap().clone();
+        let mut outcomes = Vec::new();
+        for source in &sources {
+            outcomes.push(json!({
+                "sourceId":source["id"],
+                "revision":source["revision"],
+                "status":"succeeded"
+            }));
+        }
+        let started_at = "2026-11-26T10:00:00Z";
+        let completed_at = "2026-11-26T10:01:00Z";
+        for source in catalog["sources"].as_array_mut().unwrap() {
+            let source_id = source["id"].as_str().unwrap();
+            source["collection"] = source_collection_summary(
+                source_id,
+                &outcomes,
+                "standard",
+                started_at,
+                completed_at,
+            );
+        }
+        catalog["completeness"] = json!({"status":"complete","reasonCodes":[]});
+        stamp_catalog_identity(&mut catalog).unwrap();
+        assert!(validate_catalog(&catalog, &schema()).is_ok());
+
+        outcomes[0]["status"] = json!("permission-denied");
+        for source in catalog["sources"].as_array_mut().unwrap() {
+            let source_id = source["id"].as_str().unwrap();
+            source["collection"] = source_collection_summary(
+                source_id,
+                &outcomes,
+                "standard",
+                started_at,
+                completed_at,
+            );
+        }
+        let reasons = completeness_reason_codes(&outcomes);
+        catalog["completeness"] = json!({"status":"partial","reasonCodes":reasons});
+        stamp_catalog_identity(&mut catalog).unwrap();
+        assert!(validate_catalog(&catalog, &schema()).is_ok());
+    }
+
 }
