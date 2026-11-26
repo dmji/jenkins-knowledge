@@ -11,6 +11,8 @@ mod source_security;
 #[serde(deny_unknown_fields)]
 pub struct Profile {
     pub profile: String,
+    #[serde(rename = "collectionProfile", default = "default_collection_profile")]
+    pub collection_profile: String,
     #[serde(default)]
     pub jenkins: JenkinsConfig,
     #[serde(default)]
@@ -93,7 +95,16 @@ impl PackageSelection {
     }
 }
 
+fn default_collection_profile() -> String {
+    "standard".into()
+}
+
 fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
+    if !matches!(profile.collection_profile.as_str(), "quick" | "standard" | "deep") {
+        return Err(BuildError::Profile(
+            "collectionProfile: expected quick, standard, or deep".into(),
+        ));
+    }
     if profile.profile.trim().is_empty()
         || profile.profile.trim() != profile.profile
         || profile.profile.chars().any(char::is_control)
