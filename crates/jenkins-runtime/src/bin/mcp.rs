@@ -492,6 +492,36 @@ mod tests {
         assert_eq!(types["types"][0]["controller"]["id"], "jenkins-ci");
     }
     #[test]
+    fn compatibility_tool_and_resource_expose_package_limitations_without_a_target() {
+        let runtime = fixture_runtime();
+        let tool = structured_tool_page(&runtime, "get_package_compatibility", json!({}));
+        let resource = read_resource(&runtime, "jenkins://catalog/compatibility").unwrap();
+        let inventory = controller_inventory(&runtime);
+
+        assert_eq!(tool["status"], "unknown");
+        assert_eq!(tool["environmentComparisonStatus"], "not-compared");
+        assert_eq!(tool["targetEnvironment"]["status"], "not-provided");
+        assert_eq!(resource["status"], "unknown");
+        assert_eq!(inventory["freshness"]["packageGeneratedAt"], runtime.manifest()["createdAt"]);
+        assert!(inventory.get("compatibility").is_some());
+    }
+
+    #[test]
+    fn compatibility_tool_reports_a_known_environment_difference() {
+        let runtime = fixture_runtime();
+        let report = structured_tool_page(&runtime, "get_package_compatibility", json!({
+            "targetEnvironment": {
+                "coreVersion":"2.480.0",
+                "javaVersion":"17.0.12",
+                "javaVendor":"Eclipse Adoptium",
+                "plugins":[{"shortName":"workflow-basic-steps","version":"2.27"}]
+            }
+        }));
+        assert_eq!(report["environmentComparisonStatus"], "different");
+        assert_eq!(report["status"], "environment-different");
+    }
+
+    #[test]
     fn page_metadata_marks_when_runtime_offset_ceiling_blocks_next_page() {
         let page = SearchPage {
             offset: MAX_SEARCH_OFFSET,
