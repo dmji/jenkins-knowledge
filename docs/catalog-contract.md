@@ -7,6 +7,8 @@ The catalog is the canonical API representation shared by Builder, Runtime, IDE 
 - `schemaVersion`: catalog schema version. Version 1 is `1.0.0`.
 - `catalogId`: stable identifier for this catalog snapshot.
 - `generatedAt`: RFC 3339 timestamp.
+- `snapshotId` (optional for legacy catalogs): stable SHA-256 identity for the logical snapshot.
+- `completeness` (optional for legacy catalogs): package-level `complete`, `partial`, or `unknown` outcome.
 - `sources`: source snapshots from which symbols were extracted.
 - `symbols`: API symbols associated with exactly one source.
 - `coverage` (optional): per-source collection status for an inspected API surface.
@@ -66,7 +68,7 @@ Three independent dimensions must not be conflated:
 
 - **Confidence** describes the overall strength of the symbol claim (`verified`, `inferred`, or `unknown`).
 - **Provenance** describes where the symbol evidence came from. The source ID and revision identify the source snapshot; the optional `provenance` strings record evidence locations or extraction notes.
-- **Coverage** describes what collection actually inspected. The optional top-level `coverage` array records a `sourceId`, a `surface`, and one status: `inspected`, `unavailable`, `unsupported`, or `not-collected`. Coverage entries must reference an existing source. Absence of a coverage entry is not evidence that a surface was inspected.
+- **Coverage** describes what collection actually inspected. The optional top-level `coverage` array records a `sourceId`, a `surface`, and one status: `inspected`, `succeeded`, `succeeded-with-truncation`, `unavailable`, `permission-denied`, `failed`, `skipped-by-profile`, `not-configured`, `unsupported`, or `not-collected`. Coverage entries must reference an existing source. Absence of a coverage entry is not evidence that a surface was inspected.
 
 The optional symbol `fieldEvidence` object records evidence quality independently for individual fields, using the same `verified`, `inferred`, and `unknown` values. A missing field-evidence entry means unknown; symbol-level `confidence: verified` must not be interpreted as proof that every optional attribute is verified. Producers should only mark a field verified when its value was directly observed or declared by the referenced source.
 
