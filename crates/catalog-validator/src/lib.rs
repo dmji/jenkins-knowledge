@@ -64,14 +64,6 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
             id.to_owned(),
             source["kind"].as_str().unwrap_or_default().to_owned(),
         );
-        if let Some(url) = source["url"].as_str() {
-            if url_has_credentials(url) {
-                errors.push(format!(
-                    "/sources/{index}/url: URLs must not contain embedded credentials or secret query parameters"
-                ));
-            }
-        }
-        reject_secret_fields(source, &format!("/sources/{index}"), errors);
     }
 
     if let Some(coverage) = catalog["coverage"].as_array() {
@@ -93,19 +85,10 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
                     "/coverage/{index}: duplicate coverage entry for source '{source_id}' and surface '{surface}'"
                 ));
             }
-            reject_secret_fields(entry, &format!("/coverage/{index}"), errors);
         }
     }
 
     if let Some(controller) = catalog.get("controller").filter(|value| !value.is_null()) {
-        if let Some(base_url) = controller["identity"]["baseUrl"].as_str() {
-            if url_has_credentials(base_url) {
-                errors.push(
-                    "/controller/identity/baseUrl: URLs must not contain embedded credentials or secret query parameters"
-                        .to_owned(),
-                );
-            }
-        }
         let mut plugin_names = HashSet::new();
         for (index, plugin) in controller["plugins"]
             .as_array()
@@ -137,7 +120,6 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
                 ));
             }
         }
-        reject_secret_fields(controller, "/controller", errors);
     }
 
     for (index, symbol) in symbols.iter().enumerate() {
@@ -228,10 +210,10 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
                 }
             }
         }
-        reject_secret_fields(symbol, &format!("/symbols/{index}"), errors);
     }
 
     validate_coverage_consistency(catalog, &source_kinds, errors);
+    reject_secret_fields(catalog, "", errors);
 }
 
 /// Reconcile manifest source metadata with the catalog records it describes.
@@ -322,6 +304,8 @@ pub fn validate_package_metadata(
             ));
         }
     }
+
+    reject_secret_fields(manifest, "/manifest", &mut errors);
 
     if errors.is_empty() {
         Ok(())
@@ -435,57 +419,164 @@ fn validate_coverage_consistency(
     }
 }
 
-fn url_has_credentials(value: &str) -> bool {
-    let Some((_, remainder)) = value.split_once("://") else {
-        return false;
-    };
-    let authority = remainder.split('/').next().unwrap_or_default();
-    if authority.contains('@') {
-        return true;
-    }
-    value.split_once('?').is_some_and(|(_, query)| {
-        query.split('&').any(|part| {
-            let key = part
-                .split('=')
-                .next()
-                .unwrap_or_default()
-                .to_ascii_lowercase();
-            [
-                "token",
-                "api_key",
-                "apikey",
-                "password",
-                "secret",
-                "authorization",
-                "access_token",
-            ]
-            .iter()
-            .any(|sensitive| key.contains(sensitive))
-        })
+fn fragment_has_secrets(fragment: &str) -> bool {
+    fragment.split('&').any(|part| {
+        let key = part.split('=').next().unwrap_or_default();
+        is_secret_query_parameter(key)
     })
+}
+
+fn url_has_credentials(value: &str) -> bool {
+    let authority_has_credentials = value.split_once("://").is_some_and(|(_, remainder)| {
+        remainder
+            .split('/')
+            .next()
+            .unwrap_or_default()
+            .contains('@')
+    });
+    let query_has_secrets = value.split_once('?').is_some_and(|(_, query)| {
+        query.split('&').any(|part| {
+            let key = part.split('=').next().unwrap_or_default();
+            is_secret_query_parameter(key)
+        })
+    });
+    let fragment_has_secrets = value
+        .split_once('#')
+        .is_some_and(|(_, fragment)| fragment_has_secrets(fragment));
+    authority_has_credentials || query_has_secrets || fragment_has_secrets
+}
+
+fn redact_url_value(value: &str) -> String {
+    if let Ok(mut parsed) = url::Url::parse(value) {
+        let _ = parsed.set_username("");
+        let _ = parsed.set_password(None);
+        parsed.set_query(None);
+        if parsed.fragment().is_some_and(fragment_has_secrets) {
+            parsed.set_fragment(None);
+        }
+        return parsed.to_string();
+    }
+
+    let without_query = value.split_once('?').map_or(value, |(before, _)| before);
+    let without_suffix = without_query
+        .split_once('#')
+        .filter(|(_, fragment)| fragment_has_secrets(fragment))
+        .map_or(without_query, |(before, _)| before);
+    if let Some((authority, path)) = without_suffix.split_once(':') {
+        if authority.contains('@') && !authority.contains('/') {
+            let host = authority
+                .rsplit_once('@')
+                .map_or(authority, |(_, host)| host);
+            return format!("{host}:{path}");
+        }
+    }
+    without_suffix.to_owned()
+}
+
+fn normalized_secret_key(key: &str) -> String {
+    key.chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_lowercase())
+        .collect()
+}
+
+fn is_secret_query_parameter(key: &str) -> bool {
+    let normalized = normalized_secret_key(key);
+    is_secret_field_name(key)
+        || matches!(
+            normalized.as_str(),
+            "key" | "auth" | "sig" | "signature" | "xamzsignature" | "xgoogsignature"
+        )
+}
+
+/// Shared key policy used by catalog validation and ingestion-time redaction.
+pub fn is_secret_field_name(key: &str) -> bool {
+    let normalized = normalized_secret_key(key);
+    [
+        "password",
+        "passwd",
+        "passphrase",
+        "pwd",
+        "token",
+        "secret",
+        "credential",
+        "authorization",
+        "cookie",
+        "privatekey",
+        "accesskey",
+        "session",
+        "sessionid",
+        "sessiontoken",
+        "apikey",
+        "authheader",
+        "authkey",
+        "authmaterial",
+        "basicauth",
+        "bearer",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+/// Removes secret-bearing fields recursively, strips URL queries, and removes secret-bearing fragments.
+/// Safe metadata and non-sensitive URL origins are retained. Returns the number of changes.
+pub fn redact_sensitive_fields(value: &mut Value) -> usize {
+    match value {
+        Value::Object(fields) => {
+            let secret_keys: Vec<_> = fields
+                .keys()
+                .filter(|key| is_secret_field_name(key))
+                .cloned()
+                .collect();
+            let mut redacted = 0;
+            for key in secret_keys {
+                fields.remove(&key);
+                redacted += 1;
+            }
+            for (key, child) in fields.iter_mut() {
+                let normalized = normalized_secret_key(key);
+                let is_url = normalized.ends_with("endpoint")
+                    || normalized.ends_with("url")
+                    || normalized.ends_with("uri");
+                if is_url {
+                    if let Value::String(url) = child {
+                        let safe = redact_url_value(url);
+                        if *url != safe {
+                            *url = safe;
+                            redacted += 1;
+                        }
+                        continue;
+                    }
+                }
+                redacted += redact_sensitive_fields(child);
+            }
+            redacted
+        }
+        Value::Array(items) => items.iter_mut().map(redact_sensitive_fields).sum(),
+        _ => 0,
+    }
 }
 
 fn reject_secret_fields(value: &Value, path: &str, errors: &mut Vec<String>) {
     match value {
         Value::Object(fields) => {
             for (key, child) in fields {
-                let normalized = key.to_ascii_lowercase().replace(['_', '-'], "");
-                if [
-                    "password",
-                    "token",
-                    "apitoken",
-                    "authorization",
-                    "secret",
-                    "credentials",
-                    "clientsecret",
-                ]
-                .contains(&normalized.as_str())
-                {
+                let child_path = format!("{path}/{key}");
+                if is_secret_field_name(key) {
                     errors.push(format!(
-                        "{path}/{key}: secret-bearing fields are not permitted in catalogs"
+                        "{child_path}: secret-bearing fields are not permitted in catalogs"
                     ));
                 } else {
-                    reject_secret_fields(child, &format!("{path}/{key}"), errors);
+                    let normalized = normalized_secret_key(key);
+                    let is_url = normalized.ends_with("endpoint")
+                        || normalized.ends_with("url")
+                        || normalized.ends_with("uri");
+                    if is_url && child.as_str().is_some_and(url_has_credentials) {
+                        errors.push(format!(
+                            "{child_path}: URL contains embedded credentials or secret query parameters or fragments"
+                        ));
+                    }
+                    reject_secret_fields(child, &child_path, errors);
                 }
             }
         }
@@ -893,5 +984,146 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("not a schema-defined symbol attribute"));
+    }
+    #[test]
+    fn detects_normalized_secret_key_variants_without_flagging_safe_metadata() {
+        for key in [
+            "apiKey",
+            "API_KEY",
+            "x-api-key",
+            "Authorization",
+            "clientSecret",
+            "credentialId",
+            "privateKey",
+            "refreshToken",
+            "set-cookie",
+            "passwordHash",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionId",
+            "authHeader",
+            "bearerToken",
+        ] {
+            assert!(is_secret_field_name(key), "{key}");
+        }
+        for key in [
+            "description",
+            "displayName",
+            "username",
+            "apiBaseUrl",
+            "repositoryUrl",
+            "key",
+            "signature",
+        ] {
+            assert!(!is_secret_field_name(key), "{key}");
+        }
+        assert!(is_secret_query_parameter("signature"));
+        assert!(is_secret_query_parameter("X-Amz-Signature"));
+    }
+
+    #[test]
+    fn recursively_redacts_secret_fields_and_url_request_modifiers() {
+        let mut value = json!({
+            "metadata": {
+                "safeLabel": "preserved",
+                "apiKey": "top-secret-api",
+                "nested": [
+                    {"refreshToken": "top-secret-refresh", "description": "safe"},
+                    {"credentialId": "jenkins-credential-123"}
+                ]
+            },
+            "headers": {
+                "Authorization": "Bearer top-secret-auth",
+                "Content-Type": "application/json"
+            },
+            "documentationUrl": "https://docs-user:top-secret-url@docs.example.test/step?access_token=top-secret#details",
+            "apiEndpoint": "https://user:top-secret-endpoint@controller.example.test/api?token=top-secret-query#details",
+            "privateDocumentationUrl": "https://docs.example.test/page#access_token=top-secret-fragment",
+            "repositoryUrl": "git@github.example.test:team/library.git"
+        });
+        let changes = redact_sensitive_fields(&mut value);
+        let serialized = value.to_string();
+        assert!(changes >= 4);
+        assert!(!serialized.contains("top-secret"));
+        assert!(!serialized.contains("credential-123"));
+        assert!(!serialized.contains("apiKey"));
+        assert!(!serialized.contains("Authorization"));
+        assert_eq!(value["metadata"]["safeLabel"], "preserved");
+        assert_eq!(value["metadata"]["nested"][0]["description"], "safe");
+        assert_eq!(value["headers"]["Content-Type"], "application/json");
+        assert_eq!(
+            value["documentationUrl"],
+            "https://docs.example.test/step#details"
+        );
+        assert_eq!(
+            value["apiEndpoint"],
+            "https://controller.example.test/api#details"
+        );
+        assert_eq!(
+            value["privateDocumentationUrl"],
+            "https://docs.example.test/page"
+        );
+        assert_eq!(
+            value["repositoryUrl"],
+            "github.example.test:team/library.git"
+        );
+    }
+
+    #[test]
+    fn rejects_secret_fields_in_nested_extensible_metadata_and_secret_url_queries() {
+        let mut invalid = valid_catalog();
+        invalid["sources"][0]["metadata"] = json!({
+            "safe": "preserved",
+            "nested": [{"credentialId": "do-not-echo"}]
+        });
+        let errors = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
+        assert!(errors.contains("/sources/0/metadata/nested/0/credentialId"));
+        assert!(!errors.contains("do-not-echo"));
+
+        let mut invalid = valid_catalog();
+        invalid["sources"][0]["url"] =
+            json!("https://git.example.test/team/repo?X-Api-Key=do-not-echo");
+        let errors = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
+        assert!(errors.contains("secret query parameters"));
+        assert!(!errors.contains("do-not-echo"));
+
+        let mut invalid = valid_catalog();
+        invalid["sources"][0]["metadata"] = json!({
+            "apiEndpoint": "https://user:password@controller.example.test/api"
+        });
+        let errors = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
+        assert!(errors.contains("/sources/0/metadata/apiEndpoint"));
+        assert!(!errors.contains("password"));
+
+        let mut invalid = valid_catalog();
+        invalid["sources"][0]["metadata"] = json!({
+            "documentationUrl": "https://docs.example.test/page#access_token=do-not-echo"
+        });
+        let errors = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
+        assert!(errors.contains("/sources/0/metadata/documentationUrl"));
+        assert!(errors.contains("secret query parameters or fragments"));
+        assert!(!errors.contains("do-not-echo"));
+    }
+
+    #[test]
+    fn rejects_secret_fields_in_forward_compatible_manifest_metadata() {
+        let catalog = valid_catalog();
+        let mut manifest = manifest_for(&catalog);
+        manifest["provenance"]["platform-lib"]["futureMetadata"] =
+            json!({"nested": [{"accessToken": "do-not-echo"}]});
+        let error = validate_package_metadata(&catalog, &manifest)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("/manifest/provenance/platform-lib/futureMetadata/nested/0/accessToken")
+        );
+        assert!(!error.contains("do-not-echo"));
     }
 }

@@ -752,6 +752,20 @@ mod tests {
     }
 
     #[test]
+    fn rejects_secret_fields_in_manifest_provenance_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        write_package(directory.path());
+        let manifest_path = directory.path().join("manifest.json");
+        let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["provenance"]["platform-lib"]["futureMetadata"] =
+            serde_json::json!({"apiKey": "runtime-secret-value"});
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("secret-bearing fields"));
+        assert!(!error.contains("runtime-secret-value"));
+    }
+
+    #[test]
     fn rejects_manifest_provenance_mismatch() {
         let directory = tempfile::tempdir().unwrap();
         write_package(directory.path());

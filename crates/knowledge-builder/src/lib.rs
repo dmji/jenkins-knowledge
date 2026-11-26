@@ -1,4 +1,4 @@
-use catalog_validator::{validate_catalog, validate_package_metadata};
+use catalog_validator::{redact_sensitive_fields, validate_catalog, validate_package_metadata};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -121,7 +121,9 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let mut provenance = BTreeMap::new();
     let mut controller_snapshot: Option<Value> = None;
     let mut controller_metadata: Option<Value> = None;
-    for (label, catalog) in catalogs {
+    for (label, mut catalog) in catalogs {
+        // Remove secret-bearing metadata before validation, merging, or serialization.
+        redact_sensitive_fields(&mut catalog);
         let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
         validate_catalog(&catalog, &schema).map_err(|e| BuildError::Source(format!("{label}: {e}")))?;
         if let Some(controller) = catalog.get("controller") {
@@ -196,7 +198,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let staging_path = staging.path();
     let catalog_bytes = format!("{}\n", serde_json::to_string_pretty(&catalog).map_err(|e| BuildError::Io(e.to_string()))?);
     fs::write(staging_path.join("catalog.json"), &catalog_bytes).map_err(|e| BuildError::Io(e.to_string()))?;
-    let manifest = json!({
+    let mut manifest = json!({
         "packageVersion":"1.0.0",
         "catalogSchemaVersion":"1.0.0",
         "profile":profile.profile,
@@ -207,6 +209,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         "checksums":{"catalog.json":hex(&Sha256::digest(catalog_bytes.as_bytes()))},
         "toolVersions":{"knowledge-builder":env!("CARGO_PKG_VERSION")}
     });
+    redact_sensitive_fields(&mut manifest);
     validate_package_metadata(&catalog, &manifest)
         .map_err(|error| BuildError::InvalidCatalog(format!("manifest/catalog consistency failed: {error}")))?;
     let manifest_schema: Value = serde_json::from_str(include_str!("../../../schemas/manifest.schema.json"))
@@ -396,6 +399,49 @@ fixtures:
         let package = format!("{catalog}{manifest}");
         assert!(!package.contains("?ref=release"));
         assert!(package.contains("https://github.example.test/team/library.git"));
+    }
+
+    #[test]
+    fn redacts_nested_secret_metadata_before_publishing_package() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        ))
+        .unwrap();
+        catalog["sources"][0]["metadata"] = json!({
+            "safeLabel": "keep-this",
+            "apiKey": "builder-secret-api",
+            "nested": [{"credentialId": "builder-secret-credential"}],
+            "endpoint": "https://builder:builder-secret-user@controller.example.test/api?access_token=builder-secret-token"
+        });
+        fs::write(
+            directory.path().join("fixture.json"),
+            serde_json::to_vec(&catalog).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            "profile: secret-redaction\nfixtures:\n  - fixture.json\n",
+        )
+        .unwrap();
+
+        let output = directory.path().join("package");
+        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        let catalog_text = fs::read_to_string(output.join("catalog.json")).unwrap();
+        let manifest_text = fs::read_to_string(output.join("manifest.json")).unwrap();
+        let serialized = format!("{catalog_text}{manifest_text}");
+        assert!(!serialized.contains("builder-secret"));
+        let package_catalog: Value = serde_json::from_str(&catalog_text).unwrap();
+        assert_eq!(package_catalog["sources"][0]["metadata"]["safeLabel"], "keep-this");
+        assert!(package_catalog["symbols"][0]["signature"].as_str().is_some());
+        assert_eq!(
+            package_catalog["sources"][0]["metadata"]["endpoint"],
+            "https://controller.example.test/api"
+        );
+        assert!(package_catalog["sources"][0]["metadata"].get("apiKey").is_none());
+        assert!(package_catalog["sources"][0]["metadata"]["nested"][0]
+            .get("credentialId")
+            .is_none());
     }
 
     #[test]
