@@ -226,78 +226,549 @@ fn sanitize_collected_catalog(catalog: &mut Value) -> usize {
 }
 
 fn parse_methods(input: &str) -> Result<Vec<Method>, CollectorError> {
-    // Jenkins GDSL emits method(name: 'step', type: '...', params: [...], doc: '...').
-    // Capture one declaration at a time, respecting nested brackets and quoted strings.
+    let mask = mask_non_code(input)?;
     let marker = Regex::new(r"\bmethod\s*\(").expect("constant regex");
-    let name_re = Regex::new(r#"\bname\s*:\s*(?:'([^'\r\n]+)'|"([^"\r\n]+)")"#).expect("constant regex");
-    let type_re = Regex::new(r#"\btype\s*:\s*(?:'([^'\r\n]+)'|"([^"\r\n]+)")"#).expect("constant regex");
-    let doc_re = Regex::new(r#"\b(?:doc|description)\s*:\s*(?:'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)")"#).expect("constant regex");
-    let params_re = Regex::new(r"\bparams\s*:\s*\[([^\]]*)\]").expect("constant regex");
-    let param_re = Regex::new(r#"([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)")"#).expect("constant regex");
     let mut methods = Vec::new();
-    let mut last_offset = 0;
-    let mut current_line = 1;
-    for found in marker.find_iter(input) {
-        current_line += input[last_offset..found.start()].bytes().filter(|byte| *byte == b'\n').count();
-        last_offset = found.start();
-        if methods.len() >= MAX_GDSL_SYMBOLS {
+    let mut search_from = 0;
+    let mut declaration_count = 0;
+
+    while let Some(found) = marker.find_at(&mask, search_from) {
+        declaration_count += 1;
+        if declaration_count > MAX_GDSL_SYMBOLS {
             return Err(CollectorError::TooManySymbols {
                 limit: MAX_GDSL_SYMBOLS,
             });
         }
-        let start = found.end();
-        let end = matching_paren(input, start - 1).ok_or_else(|| {
-            CollectorError::MalformedGdsl(format!("unterminated method declaration at line {}", line_number(input, found.start())))
+
+        let open = found.end() - 1;
+        let end = matching_delimiter(&mask, open, b'(', b')').ok_or_else(|| {
+            CollectorError::MalformedGdsl(format!(
+                "unterminated method declaration at line {}",
+                line_number(input, found.start())
+            ))
         })?;
-        let declaration = &input[start..end];
-        let Some(captures) = name_re.captures(declaration) else { continue };
-        let name = captures.get(1).or_else(|| captures.get(2)).unwrap().as_str().to_owned();
-        let return_type = type_re.captures(declaration).map(|c| c.get(1).or_else(|| c.get(2)).unwrap().as_str().to_owned()).unwrap_or_else(|| "Object".into());
-        let description = doc_re.captures(declaration).map(|c| unescape(c.get(1).or_else(|| c.get(2)).unwrap().as_str()));
+        search_from = end + 1;
+
+        let declaration = &input[found.end()..end];
+        let declaration_mask = &mask[found.end()..end];
+        let arguments = parse_named_arguments(declaration, declaration_mask);
+        let Some((_, name_value, name_mask)) =
+            arguments.iter().find(|(key, _, _)| *key == "name")
+        else {
+            continue;
+        };
+        let Some(name) = parse_string_literal(name_value, name_mask) else {
+            continue;
+        };
+
+        let return_type = arguments
+            .iter()
+            .find(|(key, _, _)| *key == "type")
+            .and_then(|(_, value, value_mask)| parse_string_literal(value, value_mask))
+            .unwrap_or_else(|| "Object".into());
+        let description = arguments
+            .iter()
+            .find(|(key, _, _)| *key == "doc" || *key == "description")
+            .and_then(|(_, value, value_mask)| parse_string_literal(value, value_mask));
         let documentation_url = description.as_deref().and_then(extract_url);
-        let parameters: Vec<Value> = params_re.captures(declaration).map(|captures| {
-            param_re.captures_iter(&captures[1])
-                .take(MAX_PARAMETERS_PER_SYMBOL + 1)
-                .map(|c| json!({"name": &c[1], "description": unescape(c.get(2).or_else(|| c.get(3)).unwrap().as_str())}))
-                .collect()
-        }).unwrap_or_default();
-        if parameters.len() > MAX_PARAMETERS_PER_SYMBOL {
-            return Err(CollectorError::TooManyParameters {
-                limit: MAX_PARAMETERS_PER_SYMBOL,
-            });
-        }
-        let parameter_names = parameters.iter().filter_map(|p| p["name"].as_str()).collect::<Vec<_>>();
-        let signature = format!("{}({}) -> {}", name, parameter_names.join(", "), return_type);
-        methods.push(Method { name, signature, description, documentation_url, parameters, line: current_line });
+        let line = line_number(input, found.start());
+        let parameters = if let Some((_, value, value_mask)) =
+            arguments.iter().find(|(key, _, _)| *key == "params")
+        {
+            parse_parameters(value, value_mask, line)?
+        } else {
+            Vec::new()
+        };
+        let parameter_names = parameters
+            .iter()
+            .filter_map(|parameter| parameter["name"].as_str())
+            .collect::<Vec<_>>();
+        let signature = format!(
+            "{}({}) -> {}",
+            name,
+            parameter_names.join(", "),
+            return_type
+        );
+
+        methods.push(Method {
+            name,
+            signature,
+            description,
+            documentation_url,
+            parameters,
+            line,
+        });
     }
+
     Ok(methods)
 }
 
-fn matching_paren(input: &str, open: usize) -> Option<usize> {
+fn mask_non_code(input: &str) -> Result<String, CollectorError> {
     let bytes = input.as_bytes();
-    let mut depth = 0usize;
-    let mut quote = None;
-    let mut escaped = false;
-    for (index, byte) in bytes.iter().enumerate().skip(open) {
-        if let Some(q) = quote {
-            if escaped { escaped = false; }
-            else if *byte == b'\\' { escaped = true; }
-            else if *byte == q { quote = None; }
+    let mut masked = bytes.to_vec();
+    let mut index = 0;
+    let mut previous_word: Option<&str> = None;
+    let mut previous_char: Option<u8> = None;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if byte.is_ascii_whitespace() {
+            index += 1;
             continue;
         }
-        if *byte == b'\'' || *byte == b'"' { quote = Some(*byte); }
-        else if *byte == b'(' { depth += 1; }
-        else if *byte == b')' {
+
+        if byte == b'/' && bytes.get(index + 1) == Some(&b'/') {
+            let start = index;
+            while index < bytes.len() && bytes[index] != b'\n' {
+                index += 1;
+            }
+            mask_range(&mut masked, start, index);
+            continue;
+        }
+
+        if byte == b'/' && bytes.get(index + 1) == Some(&b'*') {
+            let start = index;
+            let end = scan_block_comment(bytes, start).ok_or_else(|| {
+                CollectorError::MalformedGdsl(format!(
+                    "unterminated block comment at line {}",
+                    line_number(input, start)
+                ))
+            })?;
+            mask_range(&mut masked, start, end);
+            index = end;
+            continue;
+        }
+
+        if byte == b'$'
+            && bytes.get(index + 1) == Some(&b'/')
+            && slashy_can_start(previous_word, previous_char)
+        {
+            let start = index;
+            let end = scan_dollar_slashy(bytes, start).ok_or_else(|| {
+                CollectorError::MalformedGdsl(format!(
+                    "unterminated dollar-slashy string at line {}",
+                    line_number(input, start)
+                ))
+            })?;
+            mask_range(&mut masked, start, end);
+            index = end;
+            previous_word = None;
+            previous_char = Some(b'$');
+            continue;
+        }
+
+        if byte == b'\'' || byte == b'"' {
+            let start = index;
+            let (end, _, _) = scan_quoted(bytes, start).ok_or_else(|| {
+                CollectorError::MalformedGdsl(format!(
+                    "unterminated quoted string at line {}",
+                    line_number(input, start)
+                ))
+            })?;
+            mask_range(&mut masked, start, end);
+            index = end;
+            previous_word = None;
+            previous_char = Some(byte);
+            continue;
+        }
+
+        if byte == b'/' && slashy_can_start(previous_word, previous_char) {
+            let start = index;
+            let end = scan_slashy(bytes, start).ok_or_else(|| {
+                CollectorError::MalformedGdsl(format!(
+                    "unterminated slashy string at line {}",
+                    line_number(input, start)
+                ))
+            })?;
+            mask_range(&mut masked, start, end);
+            index = end;
+            previous_word = None;
+            previous_char = Some(b'/');
+            continue;
+        }
+
+        if is_identifier_start(byte) {
+            let start = index;
+            index += 1;
+            while index < bytes.len() && is_identifier_continue(bytes[index]) {
+                index += 1;
+            }
+            previous_word = Some(&input[start..index]);
+            previous_char = Some(bytes[index - 1]);
+            continue;
+        }
+
+        previous_word = None;
+        previous_char = Some(byte);
+        index += 1;
+    }
+
+    String::from_utf8(masked)
+        .map_err(|_| CollectorError::MalformedGdsl("could not mask GDSL source".into()))
+}
+
+fn mask_range(masked: &mut [u8], start: usize, end: usize) {
+    for byte in &mut masked[start..end] {
+        if *byte != b'\n' && *byte != b'\r' {
+            *byte = b' ';
+        }
+    }
+}
+
+fn scan_block_comment(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut index = start + 2;
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'/' && bytes[index + 1] == b'*' {
+            depth += 1;
+            index += 2;
+        } else if bytes[index] == b'*' && bytes[index + 1] == b'/' {
             depth -= 1;
-            if depth == 0 { return Some(index); }
+            index += 2;
+            if depth == 0 {
+                return Some(index);
+            }
+        } else {
+            index += 1;
         }
     }
     None
 }
 
-fn unescape(value: &str) -> String {
-    value.replace("\\'", "'").replace("\\\"", "\"").replace("\\\\", "\\")
+fn scan_quoted(bytes: &[u8], start: usize) -> Option<(usize, usize, usize)> {
+    let quote = *bytes.get(start)?;
+    if quote != b'\'' && quote != b'"' {
+        return None;
+    }
+    let triple = start + 2 < bytes.len()
+        && bytes[start + 1] == quote
+        && bytes[start + 2] == quote;
+    let delimiter = if triple { 3 } else { 1 };
+    let content_start = start + delimiter;
+    let mut index = content_start;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index += 2;
+            continue;
+        }
+        if triple {
+            if index + 2 < bytes.len()
+                && bytes[index] == quote
+                && bytes[index + 1] == quote
+                && bytes[index + 2] == quote
+            {
+                return Some((index + 3, content_start, index));
+            }
+        } else if bytes[index] == quote {
+            return Some((index + 1, content_start, index));
+        }
+        index += 1;
+    }
+
+    None
 }
+
+fn scan_slashy(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut index = start + 1;
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index += 2;
+        } else if bytes[index] == b'/' {
+            return Some(index + 1);
+        } else {
+            index += 1;
+        }
+    }
+    None
+}
+
+fn scan_dollar_slashy(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut index = start + 2;
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'$'
+            && (bytes[index + 1] == b'$' || bytes[index + 1] == b'/')
+        {
+            index += 2;
+        } else if bytes[index] == b'/' && bytes[index + 1] == b'$' {
+            return Some(index + 2);
+        } else {
+            index += 1;
+        }
+    }
+    None
+}
+
+fn slashy_can_start(previous_word: Option<&str>, previous_char: Option<u8>) -> bool {
+    if previous_char.is_none()
+        || matches!(
+            previous_char,
+            Some(
+                b'=' | b'('
+                    | b'['
+                    | b'{'
+                    | b','
+                    | b':'
+                    | b';'
+                    | b'!'
+                    | b'?'
+                    | b'&'
+                    | b'|'
+                    | b'~'
+                    | b'>'
+                    | b'<'
+                    | b'+'
+                    | b'-'
+                    | b'*'
+                    | b'%'
+                    | b'^'
+            )
+        )
+    {
+        return true;
+    }
+
+    matches!(
+        previous_word,
+        Some(
+            "return"
+                | "throw"
+                | "case"
+                | "in"
+                | "assert"
+                | "yield"
+                | "new"
+                | "else"
+                | "do"
+                | "instanceof"
+                | "as"
+        )
+    )
+}
+
+fn is_identifier_start(byte: u8) -> bool {
+    byte.is_ascii_alphabetic() || byte == b'_'
+}
+
+fn is_identifier_continue(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$'
+}
+
+fn matching_delimiter(mask: &str, open: usize, opening: u8, closing: u8) -> Option<usize> {
+    if mask.as_bytes().get(open) != Some(&opening) {
+        return None;
+    }
+    let mut depth = 0usize;
+    for (index, byte) in mask.as_bytes().iter().enumerate().skip(open) {
+        if *byte == opening {
+            depth += 1;
+        } else if *byte == closing {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+    }
+    None
+}
+
+fn top_level_segments(mask: &str, delimiter: u8) -> Vec<(usize, usize)> {
+    let bytes = mask.as_bytes();
+    let mut segments = Vec::new();
+    let mut start = 0;
+    let mut parentheses = 0usize;
+    let mut brackets = 0usize;
+    let mut braces = 0usize;
+
+    for (index, byte) in bytes.iter().copied().enumerate() {
+        match byte {
+            b'(' => parentheses += 1,
+            b')' => parentheses = parentheses.saturating_sub(1),
+            b'[' => brackets += 1,
+            b']' => brackets = brackets.saturating_sub(1),
+            b'{' => braces += 1,
+            b'}' => braces = braces.saturating_sub(1),
+            _ if byte == delimiter
+                && parentheses == 0
+                && brackets == 0
+                && braces == 0 =>
+            {
+                segments.push((start, index));
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+
+    segments.push((start, bytes.len()));
+    segments
+}
+
+fn find_top_level_delimiter(mask: &str, delimiter: u8) -> Option<usize> {
+    let bytes = mask.as_bytes();
+    let mut parentheses = 0usize;
+    let mut brackets = 0usize;
+    let mut braces = 0usize;
+
+    for (index, byte) in bytes.iter().copied().enumerate() {
+        if byte == delimiter && parentheses == 0 && brackets == 0 && braces == 0 {
+            return Some(index);
+        }
+        match byte {
+            b'(' => parentheses += 1,
+            b')' => parentheses = parentheses.saturating_sub(1),
+            b'[' => brackets += 1,
+            b']' => brackets = brackets.saturating_sub(1),
+            b'{' => braces += 1,
+            b'}' => braces = braces.saturating_sub(1),
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn parse_named_arguments<'a>(
+    input: &'a str,
+    mask: &'a str,
+) -> Vec<(&'a str, &'a str, &'a str)> {
+    let mut arguments = Vec::new();
+    for (start, end) in top_level_segments(mask, b',') {
+        let segment_mask = &mask[start..end];
+        let Some(colon) = find_top_level_delimiter(segment_mask, b':') else {
+            continue;
+        };
+        let key = segment_mask[..colon].trim();
+        if !is_identifier(key) {
+            continue;
+        }
+
+        let (value_start, value_end) = trim_whitespace(input, start + colon + 1, end);
+        arguments.push((
+            key,
+            &input[value_start..value_end],
+            &mask[value_start..value_end],
+        ));
+    }
+    arguments
+}
+
+fn trim_whitespace(input: &str, mut start: usize, mut end: usize) -> (usize, usize) {
+    let bytes = input.as_bytes();
+    while start < end && bytes[start].is_ascii_whitespace() {
+        start += 1;
+    }
+    while end > start && bytes[end - 1].is_ascii_whitespace() {
+        end -= 1;
+    }
+    (start, end)
+}
+
+fn skip_trivia(input: &str, mut index: usize) -> usize {
+    let bytes = input.as_bytes();
+    loop {
+        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+        if index + 1 < bytes.len() && bytes[index] == b'/' && bytes[index + 1] == b'/' {
+            while index < bytes.len() && bytes[index] != b'\n' {
+                index += 1;
+            }
+        } else if index + 1 < bytes.len()
+            && bytes[index] == b'/'
+            && bytes[index + 1] == b'*'
+        {
+            index = scan_block_comment(bytes, index).unwrap_or(bytes.len());
+        } else {
+            return index;
+        }
+    }
+}
+
+fn parse_string_literal(value: &str, mask: &str) -> Option<String> {
+    let start = skip_trivia(value, 0);
+    let (end, content_start, content_end) = scan_quoted(value.as_bytes(), start)?;
+    if !mask.get(end..)?.trim().is_empty() {
+        return None;
+    }
+    Some(unescape(&value[content_start..content_end]))
+}
+
+fn parse_parameters(
+    value: &str,
+    mask: &str,
+    line: usize,
+) -> Result<Vec<Value>, CollectorError> {
+    let start = skip_trivia(value, 0);
+    if value.as_bytes().get(start) != Some(&b'[') {
+        return Ok(Vec::new());
+    }
+    let end = matching_delimiter(mask, start, b'[', b']').ok_or_else(|| {
+        CollectorError::MalformedGdsl(format!(
+            "unterminated params list at line {line}"
+        ))
+    })?;
+    let inner = &value[start + 1..end];
+    let inner_mask = &mask[start + 1..end];
+    let arguments = parse_named_arguments(inner, inner_mask);
+    let mut parameters = Vec::with_capacity(arguments.len().min(MAX_PARAMETERS_PER_SYMBOL));
+
+    for (name, description, description_mask) in arguments {
+        if parameters.len() >= MAX_PARAMETERS_PER_SYMBOL {
+            return Err(CollectorError::TooManyParameters {
+                limit: MAX_PARAMETERS_PER_SYMBOL,
+            });
+        }
+        let mut parameter = json!({ "name": name });
+        if let Some(description) = parse_string_literal(description, description_mask) {
+            parameter["description"] = json!(description);
+        }
+        parameters.push(parameter);
+    }
+
+    Ok(parameters)
+}
+
+fn is_identifier(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    is_identifier_start(first) && bytes.all(is_identifier_continue)
+}
+
+fn unescape(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut characters = value.chars();
+    while let Some(character) = characters.next() {
+        if character != '\\' {
+            output.push(character);
+            continue;
+        }
+        let Some(escaped) = characters.next() else {
+            output.push('\\');
+            break;
+        };
+        match escaped {
+            'b' => output.push('\u{0008}'),
+            'f' => output.push('\u{000c}'),
+            'n' => output.push('\n'),
+            'r' => output.push('\r'),
+            't' => output.push('\t'),
+            '\\' => output.push('\\'),
+            '\'' => output.push('\''),
+            '"' => output.push('"'),
+            '$' => output.push('$'),
+            '/' => output.push('/'),
+            other => {
+                output.push('\\');
+                output.push(other);
+            }
+        }
+    }
+    output
+}
+
 fn extract_url(value: &str) -> Option<String> {
     value.split_whitespace().find(|part| part.starts_with("https://") || part.starts_with("http://"))
         .map(|part| part.trim_end_matches([')', ',', ';']).to_owned())
@@ -523,6 +994,74 @@ mod tests {
         assert!(catalog["sources"][0]["metadata"]["nested"][0]
             .get("Authorization")
             .is_none());
+    }
+
+    #[test]
+    fn ignores_method_like_text_in_comments_and_groovy_string_forms() {
+        let input = r#"// method(name: 'line-comment')
+/* method(name: 'block-comment') */
+/* nested /* method(name: 'nested-comment') */ block */
+def single = 'method(name: "single-quoted")'
+def double = "method(name: 'double-quoted')"
+def triple_single = '''method(name: 'triple-single')'''
+def triple_double = """method(name: 'triple-double')"""
+def slashy = /method(name: 'slashy')/
+def dollar_slashy = $/method(name: 'dollar-slashy')/$
+method(name: 'real')
+"#;
+        let methods = parse_methods(input).unwrap();
+        assert_eq!(methods.len(), 1);
+        assert_eq!(methods[0].name, "real");
+    }
+
+    #[test]
+    fn parses_escaped_quotes_and_nested_parameter_delimiters() {
+        let input = r#"method(
+    name: 'sh',
+    type: 'Object',
+    params: [
+        script: 'Description with \'quoted\', ] and )',
+        options: [mode: 'safe', nested: [label: 'a,b:c']],
+        after: "tail ] )"
+    ],
+    doc: """Run with "quoted" values and https://docs.example.test/sh"""
+)"#;
+        let methods = parse_methods(input).unwrap();
+        assert_eq!(methods.len(), 1);
+        assert_eq!(methods[0].name, "sh");
+        assert_eq!(methods[0].parameters.len(), 3);
+        assert_eq!(
+            methods[0].parameters[0]["description"],
+            "Description with 'quoted', ] and )"
+        );
+        assert_eq!(methods[0].parameters[1]["name"], "options");
+        assert!(methods[0].parameters[1].get("description").is_none());
+        assert_eq!(methods[0].parameters[2]["description"], "tail ] )");
+        assert_eq!(
+            methods[0].description.as_deref(),
+            Some("Run with \"quoted\" values and https://docs.example.test/sh")
+        );
+        assert_eq!(
+            methods[0].documentation_url.as_deref(),
+            Some("https://docs.example.test/sh")
+        );
+    }
+
+    #[test]
+    fn rejects_unclosed_comments_strings_and_nested_parameter_lists() {
+        for input in [
+            "/* unclosed comment",
+            "def value = 'unclosed string",
+            "def value = \"\"\"unclosed triple string",
+            "def value = /unclosed slashy",
+            "def value = $/unclosed dollar-slashy",
+            "method(name: 'sh', params: [script: 'description')",
+        ] {
+            assert!(
+                matches!(parse_methods(input), Err(CollectorError::MalformedGdsl(_))),
+                "input should fail safely: {input}"
+            );
+        }
     }
 
 }

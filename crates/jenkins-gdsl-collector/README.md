@@ -54,6 +54,22 @@ explicitly represented in the declaration. Jenkins version is recorded from
 the X-Jenkins response header when present. Plugin-specific steps are included
 when the installed controller's GDSL exposes them.
 
+Before locating declarations, a bounded lexical pass masks line comments,
+nested block comments, single/double-quoted strings, triple-quoted strings,
+slashy strings, and dollar-slashy strings while preserving source offsets and
+line numbers. Escaped delimiters are honored. Method parentheses and parameter
+lists are then matched and split only in code regions, so nested maps/lists and
+quoted commas, colons, brackets, and parentheses do not truncate a declaration.
+Unclosed comments, strings, or parameter lists return a line-specific
+MalformedGdsl error rather than producing partial or fabricated symbols.
+
+This is deliberately a small GDSL-oriented scanner, not a complete Groovy
+parser. String contents are opaque (including GString interpolation), dynamic
+expressions are not evaluated, and only explicit named arguments and
+string-valued descriptions/types are retained. Parsing is O(n) in the response
+size with O(n) auxiliary memory; the 4 MiB response cap, 10,000-symbol cap,
+and 256-parameter-per-symbol cap bound that work.
+
 Each symbol is marked verified because its name is backed by an explicit
 controller declaration. Provenance identifies the endpoint and source line.
 The source revision records retrieval time because GDSL does not expose a stable
