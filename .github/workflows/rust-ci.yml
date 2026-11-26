@@ -51,6 +51,13 @@ jobs:
           path: target/fixture-package/
           if-no-files-found: error
 
+      - name: Upload temporary dependency lockfile bootstrap
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-lockfile-bootstrap
+          path: target/lockfile-bootstrap/
+          if-no-files-found: error
+
   scanner-portability:
     name: Shared Library scanner portability (${{ matrix.os }})
     strategy:
