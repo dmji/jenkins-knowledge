@@ -991,6 +991,8 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         git(source.path(), &["init", "--quiet"]);
         git(source.path(), &["config", "user.email", "scanner-test@example.invalid"]);
         git(source.path(), &["config", "user.name", "Scanner Test"]);
+        // Simulate a remote that does not support partial-clone filtering.
+        git(source.path(), &["config", "uploadpack.allowFilter", "false"]);
         // Pseudorandom bytes remain incompressible and force a substantial packfile.
         let mut state = 0x1234_5678u32;
         let mut payload = vec![0u8; 16 * 1024 * 1024];
@@ -1007,7 +1009,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         let remote = format!("file://{}", source.path().display());
         let error = run_git_with_budget(
             checkout.path(),
-            &["fetch", "--quiet", "--no-tags", "--depth", "1", &remote, "HEAD"],
+            &["fetch", "--quiet", "--no-tags", "--depth", "1", "--filter=blob:limit=2m", &remote, "HEAD"],
             64 * 1024,
         )
         .unwrap_err()
