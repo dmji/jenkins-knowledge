@@ -323,6 +323,131 @@ fn normalize_probe_output(value: &Value) -> Value {
     runtime
 }
 
+fn normalize_api_type(value: &Value) -> Option<Value> {
+    let name = value
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.trim().is_empty())?;
+    let class_name = value
+        .get("className")
+        .and_then(Value::as_str)
+        .filter(|name| !name.trim().is_empty())?;
+    let status = match value.get("status").and_then(Value::as_str) {
+        Some("available") => "available",
+        Some("partial") => "partial",
+        Some("unresolved") => "unresolved",
+        Some("inaccessible") => "inaccessible",
+        _ => "unresolved",
+    };
+    let mut normalized = json!({
+        "name": truncate(name),
+        "className": truncate(class_name),
+        "status": status,
+        "depth": value.get("depth").and_then(Value::as_u64).unwrap_or(0).min(2),
+        "rootCategories": [],
+        "interfaces": [],
+        "methods": [],
+        "properties": [],
+        "methodsTruncated": value.get("methodsTruncated").and_then(Value::as_bool).unwrap_or(false),
+        "propertiesTruncated": value.get("propertiesTruncated").and_then(Value::as_bool).unwrap_or(false)
+    });
+    if let Some(categories) = value.get("rootCategories").and_then(Value::as_array) {
+        normalized["rootCategories"] = json!(
+            categories.iter().filter_map(Value::as_str).take(8).map(truncate).collect::<Vec<_>>()
+        );
+    }
+    if let Some(interfaces) = value.get("interfaces").and_then(Value::as_array) {
+        normalized["interfaces"] = json!(
+            interfaces.iter().filter_map(Value::as_str).take(20).map(truncate).collect::<Vec<_>>()
+        );
+    }
+    for field in ["superClass", "plugin", "origin", "classLoader", "membersStatus"] {
+        if let Some(text) = value.get(field).and_then(Value::as_str).filter(|text| !text.trim().is_empty()) {
+            let allowed = field != "membersStatus" || text == "inaccessible";
+            if allowed {
+                normalized[field] = json!(truncate(text));
+            }
+        }
+    }
+    if let Some(synthetic) = value.get("synthetic").and_then(Value::as_bool) {
+        normalized["synthetic"] = json!(synthetic);
+    }
+    if let Some(methods) = value.get("methods").and_then(Value::as_array) {
+        normalized["methods"] = json!(
+            methods.iter().take(12).filter_map(normalize_api_method).collect::<Vec<_>>()
+        );
+    }
+    if let Some(properties) = value.get("properties").and_then(Value::as_array) {
+        normalized["properties"] = json!(
+            properties.iter().take(20).filter_map(normalize_api_property).collect::<Vec<_>>()
+        );
+    }
+    Some(normalized)
+}
+
+fn normalize_api_method(value: &Value) -> Option<Value> {
+    let name = value.get("name").and_then(Value::as_str)?;
+    let declaring_class = value.get("declaringClass").and_then(Value::as_str)?;
+    let signature = value.get("signature").and_then(Value::as_str)?;
+    let return_type = value.get("returnType").and_then(Value::as_str)?;
+    let mut normalized = json!({
+        "name": truncate(name),
+        "declaringClass": truncate(declaring_class),
+        "signature": truncate(signature),
+        "returnType": truncate(return_type),
+        "parameters": [],
+        "synthetic": value.get("synthetic").and_then(Value::as_bool).unwrap_or(false),
+        "bridge": value.get("bridge").and_then(Value::as_bool).unwrap_or(false),
+        "varargs": value.get("varargs").and_then(Value::as_bool).unwrap_or(false)
+    });
+    for field in ["modifiers", "genericReturnType"] {
+        if let Some(text) = value.get(field).and_then(Value::as_str).filter(|text| !text.trim().is_empty()) {
+            normalized[field] = json!(truncate(text));
+        }
+    }
+    if let Some(parameters) = value.get("parameters").and_then(Value::as_array) {
+        let values: Vec<Value> = parameters.iter().take(20).filter_map(|parameter| {
+            let (Some(name), Some(parameter_type)) = (
+                parameter.get("name").and_then(Value::as_str),
+                parameter.get("type").and_then(Value::as_str),
+            ) else {
+                return None;
+            };
+            let mut item = json!({
+                "name": truncate(name),
+                "type": truncate(parameter_type),
+                "namePresent": parameter.get("namePresent").and_then(Value::as_bool).unwrap_or(false)
+            });
+            if let Some(generic_type) = parameter.get("genericType").and_then(Value::as_str) {
+                item["genericType"] = json!(truncate(generic_type));
+            }
+            Some(item)
+        }).collect();
+        normalized["parameters"] = json!(values);
+    }
+    Some(normalized)
+}
+
+fn normalize_api_property(value: &Value) -> Option<Value> {
+    let name = value.get("name").and_then(Value::as_str)?;
+    let mut normalized = json!({
+        "name": truncate(name),
+        "accessors": [],
+        "confidence": "inferred"
+    });
+    for field in ["readType", "writeType"] {
+        if let Some(text) = value.get(field).and_then(Value::as_str) {
+            normalized[field] = json!(truncate(text));
+        }
+    }
+    if let Some(accessors) = value.get("accessors").and_then(Value::as_array) {
+        normalized["accessors"] = json!(
+            accessors.iter().filter_map(Value::as_str).take(8).map(truncate).collect::<Vec<_>>()
+        );
+    }
+    Some(normalized)
+}
+
 fn normalize_registry(
     name: &str,
     raw: Option<&Value>,
