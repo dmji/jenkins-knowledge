@@ -3,7 +3,6 @@
   "basePlugins": {
     "javax-activation-api": "1.2.0-2",
     "javax-mail-api": "1.6.2-5",
-    "matrix-auth": "2.6.11",
     "sshd": "3.0.3"
   },
   "jenkinsCoreVersion": "2.356",
@@ -46,9 +45,9 @@
     {
       "name": "credentials",
       "requiredCore": "2.319.1",
-      "sha256": "93ad5bab2dc754c19f2e3dcbabc2fe1a6a01f950af3931c1ece169323735c22c",
-      "url": "https://updates.jenkins.io/download/plugins/credentials/1087.v16065d268466/credentials.hpi",
-      "version": "1087.v16065d268466"
+      "sha256": "71b6c6220a8cc1ef37678452bc42819a530ae0629255aea6c5647247b5123931",
+      "url": "https://updates.jenkins.io/download/plugins/credentials/1087.1089.v2f1b_9a_b_040e4/credentials.hpi",
+      "version": "1087.1089.v2f1b_9a_b_040e4"
     },
     {
       "name": "credentials-binding",
@@ -119,6 +118,13 @@
       "sha256": "a0bbf066a6e7c4fc0e9f8e40a78772eb96d6f4f1cc4e34dee2b9533557bfedc9",
       "url": "https://updates.jenkins.io/download/plugins/mailer/414.vcc4c33714601/mailer.hpi",
       "version": "414.vcc4c33714601"
+    },
+    {
+      "name": "matrix-auth",
+      "requiredCore": "2.222.1",
+      "sha256": "f70d8ba943478fb4966375e7c4ab213e7a0665bd88e9558d9c12492f1dee7dbd",
+      "url": "https://updates.jenkins.io/download/plugins/matrix-auth/2.6.11/matrix-auth.hpi",
+      "version": "2.6.11"
     },
     {
       "name": "pipeline-build-step",
