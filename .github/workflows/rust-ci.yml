@@ -32,6 +32,11 @@ jobs:
       - name: Cache Cargo registry, git dependencies, and build artifacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Validate clean checkout and all project contracts
         run: sh scripts/validate.sh
 
@@ -41,24 +46,3 @@ jobs:
           name: knowledge-package-fixture
           path: target/fixture-package/
           if-no-files-found: error
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Compile VS Code extension
-        working-directory: editors/vscode
-        run: npm install && npm run compile
-
-      - name: Build release binaries for container images
-        run: cargo build --release -p knowledge-builder -p catalog-validator -p jenkins-runtime --bins
-
-      - name: Build Builder image
-        run: docker build --file Dockerfile.builder --tag jenkins-knowledge-builder:ci .
-
-      - name: Build Runtime image
-        run: docker build --file Dockerfile.runtime --tag jenkins-knowledge-runtime:ci .
-
-      - name: Smoke-test Builder to Runtime package handoff
-        run: bash .github/scripts/container-smoke.sh
