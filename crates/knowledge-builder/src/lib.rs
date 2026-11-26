@@ -1197,6 +1197,70 @@ fixtures:
 
 
     #[test]
+    fn preserves_legacy_gdsl_only_controller_profiles_without_core_api() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            thread,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for index in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 1024];
+                loop {
+                    let count = stream.read(&mut buffer).unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..count]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                if index == 0 {
+                    write!(
+                        stream,
+                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    ).unwrap();
+                } else {
+                    let body = "method(name: 'sh', type: 'String')";
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    ).unwrap();
+                }
+            }
+        });
+
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            format!(
+                "profile: gdsl-only\ncollectionProfile: standard\njenkins:\n  controllers:\n    - id: ci\n      url: http://{address}/\npackage:\n  include:\n    - controller\n"
+            ),
+        ).unwrap();
+        let output = directory.path().join("package");
+        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        server.join().unwrap();
+
+        let catalog: Value = serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
+        let manifest: Value = serde_json::from_slice(&fs::read(output.join("manifest.json")).unwrap()).unwrap();
+        assert!(catalog["controller"].is_null());
+        assert!(catalog["symbols"].as_array().unwrap().iter().any(|symbol| symbol["name"] == "sh"));
+        assert_eq!(manifest["collection"]["status"], "partial");
+        assert!(manifest["collection"]["sources"].as_array().unwrap().iter().any(|outcome|
+            outcome["surface"] == "controller-metadata" && outcome["status"] == "unavailable"));
+        assert!(manifest["collection"]["sources"].as_array().unwrap().iter().any(|outcome|
+            outcome["surface"] == "pipeline-gdsl" && outcome["status"] == "succeeded"));
+    }
+
+    #[test]
     fn preserves_controller_snapshot_when_optional_plugin_and_gdsl_surfaces_fail() {
         use std::{
             io::{Read, Write},
