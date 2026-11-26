@@ -408,9 +408,9 @@ registrySpecs.each { spec ->
 
 // Bounded API surface: roots are only classes already observed in the three
 // registries above. Reflection reads metadata only; it never invokes discovered members.
-final int MAX_API_TYPES = 50
-final int MAX_API_MEMBERS_PER_TYPE = 50
-final int MAX_API_PARAMETERS = 16
+final int MAX_API_TYPES = 20
+final int MAX_API_MEMBERS_PER_TYPE = 20
+final int MAX_API_PARAMETERS = 8
 final int MAX_API_TEXT_LENGTH = 256
 result.apiTypes = []
 def seenApiTypes = new LinkedHashSet<String>()
@@ -455,7 +455,7 @@ apiRoots.unique().sort().take(MAX_API_TYPES).each { rootName ->
             current = current.getSuperclass()
             hierarchyDepth++
         }
-        typeRecord.methods = methodsBySignature.values().toList()
+        typeRecord.methods = methodsBySignature.values().toList()\n        typeRecord.methodsTruncated = methodsBySignature.size() >= MAX_API_MEMBERS_PER_TYPE
         def propertyMap = new TreeMap<String, Object>()
         typeRecord.methods.each { method ->
             String methodName = method.name
@@ -469,7 +469,7 @@ apiRoots.unique().sort().take(MAX_API_TYPES).each { rootName ->
                 propertyMap[propertyName] = property
             }
         }
-        typeRecord.properties = propertyMap.values().toList()
+        typeRecord.properties = propertyMap.values().toList()\n        typeRecord.propertiesTruncated = propertyMap.size() >= MAX_API_MEMBERS_PER_TYPE
         try {
             def plugin = jenkins.getPluginManager().whichPlugin(root)
             if (plugin != null) typeRecord.plugin = safeText(plugin.getShortName())
