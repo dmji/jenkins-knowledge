@@ -64,7 +64,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let search_options = SearchOptions {
         query: if command == "search" { query.to_owned() } else { String::new() },
-        kind, source, plugin, owner, type_name, confidence, limit,
+        kind, source, plugin, owner, type_name, confidence,
+        prefix: None, contexts: None, kinds: None, source_kind: None,
+        limit,
     };
     let output = match command.as_str() {
         "search" | "list" => json!({
