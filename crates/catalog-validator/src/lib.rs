@@ -453,7 +453,7 @@ fn validate_completeness(catalog: &Value, sources: &[Value], errors: &mut Vec<St
             if state != "succeeded" { has_partial_source = true; }
         }
     }
-    if status == "complete" && has_partial_source {
+    if status == "complete" && (has_partial_source || sources.iter().any(|source| source.get("collection").is_none())) {
         errors.push("/completeness/status: complete contradicts one or more non-succeeded source outcomes".into());
     }
     if status == "partial" && !has_partial_source {
@@ -540,7 +540,7 @@ fn validate_coverage_consistency(
                 continue;
             }
         }
-        if status == "inspected" {
+        if matches!(status, "inspected" | "succeeded" | "succeeded-with-truncation") {
             continue;
         }
         let Some(kinds) = coverage_symbol_kinds(surface) else {
@@ -1273,4 +1273,66 @@ mod tests {
         );
         assert!(!error.contains("do-not-echo"));
     }
+    #[test]
+    fn canonical_snapshot_identity_ignores_collection_timestamps_and_array_order() {
+        let mut first = valid_catalog();
+        first["generatedAt"] = json!("2026-11-26T10:00:00Z");
+        first["sources"][0]["metadata"] = json!({"retrievedAt":"2026-11-26T10:00:00Z","stable":"value"});
+        stamp_catalog_identity(&mut first).unwrap();
+        let first_id = first["snapshotId"].as_str().unwrap().to_owned();
+
+        let mut second = valid_catalog();
+        second["generatedAt"] = json!("2026-11-27T10:00:00Z");
+        second["sources"][0]["metadata"] = json!({"stable":"value","retrievedAt":"2026-11-27T10:00:00Z"});
+        second["symbols"].as_array_mut().unwrap().reverse();
+        stamp_catalog_identity(&mut second).unwrap();
+
+        assert_eq!(first_id, second["snapshotId"].as_str().unwrap());
+        assert_eq!(first["sources"][0]["fingerprint"], second["sources"][0]["fingerprint"]);
+        assert!(validate_catalog(&first, &schema()).is_ok());
+        assert!(validate_catalog(&second, &schema()).is_ok());
+    }
+
+    #[test]
+    fn rejects_source_or_catalog_fingerprint_drift() {
+        let mut catalog = valid_catalog();
+        stamp_catalog_identity(&mut catalog).unwrap();
+        catalog["symbols"][0]["description"] = json!("changed after fingerprinting");
+        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        assert!(error.contains("/sources/0/fingerprint"));
+        assert!(error.contains("/snapshotId"));
+    }
+
+    #[test]
+    fn validates_source_collection_completeness_and_evidence_revision() {
+        let mut catalog = valid_catalog();
+        catalog["sources"][0]["collection"] = json!({
+            "profile":"deep",
+            "status":"succeeded",
+            "truncated":false
+        });
+        catalog["completeness"] = json!({"status":"complete"});
+        catalog["symbols"][0]["evidence"][0]["revision"] = catalog["sources"][0]["revision"].clone();
+        stamp_catalog_identity(&mut catalog).unwrap();
+        assert!(validate_catalog(&catalog, &schema()).is_ok());
+
+        catalog["sources"][0]["collection"]["status"] = json!("succeeded-with-truncation");
+        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        assert!(error.contains("truncation flag must agree"));
+
+        catalog["sources"][0]["collection"]["status"] = json!("succeeded");
+        catalog["sources"][0]["collection"]["truncated"] = json!(false);
+        catalog["completeness"]["status"] = json!("partial");
+        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        assert!(error.contains("partial requires at least one explicit non-succeeded source outcome"));
+    }
+
+    #[test]
+    fn rejects_evidence_revision_that_does_not_match_its_source() {
+        let mut catalog = valid_catalog();
+        catalog["symbols"][0]["evidence"][0]["revision"] = json!("stale-revision");
+        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        assert!(error.contains("does not match referenced source revision"));
+    }
+
 }
