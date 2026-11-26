@@ -188,7 +188,7 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
                 let path = format!("/symbols/{index}/fieldEvidence/{field}");
                 if !symbol_fields.contains_key(field) || matches!(field.as_str(), "fieldEvidence" | "evidence") {
                     errors.push(format!("{path}: field is not a schema-defined symbol attribute"));
-                } else if !symbol.get(field).is_some_and(|value| !value.is_null()) {
+                } else if symbol.get(field).is_none() {
                     errors.push(format!("{path}: evidence refers to a field that is absent from this symbol"));
                 }
             }
@@ -217,6 +217,85 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
     }
 
     validate_coverage_consistency(catalog, errors);
+}
+
+/// Reconcile manifest source metadata with the catalog records it describes.
+/// Unknown keys inside each provenance record are intentionally preserved for forward compatibility.
+pub fn validate_package_metadata(catalog: &Value, manifest: &Value) -> Result<(), ValidationErrors> {
+    let mut errors = Vec::new();
+    let Some(sources) = catalog["sources"].as_array() else {
+        return Err(ValidationErrors(vec!["/sources: catalog sources must be an array".into()]));
+    };
+    let Some(revisions) = manifest["sourceRevisions"].as_object() else {
+        return Err(ValidationErrors(vec!["/sourceRevisions: manifest sourceRevisions must be an object".into()]));
+    };
+    let Some(provenance) = manifest["provenance"].as_object() else {
+        return Err(ValidationErrors(vec!["/provenance: manifest provenance must be an object".into()]));
+    };
+
+    let mut source_ids = HashSet::new();
+    for (index, source) in sources.iter().enumerate() {
+        let Some(id) = source["id"].as_str() else { continue; };
+        source_ids.insert(id.to_owned());
+        let expected_revision = source["revision"].as_str().unwrap_or_default();
+        match revisions.get(id).and_then(Value::as_str) {
+            Some(actual) if actual == expected_revision => {}
+            Some(actual) => errors.push(format!(
+                "/sourceRevisions/{id}: revision '{actual}' does not match catalog source revision '{expected_revision}' at /sources/{index}/revision"
+            )),
+            None => errors.push(format!(
+                "/sourceRevisions/{id}: missing revision entry for catalog source at /sources/{index}"
+            )),
+        }
+
+        match provenance.get(id).and_then(Value::as_object) {
+            None => errors.push(format!(
+                "/provenance/{id}: missing provenance record for catalog source at /sources/{index}"
+            )),
+            Some(record) => {
+                for field in ["name", "kind", "revision"] {
+                    let expected = source[field].as_str().unwrap_or_default();
+                    match record.get(field).and_then(Value::as_str) {
+                        Some(actual) if actual == expected => {}
+                        Some(actual) => errors.push(format!(
+                            "/provenance/{id}/{field}: value '{actual}' does not match catalog source value '{expected}'"
+                        )),
+                        None => errors.push(format!(
+                            "/provenance/{id}/{field}: required source provenance field is missing"
+                        )),
+                    }
+                }
+                let expected_url = source.get("url").and_then(Value::as_str);
+                let actual_url = record.get("url").and_then(Value::as_str);
+                match expected_url {
+                    Some(expected) if actual_url != Some(expected) => errors.push(format!(
+                        "/provenance/{id}/url: URL does not match catalog source /sources/{index}/url"
+                    )),
+                    None if record.get("url").is_some_and(|value| !value.is_null()) => errors.push(format!(
+                        "/provenance/{id}/url: provenance URL is present but catalog source /sources/{index} has no URL"
+                    )),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    for id in revisions.keys() {
+        if !source_ids.contains(id) {
+            errors.push(format!(
+                "/sourceRevisions/{id}: revision entry refers to no catalog source"
+            ));
+        }
+    }
+    for id in provenance.keys() {
+        if !source_ids.contains(id) {
+            errors.push(format!(
+                "/provenance/{id}: provenance entry refers to no catalog source"
+            ));
+        }
+    }
+
+    if errors.is_empty() { Ok(()) } else { Err(ValidationErrors(errors)) }
 }
 
 fn evidence_compatible(evidence_kind: &str, source_kind: &str) -> bool {
@@ -552,4 +631,76 @@ mod tests {
         catalog["symbols"].as_array_mut().unwrap().push(symbol);
         assert!(validate_catalog(&catalog, &schema()).is_ok());
     }
+    fn manifest_for(catalog: &Value) -> Value {
+        let mut source_revisions = serde_json::Map::new();
+        let mut provenance = serde_json::Map::new();
+        for source in catalog["sources"].as_array().unwrap() {
+            let id = source["id"].as_str().unwrap();
+            source_revisions.insert(id.into(), source["revision"].clone());
+            provenance.insert(id.into(), json!({
+                "name": source["name"],
+                "kind": source["kind"],
+                "revision": source["revision"],
+                "url": source.get("url").cloned().unwrap_or(Value::Null)
+            }));
+        }
+        json!({"sourceRevisions": source_revisions, "provenance": provenance})
+    }
+
+    #[test]
+    fn accepts_manifest_metadata_that_matches_catalog_sources() {
+        let catalog = valid_catalog();
+        assert!(validate_package_metadata(&catalog, &manifest_for(&catalog)).is_ok());
+    }
+
+    #[test]
+    fn rejects_missing_and_extra_source_revision_entries() {
+        let catalog = valid_catalog();
+        let mut manifest = manifest_for(&catalog);
+        manifest["sourceRevisions"].as_object_mut().unwrap().remove("platform-lib");
+        assert!(validate_package_metadata(&catalog, &manifest).unwrap_err().to_string()
+            .contains("/sourceRevisions/platform-lib: missing revision entry"));
+
+        let mut manifest = manifest_for(&catalog);
+        manifest["sourceRevisions"]["ghost"] = json!("revision-1");
+        assert!(validate_package_metadata(&catalog, &manifest).unwrap_err().to_string()
+            .contains("/sourceRevisions/ghost: revision entry refers to no catalog source"));
+    }
+
+    #[test]
+    fn rejects_mismatched_source_revisions() {
+        let catalog = valid_catalog();
+        let mut manifest = manifest_for(&catalog);
+        manifest["sourceRevisions"]["platform-lib"] = json!("wrong-revision");
+        assert!(validate_package_metadata(&catalog, &manifest).unwrap_err().to_string()
+            .contains("does not match catalog source revision"));
+    }
+
+    #[test]
+    fn rejects_missing_extra_and_mismatched_provenance_records() {
+        let catalog = valid_catalog();
+        let mut manifest = manifest_for(&catalog);
+        manifest["provenance"].as_object_mut().unwrap().remove("controller");
+        assert!(validate_package_metadata(&catalog, &manifest).unwrap_err().to_string()
+            .contains("/provenance/controller: missing provenance record"));
+
+        let mut manifest = manifest_for(&catalog);
+        manifest["provenance"]["ghost"] = json!({"name":"ghost","kind":"plugin","revision":"1"});
+        assert!(validate_package_metadata(&catalog, &manifest).unwrap_err().to_string()
+            .contains("/provenance/ghost: provenance entry refers to no catalog source"));
+
+        let mut manifest = manifest_for(&catalog);
+        manifest["provenance"]["platform-lib"]["kind"] = json!("plugin");
+        assert!(validate_package_metadata(&catalog, &manifest).unwrap_err().to_string()
+            .contains("/provenance/platform-lib/kind"));
+    }
+
+    #[test]
+    fn permits_unknown_forward_compatible_provenance_metadata() {
+        let catalog = valid_catalog();
+        let mut manifest = manifest_for(&catalog);
+        manifest["provenance"]["platform-lib"]["futureMetadata"] = json!({"registry":"internal"});
+        assert!(validate_package_metadata(&catalog, &manifest).is_ok());
+    }
+
 }
