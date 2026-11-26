@@ -183,12 +183,36 @@ fn discover_with_client(
                     "status": "inspected"
                 }),
             ),
-            Err(DiscoveryError::TooManyPlugins { limit }) => {
-                return Err(DiscoveryError::TooManyPlugins { limit });
-            }
-            Err(DiscoveryError::TooManyDependencies { plugin, limit }) => {
-                return Err(DiscoveryError::TooManyDependencies { plugin, limit });
-            }
+            Err(DiscoveryError::TooManyPlugins { limit }) => (
+                Vec::new(),
+                Vec::new(),
+                json!({
+                    "name": "plugin-manager-api",
+                    "status": "unknown",
+                    "details": format!("plugin inventory exceeded the {limit}-plugin limit")
+                }),
+                json!({
+                    "sourceId": controller_id,
+                    "surface": "plugin-inventory",
+                    "status": "not-collected",
+                    "details": format!("plugin inventory exceeded the {limit}-plugin limit")
+                }),
+            ),
+            Err(DiscoveryError::TooManyDependencies { plugin, limit }) => (
+                Vec::new(),
+                Vec::new(),
+                json!({
+                    "name": "plugin-manager-api",
+                    "status": "unknown",
+                    "details": format!("plugin '{plugin}' exceeded the {limit}-dependency limit")
+                }),
+                json!({
+                    "sourceId": controller_id,
+                    "surface": "plugin-inventory",
+                    "status": "not-collected",
+                    "details": format!("plugin '{plugin}' exceeded the {limit}-dependency limit")
+                }),
+            ),
             Err(_) => (
                 Vec::new(),
                 Vec::new(),

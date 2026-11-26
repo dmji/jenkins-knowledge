@@ -427,6 +427,14 @@ fn completion(runtime: Option<&Runtime>, text: &str, line: usize, character: usi
     json!({"isIncomplete": total > items.len(), "items": items})
 }
 
+fn collection_outcome(runtime: Option<&Runtime>) -> Value {
+    runtime.and_then(Runtime::collection).cloned().unwrap_or_else(|| json!({
+        "status": "unknown",
+        "sources": [],
+        "details": "This package predates explicit collection outcome metadata or no package is loaded"
+    }))
+}
+
 fn hover(runtime: Option<&Runtime>, word: Option<String>) -> Value {
     let (Some(runtime), Some(word)) = (runtime, word) else { return Value::Null; };
     let options = SearchOptions { query: word.clone(), limit: MAX_SEARCH_RESULTS, ..SearchOptions::default() };
@@ -506,6 +514,7 @@ fn handle_request(connection: &Connection, request: Request, runtime: Option<&Ru
             "profile": runtime.map(Runtime::profile),
             "coverage": runtime.map(Runtime::coverage).unwrap_or(&[])
         }),
+        "jenkinsKnowledge/collection" => collection_outcome(runtime),
         "jenkinsKnowledge/search" => {
             let Some(runtime) = runtime else {
                 connection.sender.send(Message::Response(Response::new_err(
@@ -630,11 +639,35 @@ mod tests {
             "sourceRevisions": source_revisions,
             "provenance": provenance,
             "checksums": {"catalog.json": checksum},
-            "toolVersions": {}
+            "toolVersions": {},
+            "collection": {
+                "status": "partial",
+                "profile": "standard",
+                "startedAt": "2026-01-01T00:00:00Z",
+                "completedAt": "2026-01-01T00:00:01Z",
+                "sources": [{
+                    "id": "controller:ci:pipeline-gdsl",
+                    "kind": "pipeline-gdsl",
+                    "name": "ci",
+                    "surface": "pipeline-gdsl",
+                    "status": "unavailable",
+                    "errorCode": "http-unavailable"
+                }]
+            }
         }).to_string()).unwrap();
         let runtime = Runtime::open(&package).unwrap();
         fs::remove_dir_all(package).unwrap();
         runtime
+    }
+
+    #[test]
+    fn exposes_collection_completeness_without_changing_symbol_confidence() {
+        let runtime = fixture_runtime("fixture");
+        let collection = collection_outcome(Some(&runtime));
+        assert_eq!(collection["status"], "partial");
+        assert_eq!(collection["sources"][0]["status"], "unavailable");
+        assert_eq!(runtime.get("sh").unwrap()["confidence"], "verified");
+        assert_eq!(collection_outcome(None)["status"], "unknown");
     }
 
     #[test]

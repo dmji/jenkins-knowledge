@@ -35,3 +35,8 @@ The MCP \`search_api\` and \`list_api\` tools use Runtime's bounded \`search_pag
 Ordering is deterministic by symbol name and then symbol ID. Runtime selects each page with bounded O(K) result-selection memory (K is the requested page size); clients can traverse pages without collecting the full catalog in one response.
 
 The MCP resource \`jenkins://catalog/pipeline-steps\` remains valid and returns its first page using the default limit of 50. Clients can request further pages with \`jenkins://catalog/pipeline-steps?offset=50&limit=50\`. It uses the same pagination metadata and offset/limit bounds. Unknown, duplicate, malformed, or out-of-range query parameters are rejected.
+
+
+## Collection completeness
+
+Runtime exposes the optional manifest `collection` object through `Runtime::collection()`. It reports package-level completeness and per-source outcomes independently from symbol confidence and catalog API-surface coverage. Older packages without this additive field return `None`; consumers must treat that as unknown, not complete. MCP and LSP expose the same status without modifying symbol confidence.
