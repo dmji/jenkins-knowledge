@@ -56,18 +56,16 @@ Only absolute HTTPS/SSH remotes and Git SCP-style remotes are accepted. Local pa
 
 Git fetches are shallow, omit tags, request blobs no larger than 2 MiB, disable terminal prompts, and each Git operation is terminated after 120 seconds. Partial-clone filters are only an optimization: servers may ignore them.
 
-The temporary Git checkout (including \`.git\` objects, packfiles, indexes, and checked-out files) has a configurable storage budget:
+The temporary Git checkout runs inside a private Linux `tmpfs` mount sized to the configured budget. The kernel filesystem enforces the aggregate limit across Git objects, pack/index files, checkout content, temporary files, and every helper process; concurrent writers cannot exceed the mount's capacity. The requested size is rounded down to a filesystem-page boundary so the enforced capacity never exceeds the configured byte budget. The mount is private to the scan and is unmounted by an RAII guard on success or failure. Git fetch filters remain an optimization, never a security boundary.
 
 | Limit | Default | Environment override |
 |---|---:|---|
-| Temporary Git checkout | 256 MiB | \`JENKINS_KNOWLEDGE_GIT_MAX_CHECKOUT_BYTES\` |
+| Aggregate temporary Git checkout | 256 MiB | `JENKINS_KNOWLEDGE_GIT_MAX_CHECKOUT_BYTES` |
 | Git operation timeout | 120 seconds | fixed |
 
-The storage setting must be a positive integer number of bytes. An invalid value fails configuration validation; there is no unbounded fallback. During fetch and checkout the scanner measures the complete temporary directory every 10 ms and checks it again after the process exits. If the budget is exceeded, it terminates Git and returns a bounded error without including remote output. On Unix, Git is launched in its own process group and the whole group is killed so helpers such as \`index-pack\` cannot continue writing after the parent exits. The temporary directory is owned by an RAII guard and is removed on success, timeout, budget exhaustion, or other errors.
+The storage setting must be a positive integer number of bytes and at least one filesystem page. Strict enforcement currently requires Linux and permission to mount a private `tmpfs` (typically `CAP_SYS_ADMIN`). If the mount cannot be established, the scan fails before Git runs; there is no polling-only or unbounded fallback. Other platforms currently return an explicit unsupported/configuration error. Unix process groups are terminated on timeout, and the temporary mount is unmounted before its backing directory is removed.
 
-**Enforcement guarantees and limitations:** Unix enforces a hard per-file ceiling and the watchdog enforces the aggregate directory budget; a fast sequence of multiple smaller files can temporarily exceed the aggregate threshold between 10 ms checks. This is not an OS-enforced aggregate filesystem quota. Unix process-group termination covers Git descendants; on non-Unix platforms the standard-library fallback terminates the direct Git process, and descendant-process termination depends on the platform's process model. Deployments requiring a mathematically strict disk ceiling or Windows descendant containment must additionally run the scanner in a filesystem quota/container/job-object boundary. The scanner fails on observed budget exhaustion and never silently retries without the budget.
-
-The existing source traversal limits below remain independent defense in depth; they apply after checkout and do not replace the Git storage budget.
+The existing source traversal limits below remain independent defense in depth; they apply after checkout and do not replace the Git storage quota.
 
 The scanner skips symlinks (including directory symlinks), resolves every candidate against the canonical checkout root, and enforces these defaults:
 
