@@ -17,6 +17,30 @@ Without `fixtures`, the Builder runs the configured Jenkins GDSL collectors and 
 
 Shared Library `commit` values, when supplied, must be full 40-character commit SHAs. The scanner records the resolved commit in the catalog source revision. When omitted, the configured ref is fetched and the resolved commit is recorded by the scanner.
 
+## Profile contract
+
+Profiles use strict YAML deserialization: unknown keys at the root or in any nested configuration object are errors. This prevents spelling mistakes from being silently ignored.
+
+| Field | Default / requiredness | Effect |
+|---|---|---|
+| `profile` | Required, non-empty | Profile identity written to `manifest.json`; used as the catalog ID when `package.id` is omitted. |
+| `jenkins.controllers` | Empty when omitted | Each controller is collected once; its ID scopes source identity and its URL is the HTTP(S) endpoint. Duplicate IDs are rejected. |
+| `libraries` | Empty when omitted | Each Shared Library is scanned once. `name`, `url`, and `revision` are required; optional `commit` pins the fetch to a full 40-character SHA while retaining the configured revision as metadata. Duplicate names are rejected. |
+| `fixtures` | Empty when omitted | Offline catalog JSON paths, relative to the profile file. Fixture mode is mutually exclusive with live controllers/libraries. Duplicate and absolute paths are rejected. |
+| `package.id` | Omitted | Catalog ID defaults to `profile`; a supplied ID must be non-empty and have no surrounding whitespace. |
+| `package.include` | Omitted means all sections | Selects package sections before merge/serialization. An explicit empty list, duplicates, unknown values, and selectors matching no sources are errors. |
+
+Supported `package.include` values:
+
+- `jenkins-core`: Jenkins Core version source observed from each configured controller (or explicit `jenkins-core` sources in fixtures).
+- `controller`: controller source, controller snapshot, and Declarative model sources.
+- `plugins`: plugin sources, their symbols, and the controller's plugin inventory.
+- `shared-libraries`: Shared Library sources and symbols.
+
+Filtering is applied by source ID: excluded sources, their symbols, and their coverage entries are removed together. When `controller` is selected without `plugins`, the controller snapshot is retained but its nested plugin inventory is empty. Omit `package.include` to include every available section; `include: []` is not an alias for the default.
+
+A profile must select at least one source mode. Fixture catalogs cannot be mixed with live collection. Controller IDs and library names must be unique. URL, ref, commit, fixture-path, package-ID, and selector validation completes before any external collection starts. A requested section must match at least one source after collection; an unavailable plugin inventory therefore fails an explicit `plugins` selection instead of silently producing a partial package.
+
 ## Package layout and guarantees
 
 The output directory contains `catalog.json` and `manifest.json`. The manifest records package/catalog schema versions, profile identity, build timestamp, source revisions, source provenance, tool version, and a SHA-256 checksum of the catalog. Catalog sources and symbols are sorted by ID before serialization.
