@@ -4,36 +4,100 @@
   "title": "Knowledge Package Manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["packageVersion", "catalogSchemaVersion", "profile", "createdAt", "catalog", "sourceRevisions", "provenance", "checksums", "toolVersions"],
+  "required": [
+    "packageVersion",
+    "catalogSchemaVersion",
+    "profile",
+    "createdAt",
+    "catalog",
+    "sourceRevisions",
+    "provenance",
+    "checksums",
+    "toolVersions"
+  ],
   "properties": {
-    "packageVersion": { "type": "string", "minLength": 1 },
-    "catalogSchemaVersion": { "type": "string", "const": "1.0.0" },
-    "profile": { "type": "string", "minLength": 1 },
-    "createdAt": { "type": "string", "format": "date-time" },
-    "catalog": { "type": "string", "const": "catalog.json" },
-    "sourceRevisions": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+    "packageVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "catalogSchemaVersion": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "catalog": {
+      "type": "string",
+      "const": "catalog.json"
+    },
+    "sourceRevisions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "provenance": {
       "type": "object",
       "description": "One provenance record per catalog source. Known identity fields must match the source; additional properties are reserved for forward-compatible metadata.",
       "additionalProperties": {
         "type": "object",
-        "required": ["name", "kind", "revision"],
+        "required": [
+          "name",
+          "kind",
+          "revision"
+        ],
         "properties": {
-          "name": { "type": "string", "minLength": 1 },
-          "kind": { "enum": ["jenkins-controller", "plugin", "shared-library", "jenkins-core"] },
-          "revision": { "type": "string", "minLength": 1 },
-          "url": { "type": ["string", "null"], "format": "uri" }
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "jenkins-controller",
+              "plugin",
+              "shared-library",
+              "jenkins-core"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
         },
         "additionalProperties": true
       }
     },
     "checksums": {
       "type": "object",
-      "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
     },
     "toolVersions": {
       "type": "object",
-      "additionalProperties": { "type": "string", "minLength": 1 }
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
     }
   }
 }
