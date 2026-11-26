@@ -44,7 +44,8 @@ Valid confidence values are `verified`, `inferred`, and `unknown`. The default r
 
 ## Resources
 
-- jenkins://catalog/manifest — selected package manifest.
+- jenkins://catalog/manifest — selected package manifest, including optional package collection completeness and per-source outcomes.
+- jenkins://catalog/collection — normalized package completeness and per-source collection outcomes; older packages without this metadata report status `unknown`.
 - jenkins://catalog/libraries — pinned Shared Library source snapshots.
 - jenkins://catalog/pipeline-steps — bounded Pipeline step symbols.
 - jenkins://catalog/coverage — collection coverage records for the selected profile.
