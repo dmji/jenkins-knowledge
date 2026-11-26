@@ -310,6 +310,21 @@ mod tests {
     }
 
     #[test]
+    fn page_metadata_marks_when_runtime_offset_ceiling_blocks_next_page() {
+        let page = SearchPage {
+            offset: MAX_SEARCH_OFFSET,
+            limit: 5,
+            total: MAX_SEARCH_OFFSET + 6,
+            has_more: true,
+            results: vec![json!({}); 5],
+        };
+        let metadata = page_metadata(&page);
+        assert_eq!(metadata["hasMore"], true);
+        assert!(metadata["nextOffset"].is_null());
+        assert_eq!(metadata["paginationLimitReached"], true);
+    }
+
+    #[test]
     fn search_and_list_tools_reject_invalid_offsets_and_limits() {
         let runtime = fixture_runtime();
         for arguments in [
@@ -434,6 +449,8 @@ mod tests {
         assert_eq!(page["total"], 13);
         assert_eq!(page["returned"], 13);
         assert_eq!(page["hasMore"], false);
+        assert!(page["nextOffset"].is_null());
+        assert_eq!(page["paginationLimitReached"], false);
     }
 
     #[test]
