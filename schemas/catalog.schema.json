@@ -815,6 +815,9 @@
                 "items": {
                   "$ref": "#/$defs/parameter"
                 }
+              },
+              "parametersTruncated": {
+                "type": "boolean"
               }
             }
           }
