@@ -313,6 +313,25 @@
         "superClass": {
           "type": "string"
         },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "rootCategories": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"type": "string", "maxLength": 256}
+        },
+        "methodsTruncated": {
+          "type": "boolean"
+        },
+        "propertiesTruncated": {
+          "type": "boolean"
+        },
+        "parametersTruncated": {
+          "type": "boolean"
+        },
         "interfaces": {
           "type": "array",
           "maxItems": 20,
