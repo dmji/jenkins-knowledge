@@ -1,4 +1,4 @@
-use catalog_validator::validate_catalog;
+use catalog_validator::{sha256_hex, stamp_catalog_identity, validate_catalog};
 use reqwest::{
     blocking::{Client, Response},
     header::{HeaderMap, ACCEPT, RANGE},
@@ -183,36 +183,12 @@ fn discover_with_client(
                     "status": "inspected"
                 }),
             ),
-            Err(DiscoveryError::TooManyPlugins { limit }) => (
-                Vec::new(),
-                Vec::new(),
-                json!({
-                    "name": "plugin-manager-api",
-                    "status": "unknown",
-                    "details": format!("plugin inventory exceeded the {limit}-plugin limit")
-                }),
-                json!({
-                    "sourceId": controller_id,
-                    "surface": "plugin-inventory",
-                    "status": "not-collected",
-                    "details": format!("plugin inventory exceeded the {limit}-plugin limit")
-                }),
-            ),
-            Err(DiscoveryError::TooManyDependencies { plugin, limit }) => (
-                Vec::new(),
-                Vec::new(),
-                json!({
-                    "name": "plugin-manager-api",
-                    "status": "unknown",
-                    "details": format!("plugin '{plugin}' exceeded the {limit}-dependency limit")
-                }),
-                json!({
-                    "sourceId": controller_id,
-                    "surface": "plugin-inventory",
-                    "status": "not-collected",
-                    "details": format!("plugin '{plugin}' exceeded the {limit}-dependency limit")
-                }),
-            ),
+            Err(DiscoveryError::TooManyPlugins { limit }) => {
+                return Err(DiscoveryError::TooManyPlugins { limit });
+            }
+            Err(DiscoveryError::TooManyDependencies { plugin, limit }) => {
+                return Err(DiscoveryError::TooManyDependencies { plugin, limit });
+            }
             Err(_) => (
                 Vec::new(),
                 Vec::new(),
@@ -323,11 +299,39 @@ fn discover_with_client(
         identity["displayName"] = json!(node_name);
     }
 
+    let capabilities = vec![
+        json!({
+            "name": "core-api",
+            "status": "available",
+            "details": "GET /api/json returned valid controller metadata"
+        }),
+        plugin_capability,
+        gdsl_capability
+    ];
+    let mut revision_plugins = plugins.clone();
+    revision_plugins.sort_by_key(|plugin| plugin["shortName"].as_str().unwrap_or_default().to_owned());
+    for plugin in &mut revision_plugins {
+        if let Some(dependencies) = plugin["dependencies"].as_array_mut() {
+            dependencies.sort_by_key(|dependency| dependency["shortName"].as_str().unwrap_or_default().to_owned());
+        }
+    }
+    let mut revision_capabilities = capabilities.clone();
+    revision_capabilities.sort_by_key(|capability| capability["name"].as_str().unwrap_or_default().to_owned());
+    let controller_revision_input = json!({
+        "identity": identity,
+        "coreVersion": core_version,
+        "plugins": revision_plugins,
+        "capabilities": revision_capabilities
+    });
+    let controller_revision_bytes = serde_json::to_vec(&controller_revision_input)
+        .map_err(|_| DiscoveryError::InvalidCatalog("cannot serialize controller revision input".into()))?;
+    let controller_revision = sha256_hex(&controller_revision_bytes);
+
     let mut sources = vec![json!({
         "id": controller_id,
         "kind": "jenkins-controller",
         "name": controller_url,
-        "revision": format!("retrieved:{completed_at}"),
+        "revision": controller_revision,
         "url": controller_url,
         "metadata": {
             "collectionProfile": "quick",
@@ -340,7 +344,7 @@ fn discover_with_client(
     })];
     sources.append(&mut plugin_sources);
 
-    let catalog = json!({
+    let mut catalog = json!({
         "schemaVersion": "1.0.0",
         "catalogId": controller_id,
         "generatedAt": completed_at,
@@ -359,15 +363,7 @@ fn discover_with_client(
             "identity": identity,
             "coreVersion": core_version,
             "plugins": plugins,
-            "capabilities": [
-                {
-                    "name": "core-api",
-                    "status": "available",
-                    "details": "GET /api/json returned valid controller metadata"
-                },
-                plugin_capability,
-                gdsl_capability
-            ],
+            "capabilities": capabilities,
             "collection": {
                 "profile": "quick",
                 "startedAt": started_at,
@@ -378,6 +374,7 @@ fn discover_with_client(
         }
     });
 
+    stamp_catalog_identity(&mut catalog).map_err(DiscoveryError::InvalidCatalog)?;
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json"))
         .map_err(|error| DiscoveryError::InvalidCatalog(error.to_string()))?;
     validate_catalog(&catalog, &schema)
@@ -638,7 +635,6 @@ fn parse_plugin_inventory(
             }
             None => Vec::new(),
         };
-
         let source_id = format!(
             "plugin-{}",
             stable_id(&format!("{controller_id}:{short_name}"))
@@ -691,10 +687,8 @@ fn endpoint_for(controller: &str, suffix: &[&str]) -> Result<Url, DiscoveryError
 }
 
 fn stable_id(value: &str) -> String {
-    let hash = value.bytes().fold(2166136261_u32, |hash, byte| {
-        (hash ^ u32::from(byte)).wrapping_mul(16777619)
-    });
-    format!("{hash:08x}")
+    let digest = sha256_hex(value.as_bytes());
+    digest[7..23].to_owned()
 }
 
 fn timestamp() -> String {
