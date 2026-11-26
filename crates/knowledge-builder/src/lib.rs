@@ -415,18 +415,25 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             }));
             sources.push(safe_source);
         }
-        symbols.extend(
-            catalog["symbols"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|symbol| {
-                    symbol["sourceId"]
+        for symbol in catalog["symbols"].as_array().into_iter().flatten() {
+            if !symbol["sourceId"]
+                .as_str()
+                .is_some_and(|source_id| included_source_ids.contains(source_id))
+            {
+                continue;
+            }
+            let mut safe_symbol = symbol.clone();
+            if let Some(plugin_source_ids) =
+                safe_symbol["availability"]["pluginSourceIds"].as_array_mut()
+            {
+                plugin_source_ids.retain(|source_id| {
+                    source_id
                         .as_str()
                         .is_some_and(|source_id| included_source_ids.contains(source_id))
-                })
-                .cloned(),
-        );
+                });
+            }
+            symbols.push(safe_symbol);
+        }
         coverage.extend(
             catalog["coverage"]
                 .as_array()
