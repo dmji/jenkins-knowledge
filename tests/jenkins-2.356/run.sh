@@ -14,8 +14,9 @@ TOKEN_FILE="$RUNNER_TEMP/jenkins-knowledge-tokens.env"
 ENV_FILE="$RUNNER_TEMP/jenkins-knowledge-jenkins.env"
 
 mkdir -p "$OUT"
-rm -f "$TOKEN_FILE"
+rm -f "$TOKEN_FILE" "$OUT/plugin-inventory.json" "$OUT/environment-summary.json" "$OUT/java-version.txt" "$OUT/image.txt"
 rm -rf "$OUT/quick" "$OUT/standard" "$OUT/deep" "$OUT/deep-readonly" "$OUT/cache"
+docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
 cleanup() {
     status=$?
