@@ -798,6 +798,8 @@
               "interfaces": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 256}},
               "modifiers": {"type": "string", "maxLength": 128},
               "synthetic": {"type": "boolean"},
+              "methodsTruncated": {"type": "boolean"},
+              "propertiesTruncated": {"type": "boolean"},
               "plugin": {"type": "string", "maxLength": 256},
               "methods": {
                 "type": "array",
