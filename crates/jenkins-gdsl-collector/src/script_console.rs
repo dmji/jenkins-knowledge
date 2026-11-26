@@ -1116,9 +1116,9 @@ mod tests {
 
     #[test]
     fn renders_only_validated_explicit_api_roots_into_the_fixed_probe() {
-        let roots = vec!["hudson.model.Run".to_owned(), "java.lang.String".to_owned()];
+        let roots = vec!["hudson.model.Run".to_owned(), "java.lang.String".to_owned(), "org.example.Outer$Inner".to_owned()];
         let script = render_script(&roots);
-        assert!(script.contains(r#"['hudson.model.Run','java.lang.String']"#));
+        assert!(script.contains(r#"['hudson.model.Run','java.lang.String','org.example.Outer$Inner']"#));
         assert!(!script.contains("__JENKINS_KNOWLEDGE_API_ROOTS__"));
         assert!(!valid_api_roots(&["java.lang.String;System.exit(0)".to_owned()]));
         assert!(!valid_api_roots(&["java.lang.String".to_owned(), "java.lang.String".to_owned()]));
