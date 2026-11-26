@@ -1,4 +1,4 @@
-use catalog_validator::validate_catalog;
+use catalog_validator::{validate_catalog, validate_package_metadata};
 use serde::Deserialize;
 use serde::de::{Error as DeError, MapAccess, Visitor};
 use serde_json::Value;
@@ -238,6 +238,8 @@ impl Runtime {
                 .expect("bundled catalog schema");
         validate_catalog(&catalog, &catalog_schema)
             .map_err(|e| RuntimeError(format!("invalid catalog '{catalog_name}': {e}")))?;
+        validate_package_metadata(&catalog, &manifest)
+            .map_err(|e| RuntimeError(format!("invalid package metadata: {e}")))?;
         let expected = manifest
             .get("catalogSchemaVersion")
             .and_then(Value::as_str)
