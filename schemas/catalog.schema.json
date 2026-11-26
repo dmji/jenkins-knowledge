@@ -840,6 +840,7 @@
         "synthetic": {"type": "boolean"},
         "bridge": {"type": "boolean"},
         "varargs": {"type": "boolean"},
+        "parametersTruncated": {"type": "boolean"},
         "parameters": {
           "type": "array",
           "maxItems": 20,
