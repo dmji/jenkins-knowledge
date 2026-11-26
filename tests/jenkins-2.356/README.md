@@ -15,7 +15,7 @@ This is a historical compatibility test, not a production deployment recommendat
 
 The image digest locks the bundled Jenkins plugin set. The integration run captures the actual `/pluginManager/api/json` inventory and the Builder-produced controller inventory as artifacts, so the exact versions exercised are recorded rather than inferred from plugin names. The test additionally requires the Pipeline/GDSL and matrix authorization plugins used by this scenario.
 
-Jenkins 2.356 is a weekly release. Jenkins' Java support policy lists Java 17 support beginning with weekly 2.340, so Java 17 is a supported runtime for this target. The test verifies the actual JVM version from the Script Console probe; it does not infer Java from the Core version.
+Jenkins 2.356 is a weekly release. [Jenkins' Java support policy](https://www.jenkins.io/doc/book/platform-information/support-policy-java/) lists Java 17 support beginning with weekly 2.340, so Java 17 is a supported runtime for this target. The test verifies the actual JVM version from the Script Console probe; it does not infer Java from the Core version. The [Matrix Authorization Strategy 2.6.11 release](https://updates.jenkins.io/download/plugins/matrix-auth/2.6.11/) requires Jenkins 2.222.1 and is compatible with this Core target.
 
 ## Permission matrix
 
