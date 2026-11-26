@@ -648,6 +648,18 @@ mod tests {
     }
 
     #[test]
+    fn production_profile_template_matches_the_strict_profile_contract() {
+        let profile: Profile = serde_yaml::from_str(include_str!(
+            "../../../profiles/production-pipelines.yml"
+        ))
+        .unwrap();
+        let selection = validate_profile(&profile).unwrap();
+        assert_eq!(selection.included.len(), 4);
+        assert_eq!(profile.jenkins.controllers.len(), 1);
+        assert!(profile.libraries.iter().all(|library| library.commit.is_none()));
+    }
+
+    #[test]
     fn rejects_credential_bearing_controller_urls_before_collection() {
         let directory = tempfile::tempdir().unwrap();
         fs::write(
