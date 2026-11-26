@@ -26,7 +26,7 @@ pub fn validate_catalog(catalog: &Value, schema: &Value) -> Result<(), Validatio
 
     let mut errors: Vec<String> = validator
         .iter_errors(catalog)
-        .map(|error| format!("{}: {}", error.instance_path, error))
+        .map(|error| format!("{}: {}", error.instance_path(), error))
         .collect();
 
     if errors.is_empty() {

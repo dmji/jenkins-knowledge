@@ -552,7 +552,7 @@ fn validate_schema(value: &Value, schema: &Value, label: &str) -> Result<(), Run
         .map_err(|e| RuntimeError(format!("invalid {label} schema: {e}")))?;
     let errors: Vec<_> = validator
         .iter_errors(value)
-        .map(|e| format!("{}: {e}", e.instance_path))
+        .map(|e| format!("{}: {e}", e.instance_path()))
         .collect();
     if errors.is_empty() {
         Ok(())
