@@ -4,9 +4,10 @@ use serde::de::{Error as DeError, MapAccess, Visitor};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BinaryHeap},
     fmt,
     fs,
+    io::Read,
     path::{Component, Path, PathBuf},
 };
 
@@ -14,6 +15,12 @@ pub mod groovy;
 
 pub const DEFAULT_SEARCH_LIMIT: usize = 50;
 pub const MAX_SEARCH_RESULTS: usize = 100;
+const MAX_MANIFEST_BYTES: u64 = 1_048_576;
+const MAX_CHECKSUM_ENTRIES: usize = 10_000;
+const MAX_PACKAGE_FILE_BYTES: u64 = 67_108_864;
+const MAX_PACKAGE_BYTES: u64 = 268_435_456;
+const MAX_CATALOG_SOURCES: usize = 10_000;
+const MAX_CATALOG_SYMBOLS: usize = 100_000;
 
 #[derive(Debug, Clone)]
 pub struct SearchOptions {
@@ -55,6 +62,7 @@ impl std::error::Error for RuntimeError {}
 pub struct Runtime {
     manifest: Value,
     catalog: Value,
+    source_index: BTreeMap<String, usize>,
 }
 
 #[derive(Debug)]
@@ -80,6 +88,9 @@ impl<'de> Deserialize<'de> for UniqueChecksums {
             {
                 let mut checksums = BTreeMap::new();
                 while let Some((name, digest)) = map.next_entry::<String, Value>()? {
+                    if checksums.len() >= MAX_CHECKSUM_ENTRIES {
+                        return Err(M::Error::custom(format!("checksum entry count exceeds limit ({MAX_CHECKSUM_ENTRIES})")));
+                    }
                     if checksums.insert(name.clone(), digest).is_some() {
                         return Err(M::Error::custom(format!(
                             "duplicate checksum entry '{name}'"
@@ -115,7 +126,8 @@ impl ManifestDocument {
 impl Runtime {
     #[cfg(test)]
     pub(crate) fn from_validated_parts(manifest: Value, catalog: Value) -> Self {
-        Self { manifest, catalog }
+        let source_index = build_source_index(&catalog);
+        Self { manifest, catalog, source_index }
     }
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self, RuntimeError> {
@@ -129,9 +141,8 @@ impl Runtime {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        let manifest_text = fs::read_to_string(&manifest_path)
-            .map_err(|e| RuntimeError(format!("cannot read {}: {e}", manifest_path.display())))?;
-        let manifest_document: ManifestDocument = serde_json::from_str(&manifest_text)
+        let manifest_bytes = read_bounded(&manifest_path, MAX_MANIFEST_BYTES, "manifest")?;
+        let manifest_document: ManifestDocument = serde_json::from_slice(&manifest_bytes)
             .map_err(|e| RuntimeError(format!("invalid JSON in {}: {e}", manifest_path.display())))?;
         let manifest = manifest_document.into_value();
 
@@ -149,13 +160,18 @@ impl Runtime {
             .get("checksums")
             .and_then(Value::as_object)
             .ok_or_else(|| RuntimeError("manifest.checksums must be an object".into()))?;
+        if checksums.len() > MAX_CHECKSUM_ENTRIES {
+            return Err(RuntimeError(format!("checksum entry count exceeds limit ({MAX_CHECKSUM_ENTRIES})")));
+        }
         if !checksums.contains_key(catalog_name) {
             return Err(RuntimeError(format!(
                 "manifest catalog '{catalog_name}' has no checksum entry"
             )));
         }
 
-        let mut verified_files = BTreeMap::new();
+        let mut aggregate_bytes = 0u64;
+        add_package_bytes(&mut aggregate_bytes, manifest_bytes.len() as u64)?;
+        let mut catalog_bytes = None;
         for (name, expected) in checksums {
             let expected = expected.as_str().ok_or_else(|| {
                 RuntimeError(format!("checksum for '{name}' must be a SHA-256 hex string"))
@@ -171,23 +187,33 @@ impl Runtime {
             }
 
             let file_path = resolve_package_file(package_dir, name)?;
-            let contents = fs::read(&file_path).map_err(|e| {
-                RuntimeError(format!("cannot read checksummed package file '{name}': {e}"))
-            })?;
+            let contents = read_bounded(&file_path, MAX_PACKAGE_FILE_BYTES, name)?;
+            add_package_bytes(&mut aggregate_bytes, contents.len() as u64)?;
             let actual = hex(&Sha256::digest(&contents));
             if actual != expected {
                 return Err(RuntimeError(format!(
                     "checksum mismatch for package file '{name}'"
                 )));
             }
-            verified_files.insert(name.clone(), contents);
+            if name == catalog_name {
+                catalog_bytes = Some(contents);
+            }
         }
 
-        let catalog_bytes = verified_files.get(catalog_name).ok_or_else(|| {
+        let catalog_bytes = catalog_bytes.ok_or_else(|| {
             RuntimeError(format!("catalog '{catalog_name}' was not checksum-verified"))
         })?;
-        let catalog: Value = serde_json::from_slice(catalog_bytes)
+        let catalog: Value = serde_json::from_slice(&catalog_bytes)
             .map_err(|e| RuntimeError(format!("invalid JSON in catalog '{catalog_name}': {e}")))?;
+
+        let source_count = catalog["sources"].as_array().map_or(0, Vec::len);
+        if source_count > MAX_CATALOG_SOURCES {
+            return Err(RuntimeError(format!("catalog source count exceeds limit ({MAX_CATALOG_SOURCES})")));
+        }
+        let symbol_count = catalog["symbols"].as_array().map_or(0, Vec::len);
+        if symbol_count > MAX_CATALOG_SYMBOLS {
+            return Err(RuntimeError(format!("catalog symbol count exceeds limit ({MAX_CATALOG_SYMBOLS})")));
+        }
 
         let catalog_schema: Value =
             serde_json::from_str(include_str!("../../../schemas/catalog.schema.json"))
@@ -207,7 +233,8 @@ impl Runtime {
                 "package/catalog schema version mismatch: manifest declares '{expected}', catalog is '{actual}'"
             )));
         }
-        Ok(Self { manifest, catalog })
+        let source_index = build_source_index(&catalog);
+        Ok(Self { manifest, catalog, source_index })
     }
 
     pub fn profile(&self) -> &str {
@@ -243,9 +270,12 @@ impl Runtime {
 
     pub fn search_with_options(&self, options: &SearchOptions) -> Vec<Value> {
         let query = options.query.to_lowercase();
-        let mut results: Vec<_> = self.symbols().iter().filter(|symbol| {
+        let limit = options.limit.clamp(1, MAX_SEARCH_RESULTS);
+        let mut best = BinaryHeap::<(String, String, usize)>::with_capacity(limit);
+
+        for (index, symbol) in self.symbols().iter().enumerate() {
             let source_id = symbol["sourceId"].as_str().unwrap_or_default();
-            let source = self.sources().iter().find(|item| item["id"].as_str() == Some(source_id));
+            let source = self.source_index.get(source_id).and_then(|index| self.sources().get(*index));
             let source_kind = source.and_then(|item| item["kind"].as_str()).unwrap_or_default();
             let matches_plugin = options.plugin.as_deref().is_none_or(|plugin| {
                 let declared_dependency = symbol["executionConstraints"]["pluginDependencies"]
@@ -266,7 +296,7 @@ impl Runtime {
                     .filter_map(|key| symbol.get(key).and_then(Value::as_str))
                     .any(|value| value == type_name || value.contains(type_name))
             });
-            (query.is_empty() || ["name", "description", "signature", "namespace", "returnType"]
+            let matches = (query.is_empty() || ["name", "description", "signature", "namespace", "returnType"]
                 .iter().filter_map(|key| symbol.get(key).and_then(Value::as_str))
                 .any(|value| value.to_lowercase().contains(&query)))
                 && options.kind.as_deref().is_none_or(|value| symbol["kind"].as_str() == Some(value))
@@ -274,12 +304,28 @@ impl Runtime {
                 && matches_plugin
                 && matches_owner
                 && matches_type
-                && options.confidence.as_deref().is_none_or(|value| symbol["confidence"].as_str() == Some(value))
-        }).collect();
-        results.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str())
-            .then_with(|| left["id"].as_str().cmp(&right["id"].as_str())));
-        results.into_iter().take(options.limit.clamp(1, MAX_SEARCH_RESULTS))
-            .map(|symbol| self.enrich(symbol)).collect()
+                && options.confidence.as_deref().is_none_or(|value| symbol["confidence"].as_str() == Some(value));
+
+            if matches {
+                let key = (
+                    symbol["name"].as_str().unwrap_or_default().to_owned(),
+                    symbol["id"].as_str().unwrap_or_default().to_owned(),
+                    index,
+                );
+                if best.len() < limit {
+                    best.push(key);
+                } else if best.peek().is_some_and(|largest| key < *largest) {
+                    best.pop();
+                    best.push(key);
+                }
+            }
+        }
+
+        let mut selected = best.into_vec();
+        selected.sort_unstable();
+        selected.into_iter()
+            .map(|(_, _, index)| self.enrich(&self.symbols()[index]))
+            .collect()
     }
 
     pub fn coverage(&self) -> &[Value] {
@@ -338,8 +384,8 @@ impl Runtime {
     }
 
     fn enrich(&self, symbol: &Value) -> Value {
-        let source_id = symbol["sourceId"].as_str();
-        let source = self.sources().iter().find(|s| s["id"].as_str() == source_id);
+        let source_id = symbol["sourceId"].as_str().unwrap_or_default();
+        let source = self.source_index.get(source_id).and_then(|index| self.sources().get(*index));
         let mut result = symbol.clone();
         if let Some(object) = result.as_object_mut() {
             object.insert("source".into(), source.cloned().unwrap_or(Value::Null));
@@ -347,6 +393,42 @@ impl Runtime {
         }
         result
     }
+}
+
+
+fn build_source_index(catalog: &Value) -> BTreeMap<String, usize> {
+    catalog["sources"].as_array().into_iter().flatten().enumerate()
+        .filter_map(|(index, source)| source["id"].as_str().map(|id| (id.to_owned(), index)))
+        .collect()
+}
+
+fn add_package_bytes(total: &mut u64, bytes: u64) -> Result<(), RuntimeError> {
+    *total = total.saturating_add(bytes);
+    if *total > MAX_PACKAGE_BYTES {
+        return Err(RuntimeError(format!(
+            "package exceeds aggregate size limit ({MAX_PACKAGE_BYTES} bytes)"
+        )));
+    }
+    Ok(())
+}
+
+fn read_bounded(path: &Path, limit: u64, label: &str) -> Result<Vec<u8>, RuntimeError> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|e| RuntimeError(format!("cannot inspect {label}: {e}")))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(RuntimeError(format!("{label} must be a regular file (symbolic links are not allowed)")));
+    }
+    if metadata.len() > limit {
+        return Err(RuntimeError(format!("{label} exceeds size limit ({limit} bytes)")));
+    }
+    let file = fs::File::open(path).map_err(|e| RuntimeError(format!("cannot read {label}: {e}")))?;
+    let mut contents = Vec::with_capacity(metadata.len().min(limit) as usize);
+    file.take(limit + 1).read_to_end(&mut contents)
+        .map_err(|e| RuntimeError(format!("cannot read {label}: {e}")))?;
+    if contents.len() as u64 > limit {
+        return Err(RuntimeError(format!("{label} exceeds size limit ({limit} bytes)")));
+    }
+    Ok(contents)
 }
 
 fn resolve_package_file(package_dir: &Path, name: &str) -> Result<PathBuf, RuntimeError> {
@@ -431,13 +513,20 @@ mod tests {
         let catalog: Value =
             serde_json::from_str(include_str!("../../../tests/fixtures/catalog-valid.json"))
                 .unwrap();
-        Runtime { manifest, catalog }
+        Runtime::from_validated_parts(manifest, catalog)
     }
 
     fn write_package(directory: &Path) {
-        let catalog = include_str!("../../../tests/fixtures/catalog-valid.json");
-        fs::write(directory.join("catalog.json"), catalog).unwrap();
-        let checksum = hex(&Sha256::digest(catalog.as_bytes()));
+        let catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        write_package_with_catalog(directory, &catalog);
+    }
+
+    fn write_package_with_catalog(directory: &Path, catalog: &Value) {
+        let catalog_bytes = serde_json::to_vec(catalog).unwrap();
+        fs::write(directory.join("catalog.json"), &catalog_bytes).unwrap();
+        let checksum = hex(&Sha256::digest(&catalog_bytes));
         let manifest = serde_json::json!({
             "packageVersion": "1.0.0",
             "catalogSchemaVersion": "1.0.0",
@@ -452,8 +541,7 @@ mod tests {
         fs::write(
             directory.join("manifest.json"),
             serde_json::to_vec_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
+        ).unwrap();
     }
 
     #[test]
@@ -475,6 +563,85 @@ mod tests {
         std::os::unix::fs::symlink(&target, &catalog).unwrap();
         let error = Runtime::open(directory.path()).unwrap_err().to_string();
         assert!(error.contains("symbolic links are not allowed"));
+    }
+
+    #[test]
+    fn rejects_manifest_larger_than_limit_before_deserialization() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("manifest.json"), vec![b' '; (MAX_MANIFEST_BYTES + 1) as usize]).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("manifest exceeds size limit"));
+    }
+
+    #[test]
+    fn rejects_oversized_checksummed_files_before_reading_them() {
+        let directory = tempfile::tempdir().unwrap();
+        write_package(directory.path());
+        let oversized = directory.path().join("oversized.bin");
+        fs::File::create(&oversized).unwrap().set_len(MAX_PACKAGE_FILE_BYTES + 1).unwrap();
+        let manifest_path = directory.path().join("manifest.json");
+        let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["checksums"]["oversized.bin"] = Value::String("0".repeat(64));
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("oversized.bin exceeds size limit"));
+    }
+
+    #[test]
+    fn rejects_excessive_checksum_entries_during_manifest_parsing() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut checksums = serde_json::Map::new();
+        for index in 0..=MAX_CHECKSUM_ENTRIES {
+            checksums.insert(format!("file-{index:05}"), Value::String("0".repeat(64)));
+        }
+        fs::write(
+            directory.path().join("manifest.json"),
+            serde_json::to_vec(&serde_json::json!({"checksums": checksums})).unwrap(),
+        ).unwrap();
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("checksum entry count exceeds limit"));
+    }
+
+    #[test]
+    fn rejects_catalogs_with_too_many_sources_or_symbols() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        catalog["sources"] = Value::Array(vec![Value::Null; MAX_CATALOG_SOURCES + 1]);
+        write_package_with_catalog(directory.path(), &catalog);
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("catalog source count exceeds limit"));
+
+        let directory = tempfile::tempdir().unwrap();
+        let mut catalog: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/catalog-valid.json"
+        )).unwrap();
+        catalog["symbols"] = Value::Array(vec![Value::Null; MAX_CATALOG_SYMBOLS + 1]);
+        write_package_with_catalog(directory.path(), &catalog);
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("catalog symbol count exceeds limit"));
+    }
+
+    #[test]
+    fn search_with_small_limit_keeps_only_the_lexicographically_first_matches() {
+        let mut runtime = runtime();
+        let symbols = runtime.catalog["symbols"].as_array_mut().unwrap();
+        for index in 0..10_000 {
+            symbols.push(serde_json::json!({
+                "id": format!("top-k:{index:05}"),
+                "name": format!("match-{index:05}"),
+                "kind": "method",
+                "sourceId": "workflow-basic-steps",
+                "confidence": "unknown",
+                "provenance": ["test"]
+            }));
+        }
+        let options = SearchOptions { query: "match-".into(), limit: 3, ..SearchOptions::default() };
+        let results = runtime.search_with_options(&options);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0]["name"], "match-00000");
+        assert_eq!(results[2]["name"], "match-00002");
     }
 
     #[test]
@@ -617,7 +784,7 @@ mod tests {
     fn search_is_bounded_and_has_stable_order() {
         let mut runtime = runtime();
         let symbols = runtime.catalog["symbols"].as_array_mut().unwrap();
-        for index in 0..150 {
+        for index in 0..10_000 {
             symbols.push(serde_json::json!({
                 "id": format!("generated:{index:03}"),
                 "name": format!("generated{index:03}"),
@@ -687,4 +854,13 @@ mod tests {
             .to_string()
             .contains("ambiguous"));
     }
+    #[test]
+    fn aggregate_package_size_accepts_boundary_and_rejects_first_byte_over() {
+        let mut total = 0;
+        add_package_bytes(&mut total, MAX_PACKAGE_BYTES).unwrap();
+        assert_eq!(total, MAX_PACKAGE_BYTES);
+        let error = add_package_bytes(&mut total, 1).unwrap_err().to_string();
+        assert!(error.contains("aggregate size limit"));
+    }
+
 }
