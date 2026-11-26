@@ -63,17 +63,8 @@ pub fn scan_library_at(config: &LibraryConfig, fetch_ref: &str) -> Result<ScanRe
     validate_config(config)?;
     validate_git_reference(fetch_ref).map_err(ScanError::InvalidConfig)?;
     let checkout_budget = git_checkout_budget_from_environment()?;
-    let checkout = GitCheckout::new(checkout_budget)?;
-    run_git(checkout.path(), &["init", "--quiet"], checkout.limit)?;
-    run_git(checkout.path(), &["remote", "add", "origin", &config.repository], checkout.limit)?;
-    run_git(
-        checkout.path(),
-        &["fetch", "--quiet", "--no-tags", "--depth", "1", "--filter=blob:limit=2m", "origin", fetch_ref],
-        checkout.limit,
-    )?;
-    let commit = git_output(checkout.path(), &["rev-parse", "FETCH_HEAD"], checkout.limit)?;
-    run_git(checkout.path(), &["checkout", "--quiet", "--detach", "FETCH_HEAD"], checkout.limit)?;
-    scan_checkout(config, checkout.path(), commit.trim())
+    let (checkout, commit) = fetch_checkout(&config.repository, fetch_ref, checkout_budget)?;
+    scan_checkout(config, checkout.path(), &commit)
 }
 
 /// Scan an already-resolved checkout. The caller supplies the resolved commit SHA
@@ -226,6 +217,42 @@ impl GitCheckout {
     fn path(&self) -> &Path {
         self.temp.path()
     }
+}
+
+fn fetch_checkout(
+    repository: &str,
+    fetch_ref: &str,
+    limit: u64,
+) -> Result<(GitCheckout, String), ScanError> {
+    let checkout = GitCheckout::new(limit)?;
+    run_git(checkout.path(), &["init", "--quiet"], checkout.limit)?;
+    run_git(
+        checkout.path(),
+        &["remote", "add", "origin", repository],
+        checkout.limit,
+    )?;
+    run_git(
+        checkout.path(),
+        &[
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--no-recurse-submodules",
+            "--depth",
+            "1",
+            "--filter=blob:limit=2m",
+            "origin",
+            fetch_ref,
+        ],
+        checkout.limit,
+    )?;
+    let commit = git_output(checkout.path(), &["rev-parse", "FETCH_HEAD"], checkout.limit)?;
+    run_git(
+        checkout.path(),
+        &["checkout", "--quiet", "--detach", "FETCH_HEAD"],
+        checkout.limit,
+    )?;
+    Ok((checkout, commit))
 }
 
 const MAX_CHECKOUT_ENTRIES: usize = 100_000;
