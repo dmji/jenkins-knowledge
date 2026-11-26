@@ -177,11 +177,95 @@ pub fn completeness_reason_codes(outcomes: &[Value]) -> Vec<String> {
     reasons.into_iter().collect()
 }
 
+fn populate_symbol_evidence(catalog: &mut Value) {
+    let sources = catalog["sources"].as_array().cloned().unwrap_or_default();
+    let source_info = sources
+        .iter()
+        .filter_map(|source| {
+            Some((
+                source["id"].as_str()?.to_owned(),
+                (
+                    source["kind"].as_str()?.to_owned(),
+                    source["revision"].as_str()?.to_owned(),
+                ),
+            ))
+        })
+        .collect::<HashMap<_, _>>();
+    let retrieved_at = catalog["generatedAt"].as_str().unwrap_or_default().to_owned();
+
+    let Some(symbols) = catalog["symbols"].as_array_mut() else {
+        return;
+    };
+    for symbol in symbols {
+        let Some(primary_source_id) = symbol["sourceId"].as_str().map(str::to_owned) else {
+            continue;
+        };
+        let Some((source_kind, source_revision)) = source_info.get(&primary_source_id) else {
+            continue;
+        };
+        let provenance = symbol["provenance"]
+            .as_array()
+            .and_then(|items| items.first())
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let evidence = symbol["evidence"].as_array_mut();
+        let has_primary_evidence = evidence.is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item["sourceId"].as_str() == Some(&primary_source_id))
+        });
+        if !has_primary_evidence {
+            let evidence_kind = match source_kind.as_str() {
+                "shared-library" => "source-scanned",
+                "jenkins-controller" if primary_source_id.starts_with("declarative-model-") => {
+                    "static-model"
+                }
+                "jenkins-controller" | "plugin" | "jenkins-core" => "controller-observed",
+                _ => "inferred",
+            };
+            let mut item = serde_json::json!({
+                "sourceId": primary_source_id,
+                "kind": evidence_kind,
+                "confidence": symbol["confidence"],
+                "retrievedAt": retrieved_at,
+                "revision": source_revision
+            });
+            if let Some(location) = provenance {
+                item["provenance"] = Value::String(location.clone());
+                item["location"] = Value::String(location);
+            }
+            symbol["evidence"]
+                .as_array_mut()
+                .map(|items| items.push(item))
+                .unwrap_or_else(|| symbol["evidence"] = serde_json::json!([item]));
+        }
+
+        if let Some(items) = symbol["evidence"].as_array_mut() {
+            for item in items {
+                let Some(source_id) = item["sourceId"].as_str() else {
+                    continue;
+                };
+                if let Some((_, revision)) = source_info.get(source_id) {
+                    if item.get("revision").is_none() {
+                        item["revision"] = Value::String(revision.clone());
+                    }
+                }
+                if item.get("location").is_none() {
+                    if let Some(location) = item.get("provenance").and_then(Value::as_str) {
+                        item["location"] = Value::String(location.to_owned());
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Add deterministic source fingerprints and a catalog snapshot ID.
 pub fn stamp_catalog_identity(catalog: &mut Value) -> Result<(), String> {
     if catalog.get("completeness").is_none() {
         catalog["completeness"] = serde_json::json!({"status":"unknown"});
     }
+    populate_symbol_evidence(catalog);
     let source_ids = catalog["sources"]
         .as_array()
         .ok_or_else(|| "catalog sources must be an array".to_owned())?
