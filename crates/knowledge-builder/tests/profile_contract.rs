@@ -289,6 +289,17 @@ fn rejects_duplicate_controller_ids_and_library_names() {
 }
 
 #[test]
+fn rejects_multiple_live_controllers_before_network_collection() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = write_profile(
+        directory.path(),
+        "profile: multiple\\njenkins:\\n  controllers:\\n    - id: one\\n      url: https://one.example.test\\n    - id: two\\n      url: https://two.example.test\\n",
+    );
+    let error = build_package(&profile, &directory.path().join("multiple-package")).unwrap_err();
+    assert!(error.to_string().contains("one controller per package"));
+}
+
+#[test]
 fn rejects_invalid_and_conflicting_library_commit_pins_before_network() {
     let directory = tempfile::tempdir().unwrap();
     let invalid = write_profile(
