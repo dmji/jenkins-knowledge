@@ -88,12 +88,23 @@ plugin_by_name = {plugin["shortName"]: plugin for plugin in plugins}
 missing = sorted(required_plugins - plugin_by_name.keys())
 assert not missing, f"missing required Jenkins plugins: {missing}"
 assert plugin_by_name["matrix-auth"]["version"] == "2.6.11"
+assert plugin_by_name["workflow-aggregator"]["version"] == "590.v6a_d052e5a_a_b_5"
+assert plugin_by_name["pipeline-model-definition"]["version"] == "2.2114.v2654ca_721309"
+assert plugin_by_name["workflow-cps"]["version"] == "2759.2761.vd6e8d2a_15980"
+
+lock = json.loads((ROOT / "plugins.lock.json").read_text(encoding="utf-8"))
+expected_plugin_versions = dict(lock["basePlugins"])
+expected_plugin_versions.update(
+    {plugin["name"]: plugin["version"] for plugin in lock["plugins"]}
+)
+builder_plugin_versions = {
+    plugin["shortName"]: plugin["version"] for plugin in plugins
+}
+assert builder_plugin_versions == expected_plugin_versions
+
 api_inventory = json.loads((ROOT / "plugin-inventory-api.json").read_text(encoding="utf-8"))
 api_plugin_versions = {
     plugin["shortName"]: plugin["version"] for plugin in api_inventory["plugins"]
-}
-builder_plugin_versions = {
-    plugin["shortName"]: plugin["version"] for plugin in plugins
 }
 assert builder_plugin_versions == api_plugin_versions
 (ROOT / "plugin-inventory.json").write_text(
