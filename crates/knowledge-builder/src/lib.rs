@@ -358,6 +358,20 @@ fn runtime_api_type_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
         if let Some(plugin) = api_type["plugin"].as_str() {
             class_symbol["namespace"] = json!(plugin);
         }
+        if let Some(depth) = api_type["depth"].as_u64() {
+            class_symbol["depth"] = json!(depth);
+        }
+        if let Some(categories) = api_type["rootCategories"].as_array() {
+            class_symbol["rootCategories"] = json!(categories);
+        }
+        for field in ["methodsTruncated", "propertiesTruncated"] {
+            if let Some(value) = api_type[field].as_bool() {
+                class_symbol[field] = json!(value);
+            }
+        }
+        if let Some(class_loader) = api_type["classLoader"].as_str() {
+            class_symbol["classLoader"] = json!(class_loader);
+        }
         for field in ["superClass", "origin"] {
             if let Some(value) = api_type[field].as_str() {
                 class_symbol[field] = json!(value);
@@ -433,6 +447,10 @@ fn runtime_api_type_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
             if let Some(parameters) = method["parameters"].as_array() {
                 method_symbol["parameters"] = json!(parameters);
                 method_symbol["fieldEvidence"]["parameters"] = json!("verified");
+            }
+            if let Some(truncated) = method["parametersTruncated"].as_bool() {
+                method_symbol["parametersTruncated"] = json!(truncated);
+                method_symbol["fieldEvidence"]["parametersTruncated"] = json!("verified");
             }
             for field in ["genericReturnType", "modifiers"] {
                 if let Some(value) = method[field].as_str() {
