@@ -616,12 +616,15 @@ mod tests {
         build_package(&directory.path().join("profile.yml"), &output).unwrap();
         let catalog: Value = serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
         let manifest: Value = serde_json::from_slice(&fs::read(output.join("manifest.json")).unwrap()).unwrap();
+        assert!(catalog["snapshotId"].as_str().unwrap().starts_with("sha256:"));
+        assert_eq!(catalog["completeness"]["status"], "unknown");
         for source in catalog["sources"].as_array().unwrap() {
             let id = source["id"].as_str().unwrap();
             assert_eq!(manifest["sourceRevisions"][id], source["revision"]);
             assert_eq!(manifest["provenance"][id]["name"], source["name"]);
             assert_eq!(manifest["provenance"][id]["kind"], source["kind"]);
             assert_eq!(manifest["provenance"][id]["revision"], source["revision"]);
+            assert_eq!(manifest["provenance"][id]["fingerprint"], source["fingerprint"]);
         }
     }
 
