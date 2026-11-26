@@ -1295,7 +1295,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
 
     #[test]
     fn temporary_checkout_is_unprivileged_unique_and_cleans_up() {
-        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap();
+        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let first = GitCheckout::new(1024 * 1024).unwrap();
         let second = GitCheckout::new(1024 * 1024).unwrap();
         assert_ne!(first.path(), second.path());
@@ -1345,7 +1345,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
 
     #[test]
     fn fetches_local_bare_repository_without_mount_privileges() {
-        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap();
+        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let root = tempfile::tempdir().unwrap();
         let remote = local_bare_remote(root.path(), 1024);
         let (checkout, commit) =
@@ -1356,7 +1356,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
 
     #[test]
     fn aborts_when_server_ignores_blob_filter_and_checkout_budget_is_exceeded() {
-        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap();
+        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let root = tempfile::tempdir().unwrap();
         let remote = local_bare_remote(root.path(), 8 * 1024 * 1024);
         let temp_root = std::env::temp_dir();
