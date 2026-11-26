@@ -64,14 +64,6 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
             id.to_owned(),
             source["kind"].as_str().unwrap_or_default().to_owned(),
         );
-        if let Some(url) = source["url"].as_str() {
-            if url_has_credentials(url) {
-                errors.push(format!(
-                    "/sources/{index}/url: URLs must not contain embedded credentials or secret query parameters"
-                ));
-            }
-        }
-        reject_secret_fields(source, &format!("/sources/{index}"), errors);
     }
 
     if let Some(coverage) = catalog["coverage"].as_array() {
@@ -93,19 +85,10 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
                     "/coverage/{index}: duplicate coverage entry for source '{source_id}' and surface '{surface}'"
                 ));
             }
-            reject_secret_fields(entry, &format!("/coverage/{index}"), errors);
         }
     }
 
     if let Some(controller) = catalog.get("controller").filter(|value| !value.is_null()) {
-        if let Some(base_url) = controller["identity"]["baseUrl"].as_str() {
-            if url_has_credentials(base_url) {
-                errors.push(
-                    "/controller/identity/baseUrl: URLs must not contain embedded credentials or secret query parameters"
-                        .to_owned(),
-                );
-            }
-        }
         let mut plugin_names = HashSet::new();
         for (index, plugin) in controller["plugins"]
             .as_array()
@@ -137,7 +120,6 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
                 ));
             }
         }
-        reject_secret_fields(controller, "/controller", errors);
     }
 
     for (index, symbol) in symbols.iter().enumerate() {
@@ -958,4 +940,79 @@ mod tests {
             .to_string();
         assert!(error.contains("not a schema-defined symbol attribute"));
     }
+    #[test]
+    fn detects_normalized_secret_key_variants_without_flagging_safe_metadata() {
+        for key in [
+            "apiKey",
+            "API_KEY",
+            "x-api-key",
+            "Authorization",
+            "clientSecret",
+            "credentialId",
+            "privateKey",
+            "refreshToken",
+            "set-cookie",
+            "passwordHash",
+            "AWS_SECRET_ACCESS_KEY",
+            "sessionId",
+            "authHeader",
+            "bearerToken",
+            "signature",
+        ] {
+            assert!(is_secret_field_name(key), "{key}");
+        }
+        for key in ["description", "displayName", "username", "apiBaseUrl", "repositoryUrl", "key"] {
+            assert!(!is_secret_field_name(key), "{key}");
+        }
+    }
+
+    #[test]
+    fn recursively_redacts_secret_fields_and_url_request_modifiers() {
+        let mut value = json!({
+            "metadata": {
+                "safeLabel": "preserved",
+                "apiKey": "top-secret-api",
+                "nested": [
+                    {"refreshToken": "top-secret-refresh", "description": "safe"},
+                    {"credentialId": "jenkins-credential-123"}
+                ]
+            },
+            "headers": {
+                "Authorization": "Bearer top-secret-auth",
+                "Content-Type": "application/json"
+            },
+            "documentationUrl": "https://docs.example.test/step?access_token=top-secret#details"
+        });
+        let changes = redact_sensitive_fields(&mut value);
+        let serialized = value.to_string();
+        assert!(changes >= 4);
+        assert!(!serialized.contains("top-secret"));
+        assert!(!serialized.contains("credential-123"));
+        assert!(!serialized.contains("apiKey"));
+        assert!(!serialized.contains("Authorization"));
+        assert_eq!(value["metadata"]["safeLabel"], "preserved");
+        assert_eq!(value["metadata"]["nested"][0]["description"], "safe");
+        assert_eq!(value["headers"]["Content-Type"], "application/json");
+        assert_eq!(value["documentationUrl"], "https://docs.example.test/step");
+    }
+
+    #[test]
+    fn rejects_secret_fields_in_nested_extensible_metadata_and_secret_url_queries() {
+        let mut invalid = valid_catalog();
+        invalid["sources"][0]["metadata"] = json!({
+            "safe": "preserved",
+            "nested": [{"credentialId": "do-not-echo"}]
+        });
+        let errors = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        assert!(errors.contains("/sources/0/metadata/nested/0/credentialId"));
+        assert!(!errors.contains("do-not-echo"));
+
+        let mut invalid = valid_catalog();
+        invalid["sources"][0]["url"] =
+            json!("https://git.example.test/team/repo?X-Api-Key=do-not-echo");
+        let errors = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        assert!(errors.contains("secret query parameters"));
+        assert!(!errors.contains("do-not-echo"));
+    }
+
 }
