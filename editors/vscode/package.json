@@ -10,7 +10,7 @@
     "vscode": "^1.85.0"
   },
   "categories": ["Programming Languages"],
-  "activationEvents": ["onLanguage:groovy"],
+  "activationEvents": ["onLanguage:groovy", "onCommand:jenkinsKnowledge.reload"],
   "main": "./out/extension.js",
   "scripts": {
     "compile": "tsc -p ./",
@@ -25,6 +25,9 @@
     "typescript": "^7.0.2"
   },
   "contributes": {
+    "commands": [
+      {"command": "jenkinsKnowledge.reload", "title": "Jenkins Knowledge: Reload Knowledge Package"}
+    ],
     "configuration": {
       "title": "Jenkins Knowledge",
       "properties": {
