@@ -1074,6 +1074,7 @@ mod tests {
         let a = scan_checkout(&config("release/1"), &fixture(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
         let b = scan_checkout(&config("release/2"), &fixture(), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").unwrap();
         assert_ne!(a.catalog["sources"][0]["id"], b.catalog["sources"][0]["id"]);
+        assert_ne!(a.catalog["symbols"][0]["id"], b.catalog["symbols"][0]["id"]);
         assert_eq!(a.catalog["sources"][0]["version"], "release/1");
         assert_eq!(b.catalog["sources"][0]["version"], "release/2");
     }
@@ -1421,6 +1422,28 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         assert!(catalog["sources"][0]["metadata"].get("privateKey").is_none());
         assert!(catalog["sources"][0]["metadata"]["nested"][0].get("sessionId").is_none());
         assert_eq!(catalog["sources"][0]["metadata"]["repositoryUrl"], "https://github.example.test/team/repo.git");
+    }
+
+    #[test]
+    fn source_and_symbol_identity_survive_a_moving_branch_revision() {
+        let first = scan_checkout(
+            &config("main"),
+            &fixture(),
+            "0123456789abcdef0123456789abcdef01234567",
+        )
+        .unwrap();
+        let second = scan_checkout(
+            &config("main"),
+            &fixture(),
+            "89abcdef0123456789abcdef0123456789abcdef",
+        )
+        .unwrap();
+
+        assert_eq!(first.catalog["sources"][0]["id"], second.catalog["sources"][0]["id"]);
+        assert_eq!(first.catalog["catalogId"], second.catalog["catalogId"]);
+        assert_eq!(first.catalog["symbols"][0]["id"], second.catalog["symbols"][0]["id"]);
+        assert_ne!(first.catalog["sources"][0]["revision"], second.catalog["sources"][0]["revision"]);
+        assert_ne!(first.catalog["snapshotId"], second.catalog["snapshotId"]);
     }
 
 }
