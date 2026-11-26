@@ -408,7 +408,7 @@ fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
         }
         for (property_index, property) in api_type["properties"].as_array().into_iter().flatten().enumerate() {
             let Some(property_name) = property["name"].as_str().filter(|value| !value.trim().is_empty()) else { continue; };
-            symbols.push(json!({
+            let mut property_symbol = json!({
                 "id": format!("{type_id}:property:{property_name}:{property_index}"),
                 "name": property_name,
                 "kind": "property",
@@ -420,7 +420,9 @@ fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
                 "provenance": ["jenkins-script-console", "api-types", type_name],
                 "fieldEvidence": {"name": "verified", "readable": "verified", "writable": "verified"},
                 "evidence": evidence
-            }));
+            });
+            if let Some(property_type) = property["type"].as_str() { property_symbol["typeName"] = json!(property_type); }
+            symbols.push(property_symbol);
         }
     }
     symbols
