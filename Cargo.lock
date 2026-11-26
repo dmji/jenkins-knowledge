@@ -812,8 +812,8 @@ version = "0.1.0"
 dependencies = [
  "catalog-validator",
  "regex",
- "serde",
  "reqwest 0.12.28",
+ "serde",
  "serde_json",
  "url",
 ]
