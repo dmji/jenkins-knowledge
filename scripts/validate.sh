@@ -23,6 +23,15 @@ trap cleanup EXIT
 expected_sha="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 actual_sha="$(git rev-parse HEAD)"
 printf 'Validating commit %s\n' "$actual_sha"
+
+# Temporary bootstrap artifact for the lockfile migration; removed after
+# Cargo.lock and package-lock.json have been committed.
+mkdir -p target/lockfile-bootstrap/vscode
+cargo generate-lockfile
+cp Cargo.lock target/lockfile-bootstrap/Cargo.lock
+cp editors/vscode/package.json target/lockfile-bootstrap/vscode/package.json
+npm --prefix target/lockfile-bootstrap/vscode install --package-lock-only --ignore-scripts --no-audit --no-fund
+cp target/lockfile-bootstrap/vscode/package-lock.json target/lockfile-bootstrap/package-lock.json
 if [ "$actual_sha" != "$expected_sha" ]; then
   echo "checkout SHA does not match expected SHA $expected_sha" >&2
   exit 1
