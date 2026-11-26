@@ -17,7 +17,8 @@ fn tools() -> Value {
       {"name":"list_api","description":"List catalog symbols across all configured sources with controller/source/plugin/kind/context/confidence filters and bounded pagination.","inputSchema":{"type":"object","properties":{"kind":{"type":"string"},"source":{"type":"string"},"controller":{"type":"string"},"sourceKind":{"type":"string"},"context":{"type":"string"},"plugin":{"type":"string"},"owner":{"type":"string"},"type":{"type":"string"},"confidence":{"enum":["verified","inferred","unknown"]},"offset":{"type":"integer","minimum":0,"maximum":10000},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"results":{"type":"array","items":{"type":"object"}},"offset":{"type":"integer"},"limit":{"type":"integer"},"total":{"type":"integer"},"returned":{"type":"integer"},"hasMore":{"type":"boolean"},"nextOffset":{"type":["integer","null"]},"paginationLimitReached":{"type":"boolean"}},"required":["profile","results","offset","limit","total","returned","hasMore","nextOffset","paginationLimitReached"]}},
       {"name":"get_usage_examples","description":"Get catalog-backed usage examples for one exact symbol name or ID.","inputSchema":{"type":"object","properties":{"name_or_id":{"type":"string"}},"required":["name_or_id"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"},"examples":{"type":"array","items":{"type":"string"}}},"required":["id","name","profile","source","confidence","examples"],"additionalProperties":true}},
       {"name":"get_pipeline_step","description":"Get Jenkins Pipeline step metadata, source, type relationships, and execution constraints by exact name or symbol ID.","inputSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"profile":{"type":"string"},"source":{"type":"object"},"confidence":{"type":"string"}},"required":["id","name","profile","source","confidence"],"additionalProperties":true}},
-      {"name":"get_controller_inventory","description":"Return the selected package's controller identity, Jenkins Core and plugin inventory, Java runtime metadata with per-property availability status, capabilities, collection profile, snapshot freshness timestamps, and source provenance. Inventory and capability status explicitly remain unknown when not inspected.","inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"freshness":{"type":"object"},"controller":{"type":["object","null"]},"core":{"type":"array"},"plugins":{"type":"object"},"capabilities":{"type":"object"},"collection":{"type":"object"},"provenance":{"type":"object"}},"required":["profile","freshness","controller","core","plugins","capabilities","collection","provenance"],"additionalProperties":false}}
+      {"name":"get_controller_inventory","description":"Return the selected package's controller identity, Jenkins Core and plugin inventory, Java runtime metadata with per-property availability status, capabilities, collection profile, snapshot freshness timestamps, and source provenance. Inventory and capability status explicitly remain unknown when not inspected.","inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"profile":{"type":"string"},"freshness":{"type":"object"},"controller":{"type":["object","null"]},"core":{"type":"array"},"plugins":{"type":"object"},"capabilities":{"type":"object"},"collection":{"type":"object"},"provenance":{"type":"object"},"compatibility":{"type":"object"}},"required":["profile","freshness","controller","core","plugins","capabilities","collection","provenance","compatibility"],"additionalProperties":false}},
+      {"name":"get_package_compatibility","description":"Report the environment recorded by the selected package, package completeness, missing metadata, and known collection limitations. An optional caller-supplied targetEnvironment is compared offline; an exact match is not proof of runtime compatibility.","inputSchema":{"type":"object","properties":{"targetEnvironment":{"type":"object","properties":{"coreVersion":{"type":"string"},"javaVersion":{"type":"string"},"javaVendor":{"type":"string"},"plugins":{"type":"array","items":{"type":"object","properties":{"shortName":{"type":"string"},"version":{"type":"string"}},"required":["shortName","version"],"additionalProperties":false}}},"additionalProperties":false}},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"status":{"enum":["unknown","environment-different","not-proven"]},"environmentComparisonStatus":{"enum":["not-compared","matched","different","unknown"]},"package":{"type":"object"},"packageEnvironment":{"type":"object"},"targetEnvironment":{"type":"object"},"comparison":{"type":"object"},"warnings":{"type":"array","items":{"type":"object"}}},"required":["status","environmentComparisonStatus","package","packageEnvironment","targetEnvironment","comparison","warnings"],"additionalProperties":false}}
     ])
 }
 fn query_options(args: &Value, include_query: bool) -> Result<(SearchOptions, usize), String> {
@@ -101,6 +102,7 @@ fn call_tool(rt: &Runtime, name: &str, args: &Value) -> Result<Value,String> {
         "get_usage_examples" => rt.examples(required(args,"name_or_id")?).map(content).map_err(|e|e.to_string()),
         "get_pipeline_step" => rt.pipeline_step(required(args,"name")?).map(content).map_err(|e|e.to_string()),
         "get_controller_inventory" => Ok(content(controller_inventory(rt))),
+        "get_package_compatibility" => Ok(content(rt.compatibility_report(args.get("targetEnvironment")))),
         _ => Err(format!("unknown tool '{name}'")),
     }
 }
@@ -164,7 +166,7 @@ fn controller_inventory(rt: &Runtime) -> Value {
         .or_else(|| controller.as_ref().and_then(|value| value["runtime"]["collectedAt"].as_str()));
     let freshness = json!({
         "status": if observed_at.is_some() { "known" } else { "unknown" },
-        "packageGeneratedAt": rt.manifest()["generatedAt"],
+        "packageGeneratedAt": rt.manifest()["createdAt"],
         "controllerObservedAt": observed_at,
         "snapshotId": rt.catalog()["snapshotId"],
         "catalogId": rt.catalog()["catalogId"]
@@ -189,6 +191,7 @@ fn controller_inventory(rt: &Runtime) -> Value {
             "package": rt.collection().cloned().unwrap_or(Value::Null),
             "completeness": rt.catalog()["completeness"]
         },
+        "compatibility": rt.compatibility_report(None),
         "provenance": {
             "controllerSource": controller_source,
             "coreSources": core_sources.clone(),
@@ -208,6 +211,7 @@ fn read_resource(rt: &Runtime, uri: &str) -> Result<Value,String> {
         "jenkins://catalog/coverage" => Ok(json!({"profile":rt.profile(),"coverage":rt.coverage()})),
         "jenkins://catalog/controller" => Ok(json!({"profile":rt.profile(),"controller":rt.controller_details()})),
         "jenkins://catalog/controller-inventory" => Ok(controller_inventory(rt)),
+        "jenkins://catalog/compatibility" => Ok(rt.compatibility_report(None)),
         "jenkins://catalog/plugins" => Ok(json!({"profile":rt.profile(),"status":rt.plugin_inventory_status(),"plugins":rt.plugins()})),
         "jenkins://catalog/sources" => Ok(json!({"profile":rt.profile(),"sources":rt.source_details()})),
         _ if uri == "jenkins://catalog/types" || uri.starts_with("jenkins://catalog/types?") => {
@@ -271,6 +275,7 @@ fn handle(rt: &Runtime, req: Value) -> Option<Value> {
             {"uri":"jenkins://catalog/coverage","name":"Catalog collection coverage","mimeType":"application/json"},
             {"uri":"jenkins://catalog/controller","name":"Jenkins controller metadata","mimeType":"application/json"},
             {"uri":"jenkins://catalog/controller-inventory","name":"Controller inventory and snapshot provenance","description":"Combined controller identity, Core/plugin inventory, capability status, collection profile, snapshot freshness, and source provenance.","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/compatibility","name":"Package environment and compatibility report","description":"Offline comparison of recorded package environment with optional caller-supplied target metadata; matching versions do not prove compatibility.","mimeType":"application/json"},
             {"uri":"jenkins://catalog/plugins","name":"Installed Jenkins plugins","mimeType":"application/json"},
             {"uri":"jenkins://catalog/sources","name":"Knowledge package sources","mimeType":"application/json"},
             {"uri":"jenkins://catalog/types","name":"Groovy types and members","description":"Paginated with ?offset=0&limit=50; each type includes catalog-declared members and resolved type references.","mimeType":"application/json"},
@@ -351,7 +356,7 @@ mod tests {
         let definitions = tools();
         let definitions = definitions.as_array().unwrap();
         let names: Vec<_> = definitions.iter().filter_map(|tool| tool["name"].as_str()).collect();
-        assert_eq!(names, ["search_api", "get_api_details", "list_api", "get_usage_examples", "get_pipeline_step", "get_controller_inventory"]);
+        assert_eq!(names, ["search_api", "get_api_details", "list_api", "get_usage_examples", "get_pipeline_step", "get_controller_inventory", "get_package_compatibility"]);
         let search = definitions.iter().find(|tool| tool["name"] == "search_api").unwrap();
         for filter in ["controller", "sourceKind", "context", "plugin", "owner", "type", "confidence", "offset", "limit"] {
             assert!(search["inputSchema"]["properties"].get(filter).is_some());
@@ -471,7 +476,7 @@ mod tests {
         let library_symbols = read_resource(&runtime, "jenkins://catalog/library-symbols").unwrap();
         let plugin_symbols = read_resource(&runtime, "jenkins://catalog/plugin-symbols").unwrap();
         assert_eq!(controller["controller"]["identity"]["id"], "jenkins-ci");
-        assert_eq!(plugins["status"], "available");
+        assert_eq!(plugins["status"], "partial");
         assert_eq!(plugins["plugins"].as_array().unwrap().len(), 1);
         assert!(sources["sources"].as_array().unwrap().iter().any(|source| source["kind"] == "shared-library"));
         assert!(types["types"].as_array().unwrap().iter().any(|symbol| symbol["name"] == "ShellStep"));
@@ -486,6 +491,39 @@ mod tests {
         assert_eq!(types["types"][0]["membersStatus"], "unknown");
         assert_eq!(types["types"][0]["controller"]["id"], "jenkins-ci");
     }
+    #[test]
+    fn compatibility_tool_and_resource_expose_package_limitations_without_a_target() {
+        let runtime = fixture_runtime();
+        let tool = structured_tool_page(&runtime, "get_package_compatibility", json!({}));
+        let resource = read_resource(&runtime, "jenkins://catalog/compatibility").unwrap();
+        let inventory = controller_inventory(&runtime);
+        let listed = handle(&runtime, json!({"id":1,"method":"resources/list"})).unwrap();
+
+        assert_eq!(tool["status"], "unknown");
+        assert_eq!(tool["environmentComparisonStatus"], "not-compared");
+        assert_eq!(tool["targetEnvironment"]["status"], "not-provided");
+        assert_eq!(resource["status"], "unknown");
+        assert_eq!(inventory["freshness"]["packageGeneratedAt"], runtime.manifest()["createdAt"]);
+        assert!(inventory.get("compatibility").is_some());
+        assert!(listed["result"]["resources"].as_array().unwrap().iter()
+            .any(|resource| resource["uri"] == "jenkins://catalog/compatibility"));
+    }
+
+    #[test]
+    fn compatibility_tool_reports_a_known_environment_difference() {
+        let runtime = fixture_runtime();
+        let report = structured_tool_page(&runtime, "get_package_compatibility", json!({
+            "targetEnvironment": {
+                "coreVersion":"2.480.0",
+                "javaVersion":"17.0.12",
+                "javaVendor":"Eclipse Adoptium",
+                "plugins":[{"shortName":"workflow-basic-steps","version":"2.27"}]
+            }
+        }));
+        assert_eq!(report["environmentComparisonStatus"], "different");
+        assert_eq!(report["status"], "environment-different");
+    }
+
     #[test]
     fn page_metadata_marks_when_runtime_offset_ceiling_blocks_next_page() {
         let page = SearchPage {

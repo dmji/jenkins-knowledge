@@ -325,8 +325,10 @@ impl Runtime {
                 _ => "unknown",
             };
         }
-        if self.controller().and_then(|controller| controller.get("plugins")).and_then(Value::as_array).is_some() {
-            "available"
+        if self.controller().and_then(|controller| controller.get("plugins"))
+            .and_then(Value::as_array).is_some_and(|plugins| !plugins.is_empty())
+        {
+            "partial"
         } else {
             "unknown"
         }
@@ -352,6 +354,254 @@ impl Runtime {
             object.insert("profile".into(), json!(self.profile()));
         }
         Some(detail)
+    }
+
+    /// Summarizes the environment recorded by this package without probing Jenkins.
+    /// A caller may supply an independently observed target environment for an exact
+    /// inventory comparison; a match is never treated as proof of runtime compatibility.
+    pub fn compatibility_report(&self, target_environment: Option<&Value>) -> Value {
+        let controller = self.controller();
+        let core_version = controller
+            .and_then(|value| value["coreVersion"].as_str())
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("unknown"));
+        let runtime = controller.and_then(|value| value.get("runtime"));
+        let controller_collection = controller.and_then(|value| value.get("collection"));
+        let java_version = runtime
+            .and_then(|value| value["javaVersion"].as_str())
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("unknown"));
+        let java_vendor = runtime
+            .and_then(|value| value["javaVendor"].as_str())
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("unknown"));
+        let java_version_status = controller_collection
+            .and_then(|value| value["javaVersionStatus"].as_str())
+            .unwrap_or(if java_version.is_some() { "available" } else { "unknown" });
+        let java_vendor_status = controller_collection
+            .and_then(|value| value["javaVendorStatus"].as_str())
+            .unwrap_or(if java_vendor.is_some() { "available" } else { "unknown" });
+        let package_plugin_status = self.plugin_inventory_status();
+        let package_plugins = plugin_version_map(self.plugin_inventory());
+        let plugin_status = if package_plugin_status == "available" && package_plugins.is_none() {
+            "unknown"
+        } else {
+            package_plugin_status
+        };
+        let target = target_environment.filter(|value| value.is_object());
+        let target_core = target.and_then(|value| value["coreVersion"].as_str())
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("unknown"));
+        let target_java = target.and_then(|value| value["javaVersion"].as_str())
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("unknown"));
+        let target_vendor = target.and_then(|value| value["javaVendor"].as_str())
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("unknown"));
+        let target_plugins = target
+            .and_then(|value| value["plugins"].as_array())
+            .and_then(|plugins| plugin_version_map(plugins));
+        let target_provided = target.is_some();
+
+        let compare_value = |package: Option<&str>, target_value: Option<&str>| {
+            let status = if !target_provided {
+                "not-compared"
+            } else {
+                match (package, target_value) {
+                    (Some(package), Some(target)) if package == target => "matched",
+                    (Some(_), Some(_)) => "different",
+                    _ => "unknown",
+                }
+            };
+            json!({"status":status,"package":package,"target":target_value})
+        };
+        let core_comparison = compare_value(core_version, target_core);
+        let java_comparison = compare_value(
+            java_version.filter(|_| java_version_status == "available"),
+            target_java,
+        );
+        let vendor_comparison = compare_value(
+            java_vendor.filter(|_| java_vendor_status == "available"),
+            target_vendor,
+        );
+        let plugin_comparison_status = if !target_provided {
+            "not-compared"
+        } else if plugin_status != "available" || package_plugins.is_none() || target_plugins.is_none() {
+            "unknown"
+        } else if package_plugins == target_plugins {
+            "matched"
+        } else {
+            "different"
+        };
+        let plugin_comparison = json!({
+            "status":plugin_comparison_status,
+            "packageCount":self.plugin_inventory().len(),
+            "targetCount":target.and_then(|value| value["plugins"].as_array()).map_or(Value::Null, |plugins| json!(plugins.len()))
+        });
+
+        let field_statuses = [
+            core_comparison["status"].as_str().unwrap_or("unknown"),
+            java_comparison["status"].as_str().unwrap_or("unknown"),
+            vendor_comparison["status"].as_str().unwrap_or("unknown"),
+            plugin_comparison_status,
+        ];
+        let comparison_status = if !target_provided {
+            "not-compared"
+        } else if field_statuses.contains(&"different") {
+            "different"
+        } else if field_statuses.iter().all(|status| *status == "matched") {
+            "matched"
+        } else {
+            "unknown"
+        };
+        let completeness = self.catalog
+            .get("completeness")
+            .and_then(|value| value["status"].as_str())
+            .or_else(|| self.collection().and_then(|value| value["status"].as_str()))
+            .unwrap_or("unknown");
+        let environment_status = if controller.is_none() {
+            "unknown"
+        } else if core_version.is_some()
+            && java_version_status == "available"
+            && java_version.is_some()
+            && java_vendor_status == "available"
+            && java_vendor.is_some()
+            && plugin_status == "available"
+            && package_plugins.is_some()
+        {
+            "available"
+        } else if core_version.is_some() || java_version.is_some() || !self.plugin_inventory().is_empty() {
+            "partial"
+        } else {
+            "unknown"
+        };
+        let compatibility_status = if comparison_status == "different" {
+            "environment-different"
+        } else if comparison_status == "matched" && completeness == "complete" && environment_status == "available" {
+            "not-proven"
+        } else {
+            "unknown"
+        };
+
+        let mut warnings = Vec::new();
+        if completeness != "complete" {
+            warnings.push(json!({
+                "code":if completeness == "partial" {"package-incomplete"} else {"package-completeness-unknown"},
+                "completeness":completeness
+            }));
+        }
+        if controller.is_none() {
+            warnings.push(json!({"code":"controller-metadata-unavailable"}));
+        }
+        if core_version.is_none() {
+            warnings.push(json!({"code":"package-core-version-unknown"}));
+        }
+        if java_version_status != "available" {
+            warnings.push(json!({"code":"package-java-version-unavailable","status":java_version_status}));
+        }
+        if java_vendor_status != "available" {
+            warnings.push(json!({"code":"package-java-vendor-unavailable","status":java_vendor_status}));
+        }
+        if plugin_status != "available" || package_plugins.is_none() {
+            let code = match plugin_status {
+                "partial" => "package-plugin-inventory-partial",
+                "unknown" => "package-plugin-inventory-unknown",
+                _ => "package-plugin-inventory-unavailable",
+            };
+            warnings.push(json!({"code":code,"status":plugin_status}));
+        }
+        if !target_provided {
+            warnings.push(json!({"code":"target-environment-not-provided"}));
+        } else if comparison_status == "unknown" {
+            warnings.push(json!({"code":"environment-comparison-incomplete"}));
+        } else if comparison_status == "different" {
+            warnings.push(json!({"code":"target-environment-differs"}));
+        } else {
+            warnings.push(json!({"code":"environment-match-does-not-prove-compatibility"}));
+        }
+        if let Some(outcomes) = self.collection().and_then(|value| value["sources"].as_array()) {
+            let reported_source_ids: Vec<_> = outcomes.iter()
+                .filter_map(|outcome| outcome["sourceId"].as_str())
+                .collect();
+            for outcome in outcomes {
+                let status = outcome["status"].as_str().unwrap_or_default();
+                if !matches!(status, "succeeded") {
+                    let mut warning = json!({
+                        "code":format!("collection-{status}"),
+                        "surface":outcome["surface"],
+                        "name":outcome["name"],
+                        "sourceId":outcome["sourceId"],
+                        "errorCode":outcome["errorCode"]
+                    });
+                    if let Some(object) = warning.as_object_mut() {
+                        object.retain(|_, value| !value.is_null());
+                    }
+                    warnings.push(warning);
+                }
+            }
+            for source in self.sources() {
+                if let Some(source_id) = source["id"].as_str() {
+                    if !reported_source_ids.contains(&source_id) {
+                        warnings.push(json!({
+                            "code":"source-outcome-missing",
+                            "sourceId":source_id,
+                            "sourceName":source["name"],
+                            "sourceKind":source["kind"],
+                            "revision":source["revision"]
+                        }));
+                    }
+                }
+            }
+        } else {
+            warnings.push(json!({"code":"collection-outcomes-not-recorded"}));
+            for source in self.sources() {
+                warnings.push(json!({
+                    "code":"source-outcome-missing",
+                    "sourceId":source["id"],
+                    "sourceName":source["name"],
+                    "sourceKind":source["kind"],
+                    "revision":source["revision"]
+                }));
+            }
+        }
+
+        json!({
+            "status":compatibility_status,
+            "environmentComparisonStatus":comparison_status,
+            "package":{
+                "profile":self.profile(),
+                "createdAt":self.manifest["createdAt"],
+                "collectionStartedAt":self.collection().and_then(|value| value["startedAt"].as_str()),
+                "collectionCompletedAt":self.collection().and_then(|value| value["completedAt"].as_str()),
+                "catalogId":self.catalog["catalogId"],
+                "snapshotId":self.catalog["snapshotId"],
+                "completeness":completeness,
+                "completenessReasonCodes":self.catalog.get("completeness").and_then(|value| value.get("reasonCodes")).cloned().unwrap_or_else(|| json!([]))
+            },
+            "packageEnvironment":{
+                "status":environment_status,
+                "controller":controller.and_then(|value| value.get("identity")).cloned(),
+                "controllerSource":self.source_details().into_iter()
+                    .find(|source| source["kind"].as_str() == Some("jenkins-controller")),
+                "controllerCollection":controller_collection.cloned(),
+                "jenkinsCore":{"status":if core_version.is_some() {"available"} else {"unknown"},"version":core_version},
+                "java":{
+                    "versionStatus":java_version_status,
+                    "version":java_version,
+                    "vendorStatus":java_vendor_status,
+                    "vendor":java_vendor
+                },
+                "plugins":{"status":plugin_status,"count":self.plugin_inventory().len(),"items":self.plugins()}
+            },
+            "targetEnvironment":{
+                "status":if target_provided {"provided"} else {"not-provided"},
+                "coreVersion":target_core,
+                "javaVersion":target_java,
+                "javaVendor":target_vendor,
+                "pluginCount":plugin_comparison["targetCount"]
+            },
+            "comparison":{
+                "jenkinsCore":core_comparison,
+                "javaVersion":java_comparison,
+                "javaVendor":vendor_comparison,
+                "plugins":plugin_comparison
+            },
+            "warnings":warnings
+        })
     }
 
     pub fn search(&self, query: &str, kind: Option<&str>, source: Option<&str>) -> Vec<Value> {
@@ -703,6 +953,21 @@ impl Runtime {
 }
 
 
+fn plugin_version_map(plugins: &[Value]) -> Option<BTreeMap<String, String>> {
+    if plugins.is_empty() {
+        return None;
+    }
+    let mut versions = BTreeMap::new();
+    for plugin in plugins {
+        let short_name = plugin["shortName"].as_str().filter(|value| !value.is_empty())?;
+        let version = plugin["version"].as_str().filter(|value| !value.is_empty())?;
+        if versions.insert(short_name.to_owned(), version.to_owned()).is_some() {
+            return None;
+        }
+    }
+    Some(versions)
+}
+
 fn build_source_index(catalog: &Value) -> BTreeMap<String, usize> {
     catalog["sources"].as_array().into_iter().flatten().enumerate()
         .filter_map(|(index, source)| source["id"].as_str().map(|id| (id.to_owned(), index)))
@@ -852,6 +1117,45 @@ mod tests {
         Runtime::from_validated_parts(manifest, catalog)
     }
 
+    fn compatibility_runtime(completeness: &str, java_status: &str, plugin_status: &str) -> Runtime {
+        let mut catalog: Value =
+            serde_json::from_str(include_str!("../../../tests/fixtures/catalog-valid.json"))
+                .unwrap();
+        catalog["controller"]["runtime"] = json!({
+            "javaVersion": if java_status == "available" { json!("17.0.12") } else { Value::Null },
+            "javaVendor": if java_status == "available" { json!("Eclipse Adoptium") } else { Value::Null }
+        });
+        catalog["controller"]["collection"]["javaVersionStatus"] = json!(java_status);
+        catalog["controller"]["collection"]["javaVendorStatus"] = json!(java_status);
+        catalog["controller"]["capabilities"].as_array_mut().unwrap().push(json!({
+            "name":"plugin-inventory",
+            "status":plugin_status
+        }));
+        catalog["completeness"] = json!({
+            "status":completeness,
+            "reasonCodes":if completeness == "partial" { json!(["permission-denied"]) } else { json!([]) }
+        });
+        let outcome_status = if completeness == "partial" { "permission-denied" } else { "succeeded" };
+        let manifest = json!({
+            "profile":"deep",
+            "createdAt":"2026-11-27T00:00:00Z",
+            "collection":{
+                "status":completeness,
+                "profile":"deep",
+                "startedAt":"2026-11-27T00:00:00Z",
+                "completedAt":"2026-11-27T00:01:00Z",
+                "sources":[{
+                    "id":"plugin-inventory",
+                    "name":"Plugin inventory",
+                    "surface":"plugin-inventory",
+                    "status":outcome_status,
+                    "errorCode":if completeness == "partial" { json!("permission-denied") } else { Value::Null }
+                }]
+            }
+        });
+        Runtime::from_validated_parts(manifest, catalog)
+    }
+
     fn write_package(directory: &Path) {
         let catalog: Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/catalog-valid.json"
@@ -998,6 +1302,103 @@ mod tests {
         write_package(directory.path());
         let loaded = Runtime::open(directory.path()).unwrap();
         assert_eq!(loaded.profile(), "test");
+    }
+
+    #[test]
+    fn compatibility_report_does_not_claim_compatibility_from_matching_environment_metadata() {
+        let runtime = compatibility_runtime("complete", "available", "available");
+        let target = json!({
+            "coreVersion":"2.479.1",
+            "javaVersion":"17.0.12",
+            "javaVendor":"Eclipse Adoptium",
+            "plugins":[{"shortName":"workflow-basic-steps","version":"2.27"}]
+        });
+
+        let report = runtime.compatibility_report(Some(&target));
+        assert_eq!(report["environmentComparisonStatus"], "matched");
+        assert_eq!(report["status"], "not-proven");
+        assert_eq!(report["package"]["completeness"], "complete");
+        assert_eq!(report["packageEnvironment"]["status"], "available");
+        assert!(report["warnings"].as_array().unwrap().iter()
+            .any(|warning| warning["code"] == "environment-match-does-not-prove-compatibility"));
+    }
+
+    #[test]
+    fn compatibility_report_explains_partial_and_missing_environment_metadata() {
+        let runtime = compatibility_runtime("partial", "not-collected-by-profile", "unavailable");
+        let target = json!({
+            "coreVersion":"2.479.1",
+            "javaVersion":"17.0.12",
+            "javaVendor":"Eclipse Adoptium",
+            "plugins":[{"shortName":"workflow-basic-steps","version":"2.27"}]
+        });
+
+        let report = runtime.compatibility_report(Some(&target));
+        assert_eq!(report["status"], "unknown");
+        assert_eq!(report["environmentComparisonStatus"], "unknown");
+        assert_eq!(report["package"]["completeness"], "partial");
+        assert_eq!(report["packageEnvironment"]["status"], "partial");
+        let codes: Vec<_> = report["warnings"].as_array().unwrap().iter()
+            .filter_map(|warning| warning["code"].as_str())
+            .collect();
+        assert!(codes.contains(&"package-incomplete"));
+        assert!(codes.contains(&"package-java-version-unavailable"));
+        assert!(codes.contains(&"package-plugin-inventory-unavailable"));
+    }
+
+    #[test]
+    fn compatibility_report_treats_unknown_target_values_as_missing() {
+        let runtime = compatibility_runtime("complete", "available", "available");
+        let target = json!({
+            "coreVersion":"unknown",
+            "javaVersion":"",
+            "javaVendor":"unknown",
+            "plugins":[]
+        });
+
+        let report = runtime.compatibility_report(Some(&target));
+        assert_eq!(report["environmentComparisonStatus"], "unknown");
+        assert_eq!(report["status"], "unknown");
+    }
+
+    #[test]
+    fn compatibility_report_marks_known_target_environment_differences() {
+        let runtime = compatibility_runtime("complete", "available", "available");
+        let target = json!({
+            "coreVersion":"2.480.0",
+            "javaVersion":"17.0.12",
+            "javaVendor":"Eclipse Adoptium",
+            "plugins":[{"shortName":"workflow-basic-steps","version":"2.27"}]
+        });
+
+        let report = runtime.compatibility_report(Some(&target));
+        assert_eq!(report["environmentComparisonStatus"], "different");
+        assert_eq!(report["status"], "environment-different");
+    }
+
+    #[test]
+    fn unqualified_plugin_inventory_is_partial_not_complete() {
+        let mut catalog: Value =
+            serde_json::from_str(include_str!("../../../tests/fixtures/catalog-valid.json"))
+                .unwrap();
+        let manifest = json!({"profile":"test"});
+        let runtime = Runtime::from_validated_parts(manifest.clone(), catalog.clone());
+        assert_eq!(runtime.plugin_inventory_status(), "partial");
+
+        catalog["controller"]["plugins"] = json!([]);
+        let runtime = Runtime::from_validated_parts(manifest, catalog);
+        assert_eq!(runtime.plugin_inventory_status(), "unknown");
+    }
+
+    #[test]
+    fn compatibility_report_keeps_comparison_unknown_without_target_metadata() {
+        let report = runtime().compatibility_report(None);
+        assert_eq!(report["status"], "unknown");
+        assert_eq!(report["environmentComparisonStatus"], "not-compared");
+        assert_eq!(report["targetEnvironment"]["status"], "not-provided");
+        let warnings = report["warnings"].as_array().unwrap();
+        assert!(warnings.iter().any(|warning| warning["code"] == "target-environment-not-provided"));
+        assert!(warnings.iter().any(|warning| warning["code"] == "source-outcome-missing"));
     }
 
     #[test]

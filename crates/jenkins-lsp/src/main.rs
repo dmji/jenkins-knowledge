@@ -1491,7 +1491,7 @@ mod tests {
         let plugins = dispatch_knowledge_request(&runtime, "jenkinsKnowledge/plugins", &json!({})).unwrap();
         let sources = dispatch_knowledge_request(&runtime, "jenkinsKnowledge/sources", &json!({})).unwrap();
         assert_eq!(controller["controller"]["identity"]["id"], "jenkins-ci");
-        assert_eq!(plugins["status"], "available");
+        assert_eq!(plugins["status"], "partial");
         assert!(sources["sources"].as_array().unwrap().iter().any(|source| source["kind"] == "shared-library"));
     }
 

@@ -3,8 +3,8 @@ use serde_json::json;
 use std::{env, process};
 
 fn usage() {
-    eprintln!("Usage: jenkins-runtime --package <dir|manifest.json> [--profile <name>] <search|list|get|examples|step|steps|globals|declarative|types|library-symbols|plugin-symbols|controller|plugins|sources|coverage> [arguments] [--kind <kind>] [--source <source-id>] [--controller <id|name|url>] [--source-kind <kind>] [--plugin <id>] [--owner <name>] [--type <type>] [--context <context>] [--confidence <level>] [--limit <1..100>]");
-    eprintln!("Commands: search <query>, list, get <name-or-id>, examples <name-or-id>, step <step-name>, steps, globals, declarative, types, library-symbols, plugin-symbols, controller, plugins, sources, coverage");
+    eprintln!("Usage: jenkins-runtime --package <dir|manifest.json> [--profile <name>] <search|list|get|examples|step|steps|globals|declarative|types|library-symbols|plugin-symbols|controller|plugins|sources|coverage|compatibility> [arguments] [--kind <kind>] [--source <source-id>] [--controller <id|name|url>] [--source-kind <kind>] [--plugin <id>] [--owner <name>] [--type <type>] [--context <context>] [--confidence <level>] [--limit <1..100>]");
+    eprintln!("Commands: search <query>, list, get <name-or-id>, examples <name-or-id>, step <step-name>, steps, globals, declarative, types, library-symbols, plugin-symbols, controller, plugins, sources, coverage, compatibility");
 }
 
 fn main() {
@@ -79,6 +79,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "results": runtime.search_with_options(&search_options)
         }),
         "coverage" => json!({"profile": runtime.profile(), "coverage": runtime.coverage()}),
+        "compatibility" => runtime.compatibility_report(None),
         "controller" => json!({"profile": runtime.profile(), "controller": runtime.controller_details()}),
         "plugins" => json!({"profile": runtime.profile(), "status": runtime.plugin_inventory_status(), "plugins": runtime.plugins()}),
         "sources" => json!({"profile": runtime.profile(), "sources": runtime.source_details()}),

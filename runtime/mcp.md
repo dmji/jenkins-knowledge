@@ -39,17 +39,21 @@ All tools accept JSON object arguments and return catalog data as MCP text conte
 | list_api | kind?, source?, controller?, sourceKind?, context?, plugin?, owner?, type?, confidence?, offset?, limit? | Bounded symbol listing |
 | get_usage_examples | name_or_id | Catalog-backed examples and provenance |
 | get_pipeline_step | name | Exact Jenkins Pipeline step details |
-| get_controller_inventory | — | Controller identity, Core/plugin inventory, capability status, controller/package collection outcomes, profile, snapshot timestamps, and source provenance |
+| get_controller_inventory | — | Controller identity, Core/plugin inventory, capability status, collection outcomes, package freshness, provenance, and a conservative compatibility summary |
+| get_package_compatibility | targetEnvironment? | Package environment/completeness and warnings; optionally compares exact Core, Java, vendor, and complete plugin inventory supplied by the caller, offline |
 
 Valid confidence values are `verified`, `inferred`, and `unknown`. The default result limit is 50; callers may request 1–100 and use `offset` for bounded pagination. Results are sorted by name and then symbol ID. Controller, source kind, context, plugin, owner, and type filters use explicit catalog metadata and never infer missing values. Unknown or uninspected CPS, Sandbox, context, and plugin-availability data remains explicitly unknown in results.
 
-`get_controller_inventory` and the matching resource return the selected package only. Plugin inventory status and capability status are independent of the presence of partial entries: an unknown or permission-limited inventory is not reported as complete. `freshness.controllerObservedAt` is the recorded controller snapshot time; `packageGeneratedAt` is the package generation time. Missing controller observation time is reported as unknown rather than inferred from package generation time.
+`get_controller_inventory` and the matching resource return the selected package only. Plugin inventory status and capability status are independent of the presence of partial entries: an inventory without an explicit availability capability is `partial`, an unknown or permission-limited inventory is not reported as complete, and an empty unqualified inventory remains `unknown`. `freshness.controllerObservedAt` is the recorded controller snapshot time; `packageGeneratedAt` comes from the manifest `createdAt` timestamp. Missing controller observation time is reported as unknown rather than inferred from package generation time.
+
+`get_package_compatibility` does not connect to Jenkins. Without `targetEnvironment`, comparison is `not-compared` and compatibility is `unknown`. A supplied target object may contain `coreVersion`, `javaVersion`, `javaVendor`, and a complete `plugins` array of `{shortName, version}` records. Exact environment differences are reported as `environment-different`; an exact match with complete package data is only `not-proven`, never `compatible`, because version equality does not establish API, configuration, or Pipeline compatibility. The supplied target metadata is a caller assertion and is not independently verified. Missing metadata and partial collection remain explicit warnings.
 
 ## Resources
 
 - jenkins://catalog/manifest — selected package manifest, including optional package collection completeness and per-source outcomes.
 - jenkins://catalog/collection — normalized package completeness and per-source collection outcomes; older packages without this metadata report status `unknown`.
-- jenkins://catalog/controller-inventory — combined controller identity, Jenkins Core and plugin sources/inventory, capability status, controller/package collection outcomes, profile, snapshot timestamps, and provenance.
+- jenkins://catalog/controller-inventory — combined controller identity, Jenkins Core and plugin sources/inventory, capability status, controller/package collection outcomes, profile, snapshot timestamps, provenance, and compatibility summary.
+- jenkins://catalog/compatibility — offline package environment/completeness report without a target environment.
 - jenkins://catalog/libraries — pinned Shared Library source snapshots.
 - jenkins://catalog/pipeline-steps — bounded Pipeline step symbols.
 - jenkins://catalog/coverage — collection coverage records for the selected profile.
