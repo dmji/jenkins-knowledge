@@ -602,8 +602,8 @@ fn scan_global(
 
 fn read_adjacent_documentation(groovy_file: &Path, relative_path: &str) -> Result<Option<String>, ScanError> {
     let documentation_file = groovy_file.with_extension("txt");
-    let metadata = match fs::symlink_metadata(&documentation_file) {
-        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
+    match fs::symlink_metadata(&documentation_file) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {},
         Ok(_) => return Ok(None),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err(ScanError::Io(format!("cannot inspect adjacent documentation for {relative_path}"))),
