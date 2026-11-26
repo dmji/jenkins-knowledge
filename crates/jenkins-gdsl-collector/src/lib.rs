@@ -1069,4 +1069,22 @@ method(name: 'real')
         }
     }
 
+    #[test]
+    fn gdsl_symbol_identity_is_independent_of_declaration_line_numbers() {
+        let headers = HeaderMap::new();
+        let first = catalog_from_gdsl(
+            "https://ci.example.test/jenkins",
+            &headers,
+            "method(name: 'sh', params: [script: 'script'])",
+        ).unwrap();
+        let second = catalog_from_gdsl(
+            "https://ci.example.test/jenkins",
+            &headers,
+            "// inserted comment\n\nmethod(name: 'sh', params: [script: 'script'])",
+        ).unwrap();
+        assert_eq!(first["symbols"][0]["id"], second["symbols"][0]["id"]);
+        assert_ne!(first["symbols"][0]["provenance"], second["symbols"][0]["provenance"]);
+        assert_ne!(first["sources"][0]["revision"], json!("retrieved"));
+    }
+
 }
