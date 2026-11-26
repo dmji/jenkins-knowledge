@@ -411,6 +411,10 @@ registrySpecs.each { spec ->
 final int MAX_API_TYPES = 20
 final int MAX_API_MEMBERS_PER_TYPE = 20
 final int MAX_API_PARAMETERS = 8
+final int MAX_API_TYPE_DEPTH = 1
+final int MAX_API_TYPE_QUEUE = 100
+// Repository-maintained allowlist extension point; never populated from user input.
+final List<String> EXPLICIT_API_TYPE_ROOTS = []
 final int MAX_API_TEXT_LENGTH = 256
 result.apiTypes = []
 def seenApiTypes = new LinkedHashSet<String>()
@@ -421,11 +425,19 @@ result.extensionRegistries.each { registry ->
         if (rootName != null && !rootName.trim().isEmpty()) apiRoots << rootName
     }
 }
-apiRoots.unique().sort().take(MAX_API_TYPES).each { rootName ->
+def apiQueue = apiRoots.unique().sort().collect { [name: it, depth: 0] }
+EXPLICIT_API_TYPE_ROOTS.findAll { it instanceof String && it ==~ /[A-Za-z_$][A-Za-z0-9_$.]*/ }.each { rootName ->
+    if (apiQueue.size() < MAX_API_TYPE_QUEUE) apiQueue << [name: rootName, depth: 0]
+}
+while (apiQueue && result.apiTypes.size() < MAX_API_TYPES) {
+    def queuedType = apiQueue.remove(0)
+    String rootName = queuedType.name
+    int apiDepth = queuedType.depth as int
     try {
         Class root = Class.forName(rootName, false, jenkins.getPluginManager().getUberClassLoader())
-        if (!seenApiTypes.add(root.getName())) return
+        if (!seenApiTypes.add(root.getName())) continue
         def typeRecord = [
+            depth: apiDepth,
             name: safeText(root.getName()),
             kind: root.isInterface() ? 'interface' : (root.isEnum() ? 'enum' : 'class'),
             modifiers: java.lang.reflect.Modifier.toString(root.getModifiers()),
@@ -452,6 +464,14 @@ apiRoots.unique().sort().take(MAX_API_TYPES).each { rootName ->
                 def parameterTypes = method.getGenericParameterTypes().collect { safeText(it.getTypeName()) }.findAll { it != null }.take(MAX_API_PARAMETERS)
                 String returnType = safeText(method.getGenericReturnType().getTypeName())
                 String signature = methodName + '(' + parameterTypes.join(',') + '):' + (returnType ?: 'unknown')
+                if (apiDepth < MAX_API_TYPE_DEPTH) {
+                    [method.getReturnType()] .plus(method.getParameterTypes() as List).each { referencedType ->
+                        if (referencedType != null && !referencedType.isPrimitive() && apiQueue.size() < MAX_API_TYPE_QUEUE) {
+                            String referencedName = safeText(referencedType.getName())
+                            if (referencedName != null && !seenApiTypes.contains(referencedName)) apiQueue << [name: referencedName, depth: apiDepth + 1]
+                        }
+                    }
+                }
                 if (!methodsBySignature.containsKey(signature) && methodsBySignature.size() < MAX_API_MEMBERS_PER_TYPE) {
                     methodsBySignature[signature] = [name: methodName, signature: signature, returnType: returnType,
                         parameterTypes: parameterTypes, modifiers: java.lang.reflect.Modifier.toString(modifiers), synthetic: method.isSynthetic()]
@@ -492,7 +512,7 @@ apiRoots.unique().sort().take(MAX_API_TYPES).each { rootName ->
         errors << [probe: 'api-types', code: 'type-unresolved']
     }
 }
-if (apiRoots.size() > MAX_API_TYPES) result.apiTypesTruncated = true
+if (apiRoots.size() > MAX_API_TYPE_QUEUE || apiQueue) result.apiTypesTruncated = true
 
 def output = JsonOutput.toJson(result)
 if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
