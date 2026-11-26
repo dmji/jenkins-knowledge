@@ -76,7 +76,7 @@ Review both lockfile diffs with the manifest changes, then run the full validati
 The canonical catalog contract is documented in [docs/catalog-contract.md](docs/catalog-contract.md). Validate catalog JSON and semantic source references with:
 
 ```sh
-cargo run -p catalog-validator -- examples/catalog/catalog.json schemas/catalog.schema.json
+cargo --locked run -p catalog-validator -- examples/catalog/catalog.json schemas/catalog.schema.json
 ```
 
 ## Declarative Pipeline model
@@ -88,7 +88,7 @@ The Rust Declarative Pipeline model emits schema-compatible directive symbols wi
 Scan configured Shared Library Git revisions and emit schema-validated catalogs with exact resolved commit provenance:
 
 ```sh
-cargo run -p shared-library-scanner -- libraries.json catalog.json
+cargo --locked run -p shared-library-scanner -- libraries.json catalog.json
 ```
 
 See [scanner usage and extraction limitations](crates/shared-library-scanner/README.md).
@@ -102,7 +102,7 @@ The Rust collector fetches the Pipeline DSL exposed by a configured controller a
 Build from a profile. The checked-in fixture profile does not require Jenkins or Git access:
 
 ```sh
-SOURCE_DATE_EPOCH=0 cargo run -p knowledge-builder -- build profiles/fixture.yml target/fixture-package
+SOURCE_DATE_EPOCH=0 cargo --locked run -p knowledge-builder -- build profiles/fixture.yml target/fixture-package
 ```
 
 The output contains `catalog.json` and `manifest.json`. The manifest records package/catalog schema versions, profile identity, build timestamp, source revisions, source provenance, tool version, and a SHA-256 checksum of the catalog. The `checksums` object is the complete set of package files covered by integrity verification (currently `catalog.json`); `manifest.json` is not self-checksummed. Runtime verifies every declared file before parsing the catalog and rejects missing files, invalid digests, duplicate entries, unsafe paths, and symbolic links. Set `SOURCE_DATE_EPOCH=0` for a stable timestamp and byte-identical fixture package output. See [Builder documentation](crates/knowledge-builder/README.md) for live collection and credential requirements.
@@ -112,11 +112,11 @@ The output contains `catalog.json` and `manifest.json`. The manifest records pac
 A package directory contains `manifest.json` and the catalog file named by its `catalog` field (currently `catalog.json`). Runtime embeds the manifest and catalog schemas in the executable, verifies every file listed in `manifest.checksums` with SHA-256 before parsing the catalog, and rejects packages with missing or mismatched files, malformed or duplicate checksum entries, unsafe paths, or symbolic links. Schema loading and package validation are independent of the process working directory. It performs no Jenkins, Git, or network access.
 
 ```sh
-cargo run -p jenkins-runtime -- --package target/fixture-package search deploy
-cargo run -p jenkins-runtime -- --package target/fixture-package --profile fixture list --kind step
-cargo run -p jenkins-runtime -- --package target/fixture-package get deployApp
-cargo run -p jenkins-runtime -- --package target/fixture-package examples deployApp
-cargo run -p jenkins-runtime -- --package target/fixture-package step sh
+cargo --locked run -p jenkins-runtime -- --package target/fixture-package search deploy
+cargo --locked run -p jenkins-runtime -- --package target/fixture-package --profile fixture list --kind step
+cargo --locked run -p jenkins-runtime -- --package target/fixture-package get deployApp
+cargo --locked run -p jenkins-runtime -- --package target/fixture-package examples deployApp
+cargo --locked run -p jenkins-runtime -- --package target/fixture-package step sh
 ```
 
 The optional `--profile` must match the package manifest; selecting another profile requires selecting its package explicitly. Results include the source snapshot, profile, and confidence.
@@ -126,7 +126,7 @@ The optional `--profile` must match the package manifest; selecting another prof
 Build and launch the MCP stdio server against one explicit Knowledge Package:
 
 ```sh
-cargo run -p jenkins-runtime --bin jenkins-mcp -- --package ./target/fixture-package
+cargo --locked run -p jenkins-runtime --bin jenkins-mcp -- --package ./target/fixture-package
 ```
 
 The server exposes search_api, get_api_details, list_api, get_usage_examples, and get_pipeline_step, plus catalog resources. It is read-only and never connects to Jenkins or executes Pipeline steps. See [MCP server documentation](runtime/mcp.md).
@@ -136,7 +136,7 @@ The server exposes search_api, get_api_details, list_api, get_usage_examples, an
 Build the Builder and Runtime release binaries once before packaging either image. Both images consume these same workspace artifacts; Docker does not compile Rust:
 
 ```sh
-cargo build --release -p knowledge-builder -p jenkins-runtime
+cargo --locked build --release -p knowledge-builder -p jenkins-runtime
 docker build -f Dockerfile.builder -t jenkins-knowledge-builder .
 docker build -f Dockerfile.runtime -t jenkins-knowledge-runtime .
 ```
@@ -166,4 +166,4 @@ It contains no Git client, Rust toolchain, Builder, or Jenkins credentials.
 
 The optional VS Code extension adds Jenkins catalog completion and hover information to Groovy documents while leaving ordinary Groovy language features to installed Groovy tooling. The Rust LSP reads one explicitly selected Knowledge Package and supports Pipeline steps and Shared Library APIs.
 
-See [VS Code setup, configuration, limitations, and smoke tests](editors/vscode/README.md). Build the server with `cargo build --release -p jenkins-lsp`.
+See [VS Code setup, configuration, limitations, and smoke tests](editors/vscode/README.md). Build the server with `cargo --locked build --release -p jenkins-lsp`.
