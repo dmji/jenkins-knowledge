@@ -334,7 +334,7 @@ fn normalize_registry(
                 normalized["parametersTruncated"] = json!(value);
             }
             if let Some(parameters) = item.get("parameters").and_then(Value::as_array) {
-                let normalized_parameters: Vec<Value> = parameters.iter().take(50).filter_map(|parameter| {
+                let normalized_parameters: Vec<Value> = parameters.iter().take(20).filter_map(|parameter| {
                     let name = parameter.get("name").and_then(Value::as_str).filter(|value| !value.trim().is_empty())?;
                     let mut result = json!({ "name": truncate(name) });
                     if let Some(value) = parameter.get("type").and_then(Value::as_str).filter(|value| !value.trim().is_empty()) {
