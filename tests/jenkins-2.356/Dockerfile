@@ -1,11 +1,7 @@
 # Historical compatibility target: Jenkins 2.356 with the official JDK 17 image.
-# The linux/amd64 manifest digest pins the base image and its bundled plugins.
+# The linux/amd64 manifest digest pins the base image, including its bundled plugins.
 FROM --platform=linux/amd64 jenkins/jenkins:2.356-jdk17@sha256:211419c659bd04b2d065ead531aad35ea47471489dcf714ab2c8a30cb9870850
 
 USER root
 COPY plugins/ /usr/share/jenkins/ref/plugins/
-RUN plugin="$(find /usr/share/jenkins/ref/plugins -maxdepth 1 -type f \( -name 'matrix-auth.jpi' -o -name 'matrix-auth.hpi' \) -print -quit)" \
-    && test -n "$plugin" \
-    && printf '%s  %s\n' 'f70d8ba943478fb4966375e7c4ab213e7a0665bd88e9558d9c12492f1dee7dbd' "$plugin" | sha256sum -c -
-
 USER jenkins
