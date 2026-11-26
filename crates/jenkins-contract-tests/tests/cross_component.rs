@@ -382,6 +382,17 @@ fn one_builder_package_keeps_contracts_across_runtime_lsp_and_mcp() {
     assert_eq!(runtime.profile(), "contract-primary");
     assert_eq!(runtime.catalog()["completeness"]["status"], "partial");
     assert_eq!(runtime.collection().unwrap()["status"], "partial");
+    let declarative_symbols = runtime.catalog()["symbols"].as_array().unwrap();
+    assert!(declarative_symbols.iter().any(|symbol| {
+        symbol["extensionCategory"] == "agent"
+            && symbol["name"] == "kubernetes"
+            && symbol["confidence"] == "verified"
+    }));
+    assert!(declarative_symbols.iter().any(|symbol| {
+        symbol["extensionCategory"] == "parameter"
+            && symbol["nameKind"] == "implementation-class"
+            && symbol["confidence"] == "unknown"
+    }));
 
     let deploy = runtime.get("deployApp").unwrap();
     assert_eq!(deploy["sourceId"], "shared-library-fixture");
