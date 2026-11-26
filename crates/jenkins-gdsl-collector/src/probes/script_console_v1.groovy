@@ -84,6 +84,7 @@ def appendDeclarativeItem = { registry, extension, category, suppliedName, nameK
         nameKind: nameKind,
         className: safeText(implementationClass.getName()),
         descriptorClass: safeText(extension.getClass().getName()),
+        apiTypeRoot: safeText(implementationClass.getName()),
         contexts: contexts
     ]
     metadata.each { key, value ->
@@ -326,7 +327,8 @@ registrySpecs.each { spec ->
 
             def item = [
                 name: safeText(itemName),
-                className: safeText(extension.getClass().getName())
+                className: safeText(extension.getClass().getName()),
+                apiTypeRoot: spec.name == 'pipeline-steps' ? safeText(extension.getKlass().getName()) : safeText(extension.getClass().getName())
             ]
             if (spec.name == 'pipeline-steps') {
                 try {
