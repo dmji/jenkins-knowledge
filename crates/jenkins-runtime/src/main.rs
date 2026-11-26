@@ -3,8 +3,8 @@ use serde_json::json;
 use std::{env, process};
 
 fn usage() {
-    eprintln!("Usage: jenkins-runtime --package <dir|manifest.json> [--profile <name>] <search|list|get|examples|step|steps|globals|declarative|types|library-symbols|plugin-symbols|controller|plugins|sources|coverage> [arguments] [--kind <kind>] [--source <source-id>] [--controller <id|name|url>] [--source-kind <kind>] [--plugin <id>] [--owner <name>] [--type <type>] [--context <context>] [--confidence <level>] [--limit <1..100>]");
-    eprintln!("Commands: search <query>, list, get <name-or-id>, examples <name-or-id>, step <step-name>, steps, globals, declarative, types, library-symbols, plugin-symbols, controller, plugins, sources, coverage");
+    eprintln!("Usage: jenkins-runtime --package <dir|manifest.json> [--profile <name>] <search|list|get|examples|step|steps|globals|declarative|types|library-symbols|plugin-symbols|controller|plugins|sources|coverage|compatibility> [arguments] [--kind <kind>] [--source <source-id>] [--controller <id|name|url>] [--source-kind <kind>] [--plugin <id>] [--owner <name>] [--type <type>] [--context <context>] [--confidence <level>] [--limit <1..100>]");
+    eprintln!("Commands: search <query>, list, get <name-or-id>, examples <name-or-id>, step <step-name>, steps, globals, declarative, types, library-symbols, plugin-symbols, controller, plugins, sources, coverage, compatibility");
 }
 
 fn main() {
