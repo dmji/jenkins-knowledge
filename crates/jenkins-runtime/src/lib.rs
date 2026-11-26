@@ -565,9 +565,12 @@ impl Runtime {
             "package":{
                 "profile":self.profile(),
                 "createdAt":self.manifest["createdAt"],
+                "collectionStartedAt":self.collection().and_then(|value| value["startedAt"].as_str()),
+                "collectionCompletedAt":self.collection().and_then(|value| value["completedAt"].as_str()),
                 "catalogId":self.catalog["catalogId"],
                 "snapshotId":self.catalog["snapshotId"],
-                "completeness":completeness
+                "completeness":completeness,
+                "completenessReasonCodes":self.catalog["completeness"]["reasonCodes"]
             },
             "packageEnvironment":{
                 "status":environment_status,
