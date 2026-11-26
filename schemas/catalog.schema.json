@@ -262,7 +262,17 @@
         "description": {
           "type": "string"
         },
-        "default": {}
+        "default": {},
+        "deprecated": {
+          "type": "boolean"
+        },
+        "defaultValueStatus": {
+          "enum": [
+            "available",
+            "not-exposed",
+            "unknown"
+          ]
+        }
       }
     },
     "symbol": {
@@ -283,6 +293,14 @@
         "name": {
           "type": "string",
           "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "implementationClass": {
+          "type": "string",
+          "maxLength": 256
         },
         "kind": {
           "enum": [
@@ -619,6 +637,29 @@
             "minLength": 1
           }
         },
+        "requiredContext": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "takesImplicitBlockArgument": {
+          "type": "boolean"
+        },
+        "isAdvanced": {
+          "type": "boolean"
+        },
+        "isMetaStep": {
+          "type": "boolean"
+        },
+        "metaStepArgumentType": {
+          "type": "string",
+          "maxLength": 256
+        },
         "pluginDependencies": {
           "type": "array",
           "uniqueItems": true,
@@ -703,7 +744,10 @@
           "const": "1.0.0"
         },
         "templateVersion": {
-          "const": "1"
+          "enum": [
+            "1",
+            "2"
+          ]
         },
         "source": {
           "const": "script-console"
@@ -797,6 +841,63 @@
               "className": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 256
+              },
+              "implementationClass": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "displayName": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "typeStatus": {
+                "enum": [
+                  "available",
+                  "not-exposed",
+                  "unknown"
+                ]
+              },
+              "parametersStatus": {
+                "enum": [
+                  "available",
+                  "unavailable",
+                  "unknown"
+                ]
+              },
+              "parameters": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "$ref": "#/$defs/parameter"
+                }
+              },
+              "requiredContext": {
+                "type": "array",
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "takesImplicitBlockArgument": {
+                "type": "boolean"
+              },
+              "isAdvanced": {
+                "type": "boolean"
+              },
+              "isMetaStep": {
+                "type": "boolean"
+              },
+              "metaStepArgumentType": {
+                "type": "string",
                 "maxLength": 256
               },
               "plugin": {
