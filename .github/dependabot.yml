@@ -6,8 +6,6 @@ updates:
       interval: weekly
     assignees:
       - dmji
-    labels:
-      - dependencies
 
   - package-ecosystem: npm
     directory: /editors/vscode
