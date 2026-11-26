@@ -330,6 +330,9 @@ fn normalize_registry(
                     normalized[field] = json!(truncate(value));
                 }
             }
+            if let Some(value) = item.get("parametersTruncated").and_then(Value::as_bool) {
+                normalized["parametersTruncated"] = json!(value);
+            }
             if let Some(parameters) = item.get("parameters").and_then(Value::as_array) {
                 let normalized_parameters: Vec<Value> = parameters.iter().take(50).filter_map(|parameter| {
                     let name = parameter.get("name").and_then(Value::as_str).filter(|value| !value.trim().is_empty())?;
