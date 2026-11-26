@@ -639,8 +639,6 @@ jenkins:
   controllers:
     - id: ci
       url: https://user:secret@jenkins.example.test/
-fixtures:
-  - unused.json
 "#,
         )
         .unwrap();
