@@ -1545,7 +1545,11 @@ fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collec
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, collection_plan, java_metadata_status, runtime_api_type_symbols, runtime_symbols, update_collection_source_revision, valid_api_class_name, validate_profile, Profile};
+    use super::{
+        build_package, collection_plan, java_metadata_status, runtime_api_type_symbols,
+        runtime_symbols, update_collection_source_revision, valid_api_class_name,
+        validate_profile, Profile,
+    };
     use serde_json::{json, Value};
     use std::{fs, path::Path};
 
