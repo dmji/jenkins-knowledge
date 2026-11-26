@@ -969,6 +969,52 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         assert!(collect_groovy_files(&root, &checkout, 0, &mut Vec::new(), &mut 0, &too_much).is_err());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn stops_git_fetch_when_checkout_storage_budget_is_exceeded() {
+        use std::process::Command;
+
+        let source = tempfile::tempdir().unwrap();
+        let checkout = tempfile::tempdir().unwrap();
+        let git = |directory: &Path, args: &[&str]| {
+            let status = Command::new("git")
+                .args(args)
+                .current_dir(directory)
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        };
+
+        git(source.path(), &["init", "--quiet"]);
+        git(source.path(), &["config", "user.email", "scanner-test@example.invalid"]);
+        git(source.path(), &["config", "user.name", "Scanner Test"]);
+        // Pseudorandom bytes remain incompressible and force a substantial packfile.
+        let mut state = 0x1234_5678u32;
+        let mut payload = vec![0u8; 16 * 1024 * 1024];
+        for byte in &mut payload {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            *byte = (state >> 24) as u8;
+        }
+        fs::write(source.path().join("large.bin"), payload).unwrap();
+        git(source.path(), &["add", "large.bin"]);
+        git(source.path(), &["commit", "--quiet", "-m", "large fixture"]);
+
+        run_git(checkout.path(), &["init", "--quiet"]).unwrap();
+        let error = run_git_with_budget(
+            checkout.path(),
+            &["fetch", "--quiet", "--no-tags", "--depth", "1", source.path().to_str().unwrap(), "HEAD"],
+            64 * 1024,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("storage budget"), "{error}");
+        // The TempDir owner removes the partial checkout even after budget exhaustion.
+        assert!(directory_size(checkout.path()).unwrap() >= 0);
+    }
+
     #[test]
     fn scanner_uses_shared_recursive_secret_redaction_policy() {
         let mut catalog = serde_json::json!({
