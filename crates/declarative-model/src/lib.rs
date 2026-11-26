@@ -91,7 +91,7 @@ pub fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
                 "provenance": ["jenkins-script-console", "declarative-extensions", category],
                 "fieldEvidence": {
                     "name": confidence,
-                    "implementationClass": "verified"
+                    "signature": "verified"
                 },
                 "extensionCategory": category,
                 "nameKind": name_kind,
