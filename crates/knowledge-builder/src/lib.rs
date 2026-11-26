@@ -822,6 +822,13 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     _ => 4
                 });
             }
+            let api_type_symbols = runtime_api_type_symbols(
+                &catalog["controller"]["runtime"],
+                &controller_source_id,
+            );
+            if let Some(symbols) = catalog["symbols"].as_array_mut() {
+                symbols.extend(api_type_symbols);
+            }
             let declarative_runtime = catalog
                 .get("controller")
                 .and_then(|value| value.get("runtime"))
