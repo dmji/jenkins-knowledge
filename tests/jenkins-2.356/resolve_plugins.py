@@ -20,7 +20,6 @@ BASE_IMAGE = (
 BASE_PLUGINS = {
     "javax-activation-api": "1.2.0-2",
     "javax-mail-api": "1.6.2-5",
-    "matrix-auth": "2.6.11",
     "sshd": "3.0.3",
 }
 ROOT_SHA256 = {
