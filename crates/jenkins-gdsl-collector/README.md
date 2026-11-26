@@ -156,12 +156,20 @@ Groovy source. It reads only Groovy/JVM/Jenkins Core version metadata and the
 registered Pipeline `StepDescriptor` and `GlobalVariable` extension lists.
 It records item names, implementation class names, and plugin attribution when
 available. Each registry is capped at 100 entries and each text field at 256
-characters. The script also caps its JSON output; the client accepts at most
+characters. Values are accepted only when returned as strings; the probe never
+calls arbitrary plugin-object `toString()` methods. Jenkins may still initialize
+extension instances while enumerating its extension lists, so this remains an
+opt-in administrative operation. The script also caps its JSON output; the client accepts at most
 512 KiB and validates the probe/schema version before retaining any result.
 
-The Script Console phase is one sequential POST request. It performs no
-configuration writes, job/build execution, plugin installation, credential
-access, filesystem scans, or network calls from Groovy. It does not enumerate
+The complete deep profile performs exactly four sequential HTTP requests: the
+three quick-profile GETs (Core metadata: 1 MiB cap; plugin inventory: 4 MiB cap;
+GDSL availability: at most one response byte read) followed by one POST to
+/scriptText (512 KiB response cap). Each request has a 5-second connection
+and 15-second total client timeout. The dry-run plan lists every method,
+endpoint, request count, purpose, timeout, and response cap. The Script Console
+phase performs no configuration writes, job/build execution, plugin
+installation, credential access, filesystem scans, or network calls from Groovy. It does not enumerate
 the ClassLoader or inspect arbitrary plugin classes. Missing extension types
 and individual probe failures remain explicit in the runtime snapshot; the
 collector does not replace them with static or inferred values. A denied
