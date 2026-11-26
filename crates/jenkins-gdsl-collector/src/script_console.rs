@@ -1149,10 +1149,11 @@ mod tests {
             "accessors": ["getValue"], "confidence": "inferred"
         })).collect();
         output["apiTypeInventoryStatus"] = json!("partial");
+        output["extensionRegistries"][0]["items"][0]["documentationPath"] = json!("help/step.html");
         output["apiTypes"] = json!([{
             "name":"example.Api","className":"example.Api","depth":1,"rootCategories":["configured"],
             "status":"partial","synthetic":false,"dynamic":true,"membersStatus":"inaccessible",
-            "interfaces":["example.Interface"],"methods":methods,"properties":properties,
+            "interfaces":["example.Interface"],"documentationPaths":["help/Run.html"],"methods":methods,"properties":properties,
             "methodsTruncated":true,"propertiesTruncated":true
         }]);
         let result = normalize_probe_output(&output);
@@ -1160,6 +1161,8 @@ mod tests {
         assert_eq!(api_type["status"], "partial");
         assert_eq!(api_type["dynamic"], true);
         assert_eq!(api_type["membersStatus"], "inaccessible");
+        assert_eq!(api_type["documentationPaths"][0], "help/Run.html");
+        assert_eq!(result["extensionRegistries"][0]["items"][0]["documentationPath"], "help/step.html");
         assert_eq!(api_type["methods"].as_array().unwrap().len(), 12);
         assert_eq!(api_type["methods"][0]["parameters"].as_array().unwrap().len(), 20);
         assert_eq!(api_type["methods"][0]["parameters"][0]["genericTypeStatus"], "unresolved");
