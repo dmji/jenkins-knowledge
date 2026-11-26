@@ -71,7 +71,7 @@ pub fn script_console_plan() -> Value {
         "totalTimeoutSeconds": REQUEST_TIMEOUT.as_secs() * 4,
         "scriptConsole": {
             "readOnly": true,
-            "registries": ["pipeline-steps", "pipeline-globals"],
+            "registries": ["pipeline-steps", "pipeline-globals", "declarative-extensions"],
             "maxItemsPerRegistry": MAX_ITEMS_PER_REGISTRY,
             "maxTextLength": MAX_TEXT_LENGTH,
             "maxResponseBytes": MAX_SCRIPT_RESPONSE_BYTES,
