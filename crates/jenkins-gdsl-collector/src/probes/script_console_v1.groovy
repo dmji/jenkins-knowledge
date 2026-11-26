@@ -550,8 +550,15 @@ def collectApiTypes = {
         } catch (Throwable ignored) {}
         try {
             def loader = type.getClassLoader()
-            if (loader != null) typeItem.classLoader = safeText(loader.getClass().getName())
-        } catch (Throwable ignored) {}
+            if (loader != null) {
+                typeItem.classLoader = safeText(loader.getClass().getName())
+                typeItem.dynamic = loader.getClass().getName().contains('GroovyClassLoader')
+            } else {
+                typeItem.dynamic = false
+            }
+        } catch (Throwable ignored) {
+            typeItem.dynamic = false
+        }
 
         def methodMap = new TreeMap()
         try {
@@ -600,7 +607,10 @@ def collectApiTypes = {
                 }
                 if (parameterIndex < genericParameterTypes.size()) {
                     def genericName = genericTypeName(genericParameterTypes[parameterIndex], 0)
-                    if (genericName != null) parameterRecord.genericType = genericName
+                    if (genericName != null) {
+                        parameterRecord.genericType = genericName
+                        parameterRecord.genericTypeStatus = 'available'
+                    }
                 }
                 parameterRecords << parameterRecord
             }
@@ -616,11 +626,16 @@ def collectApiTypes = {
                 bridge: method.isBridge(),
                 varargs: method.isVarArgs(),
                 parameters: parameterRecords,
-                parametersTruncated: parameterTypes.length > 20
+                parametersTruncated: parameterTypes.length > 20,
+                dynamic: typeItem.dynamic == true,
+                genericReturnTypeStatus: 'unresolved'
             ]
             try {
                 def genericReturn = genericTypeName(method.getGenericReturnType(), 0)
-                if (genericReturn != null) methodRecord.genericReturnType = genericReturn
+                if (genericReturn != null) {
+                    methodRecord.genericReturnType = genericReturn
+                    methodRecord.genericReturnTypeStatus = 'available'
+                }
             } catch (Throwable ignored) {}
             typeItem.methods << methodRecord
             inspectedMembers++
