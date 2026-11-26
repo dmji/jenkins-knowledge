@@ -876,7 +876,8 @@ class Service<T> extends BaseService implements Runnable, Closeable {
                 "metadata": {
                     "safe": "preserve",
                     "privateKey": "scanner-secret-key",
-                    "nested": [{"sessionId": "scanner-secret-session"}]
+                    "nested": [{"sessionId": "scanner-secret-session"}],
+                    "repositoryUrl": "https://scanner:scanner-secret-user@github.example.test/team/repo.git?token=scanner-secret-token"
                 }
             }]
         });
@@ -886,6 +887,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
         assert_eq!(catalog["sources"][0]["metadata"]["safe"], "preserve");
         assert!(catalog["sources"][0]["metadata"].get("privateKey").is_none());
         assert!(catalog["sources"][0]["metadata"]["nested"][0].get("sessionId").is_none());
+        assert_eq!(catalog["sources"][0]["metadata"]["repositoryUrl"], "https://github.example.test/team/repo.git");
     }
 
 }
