@@ -446,22 +446,8 @@ fn url_has_credentials(value: &str) -> bool {
     }
     value.split_once('?').is_some_and(|(_, query)| {
         query.split('&').any(|part| {
-            let key = part
-                .split('=')
-                .next()
-                .unwrap_or_default()
-                .to_ascii_lowercase();
-            [
-                "token",
-                "api_key",
-                "apikey",
-                "password",
-                "secret",
-                "authorization",
-                "access_token",
-            ]
-            .iter()
-            .any(|sensitive| key.contains(sensitive))
+            let key = part.split('=').next().unwrap_or_default();
+            is_secret_field_name(key)
         })
     })
 }
