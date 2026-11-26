@@ -1181,9 +1181,15 @@ mod tests {
     #[test]
     fn renders_only_validated_explicit_api_roots_into_the_fixed_probe() {
         let roots = vec!["hudson.model.Run".to_owned(), "java.lang.String".to_owned(), "org.example.Outer$Inner".to_owned()];
-        let script = render_script(&roots, &ApiTypeLimits::default());
+        let limits = ApiTypeLimits { max_depth: 1, max_types: 10, max_members_per_type: 5, max_total_members: 50 };
+        let script = render_script(&roots, &limits);
         assert!(script.contains(r#"['hudson.model.Run','java.lang.String','org.example.Outer$Inner']"#));
+        assert!(script.contains("MAX_API_DEPTH = 1"));
+        assert!(script.contains("MAX_API_TYPES = 10"));
+        assert!(script.contains("MAX_API_MEMBERS_PER_TYPE = 5"));
+        assert!(script.contains("MAX_API_TOTAL_MEMBERS = 50"));
         assert!(!script.contains("__JENKINS_KNOWLEDGE_API_ROOTS__"));
+        assert!(!script.contains("__API_MAX_DEPTH__"));
         assert!(!valid_api_roots(&["java.lang.String;System.exit(0)".to_owned()]));
         assert!(!valid_api_roots(&["groovy.lang.Closure".to_owned()]));
         assert!(!valid_api_roots(&["java.lang.String".to_owned(), "java.lang.String".to_owned()]));
@@ -1198,6 +1204,17 @@ mod tests {
         );
         assert_eq!(result["status"], "unavailable");
         assert_eq!(result["errors"][0]["code"], "invalid-api-roots");
+    }
+
+    #[test]
+    fn rejects_api_limits_above_hard_safety_maxima() {
+        let limits = ApiTypeLimits { max_depth: 3, ..ApiTypeLimits::default() };
+        assert!(!limits.is_within_hard_limits());
+        let result = collect_script_console_with_options(
+            "https://jenkins.example.test", None, None, &[], &limits
+        );
+        assert_eq!(result["status"], "unavailable");
+        assert_eq!(result["errors"][0]["code"], "invalid-api-limits");
     }
 
     #[test]
