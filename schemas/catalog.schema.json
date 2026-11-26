@@ -321,6 +321,12 @@
           "minimum": 0,
           "maximum": 2
         },
+        "typeStatus": {
+          "enum": ["available", "partial", "unresolved", "inaccessible"]
+        },
+        "membersStatus": {
+          "enum": ["inaccessible"]
+        },
         "rootCategories": {
           "type": "array",
           "maxItems": 8,
