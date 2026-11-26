@@ -24,7 +24,7 @@ Profiles use strict YAML deserialization: unknown keys at the root or in any nes
 | Field | Default / requiredness | Effect |
 |---|---|---|
 | `profile` | Required, non-empty | Profile identity written to `manifest.json`; used as the catalog ID when `package.id` is omitted. |
-| `jenkins.controllers` | Empty when omitted | Each controller is collected once; its ID scopes source identity and its URL is the HTTP(S) endpoint. Duplicate IDs are rejected. |
+| `jenkins.controllers` | Empty when omitted; at most one supported | The controller ID scopes source identity and its URL is the HTTP(S) endpoint. Multiple controllers are rejected before collection because the current catalog schema has one top-level controller snapshot. |
 | `libraries` | Empty when omitted | Each Shared Library is scanned once. `name`, `url`, and `revision` are required; optional `commit` pins the fetch to a full 40-character SHA while retaining the configured revision as metadata. Duplicate names are rejected. |
 | `fixtures` | Empty when omitted | Offline catalog JSON paths, relative to the profile file. Fixture mode is mutually exclusive with live controllers/libraries. Duplicate and absolute paths are rejected. |
 | `package.id` | Omitted | Catalog ID defaults to `profile`; a supplied ID must be non-empty and have no surrounding whitespace. |
