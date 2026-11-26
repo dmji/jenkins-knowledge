@@ -1069,6 +1069,7 @@ mod tests {
         let a = scan_checkout(&config("release/1"), &fixture(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
         let b = scan_checkout(&config("release/2"), &fixture(), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").unwrap();
         assert_ne!(a.catalog["sources"][0]["id"], b.catalog["sources"][0]["id"]);
+        assert_ne!(a.catalog["symbols"][0]["id"], b.catalog["symbols"][0]["id"]);
         assert_eq!(a.catalog["sources"][0]["version"], "release/1");
         assert_eq!(b.catalog["sources"][0]["version"], "release/2");
     }
@@ -1433,6 +1434,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
 
         assert_eq!(first.catalog["sources"][0]["id"], second.catalog["sources"][0]["id"]);
         assert_ne!(first.catalog["sources"][0]["revision"], second.catalog["sources"][0]["revision"]);
+        assert_ne!(first.catalog["snapshotId"], second.catalog["snapshotId"]);
     }
 
 }
