@@ -129,8 +129,14 @@ registrySpecs.each { spec ->
                 }
 
                 if (spec.name == 'pipeline-steps') {
-                    item.displayName = safeText(extension.getDisplayName())
-                    item.implementationClass = safeText(extension.clazz?.getName())
+                    def displayName = safeText(extension.getDisplayName())
+                    if (displayName != null) {
+                        item.displayName = displayName
+                    }
+                    def implementationClass = safeText(extension.clazz?.getName())
+                    if (implementationClass != null) {
+                        item.implementationClass = implementationClass
+                    }
                     item.isAdvanced = extension.isAdvanced() == true
                     item.isMetaStep = extension.isMetaStep() == true
                     item.takesImplicitBlockArgument = extension.takesImplicitBlockArgument() == true
@@ -170,13 +176,22 @@ registrySpecs.each { spec ->
                                 break
                             }
                             def parameterType = parameter.getErasedType()
+                            def parameterName = safeText(parameter.getName())
+                            if (parameterName == null) {
+                                continue
+                            }
                             def parameterRecord = [
-                                name: safeText(parameter.getName()),
-                                type: parameterType instanceof Class ? safeText(parameterType.getName()) : null,
+                                name: parameterName,
                                 required: parameter.isRequired() == true,
                                 deprecated: parameter.isDeprecated() == true,
                                 defaultValueStatus: 'not-exposed'
                             ]
+                            def parameterTypeName = parameterType instanceof Class
+                                ? safeText(parameterType.getName())
+                                : null
+                            if (parameterTypeName != null) {
+                                parameterRecord.type = parameterTypeName
+                            }
                             try {
                                 def parameterHelp = safeHtmlText(parameter.getHelp())
                                 if (parameterHelp != null) {
