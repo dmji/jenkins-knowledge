@@ -196,8 +196,11 @@ fn directory_size(directory: &Path) -> Result<u64, ScanError> {
         .map_err(|_| ScanError::Io("cannot inspect temporary Git checkout".into()))?;
     for entry in entries {
         let entry = entry.map_err(|_| ScanError::Io("cannot inspect temporary Git checkout entry".into()))?;
-        let metadata = fs::symlink_metadata(entry.path())
-            .map_err(|_| ScanError::Io("cannot inspect temporary Git checkout entry".into()))?;
+        let metadata = match fs::symlink_metadata(entry.path()) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return Err(ScanError::Io("cannot inspect temporary Git checkout entry".into())),
+        };
         if metadata.file_type().is_symlink() {
             continue;
         }
@@ -216,7 +219,7 @@ fn terminate_git(child: &mut std::process::Child) {
         // Git may spawn index-pack, remote helpers, and checkout workers. They inherit
         // this process group, so terminate the group rather than leaving descendants.
         let group = format!("-{}", child.id());
-        let _ = Command::new("/bin/kill").args(["-KILL", "--", &group]).status();
+        let _ = Command::new("/bin/kill").args(["-KILL", &group]).status();
     }
     let _ = child.kill();
     let _ = child.wait();
@@ -251,10 +254,14 @@ fn run_git_inner(directory: &Path, args: &[&str], budget: Option<u64>) -> Result
                 _ => {}
             }
         }
-        match child.try_wait().map_err(|_| {
-            terminate_git(&mut child);
-            ScanError::Git("cannot wait for git".into())
-        })? {
+        let status = match child.try_wait() {
+            Ok(status) => status,
+            Err(_) => {
+                terminate_git(&mut child);
+                return Err(ScanError::Git("cannot wait for git".into()));
+            }
+        };
+        match status {
             Some(status) => {
                 if !status.success() {
                     return Err(ScanError::Git("git command failed; remote details are redacted".into()));
