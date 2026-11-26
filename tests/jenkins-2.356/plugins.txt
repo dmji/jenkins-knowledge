@@ -1,4 +1,3 @@
-# Versions chosen from the Jenkins 2.356 compatibility window.
 workflow-aggregator:590.v6a_d052e5a_a_b_5
 pipeline-model-definition:2.2114.v2654ca_721309
 workflow-cps:2759.2761.vd6e8d2a_15980
