@@ -1408,6 +1408,7 @@ mod tests {
         assert!(valid_api_class_name("org.example.Outer$Inner"));
         assert!(!valid_api_class_name("java.lang.String;System.exit(0)"));
         assert!(!valid_api_class_name("java.lang.String/../../etc/passwd"));
+        assert!(!valid_api_class_name("groovy.lang.Closure"));
         assert!(!valid_api_class_name("java.lang.String "));
     }
 
