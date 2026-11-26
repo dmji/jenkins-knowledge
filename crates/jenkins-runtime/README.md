@@ -1,6 +1,6 @@
 # Jenkins Knowledge Runtime
 
-Runtime opens a checksummed Knowledge Package, validates its manifest and catalog, and exposes bounded catalog queries.
+Runtime opens a checksummed Knowledge Package, validates its manifest and catalog, and exposes bounded catalog queries. It is the user-facing read-only stage: it only reads the selected package and has no Jenkins/Git collection path, credentials, Builder invocation, implicit refresh, or package mutation.
 
 ## Package loading limits
 
