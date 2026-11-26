@@ -1057,7 +1057,9 @@ mod tests {
         let mut invalid = valid_catalog();
         invalid["sources"][0]["url"] =
             json!("https://git.example.test/team/repo?X-Api-Key=do-not-echo");
-        let errors = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        let errors = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(errors.contains("secret query parameters"));
         assert!(!errors.contains("do-not-echo"));
 
@@ -1065,7 +1067,9 @@ mod tests {
         invalid["sources"][0]["metadata"] = json!({
             "apiEndpoint": "https://user:password@controller.example.test/api"
         });
-        let errors = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        let errors = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(errors.contains("/sources/0/metadata/apiEndpoint"));
         assert!(!errors.contains("password"));
     }
