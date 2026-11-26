@@ -780,9 +780,8 @@ fn extract_url(value: &str) -> Option<String> {
 }
 fn line_number(input: &str, offset: usize) -> usize { input[..offset].bytes().filter(|b| *b == b'\n').count() + 1 }
 fn stable_id(value: &str) -> String {
-    // Deterministic, non-cryptographic identifier; no credentials are accepted in the URL.
-    let hash = value.bytes().fold(2166136261u32, |h, b| (h ^ u32::from(b)).wrapping_mul(16777619));
-    format!("{hash:08x}")
+    let digest = sha256_hex(value.as_bytes());
+    digest[7..23].to_owned()
 }
 fn normalized_controller(controller: &str) -> Result<String, CollectorError> {
     let mut url = Url::parse(controller).map_err(|_| CollectorError::InvalidControllerUrl)?;
