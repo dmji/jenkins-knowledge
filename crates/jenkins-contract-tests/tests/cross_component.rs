@@ -401,3 +401,23 @@ fn one_builder_package_keeps_contracts_across_runtime_lsp_and_mcp() {
         Err(error) => panic!("could not verify offline consumer behavior: {error}"),
     }
 }
+
+#[test]
+fn builder_rejects_a_fixture_with_a_dangling_symbol_source() {
+    let workspace = tempfile::tempdir().unwrap();
+    let fixture = workspace.path().join("fixture");
+    copy_fixture("primary", &fixture, None);
+
+    let catalog_path = fixture.join("catalog.json");
+    let mut catalog: Value =
+        serde_json::from_slice(&fs::read(&catalog_path).unwrap()).unwrap();
+    catalog["symbols"][4]["sourceId"] = json!("missing-source");
+    fs::write(&catalog_path, serde_json::to_vec_pretty(&catalog).unwrap()).unwrap();
+
+    let output = workspace.path().join("invalid-package");
+    let error = build_package(&fixture.join("profile.yml"), &output)
+        .unwrap_err()
+        .to_string();
+    assert!(error.to_lowercase().contains("source"));
+    assert!(!output.exists());
+}
