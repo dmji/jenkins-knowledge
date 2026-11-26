@@ -1311,13 +1311,18 @@ mod tests {
     #[test]
     fn validates_source_collection_completeness_and_evidence_revision() {
         let mut catalog = valid_catalog();
-        catalog["sources"][0]["collection"] = json!({
-            "profile":"deep",
-            "status":"succeeded",
-            "truncated":false
-        });
+        for source in catalog["sources"].as_array_mut().unwrap() {
+            source["collection"] = json!({
+                "profile":"deep",
+                "status":"succeeded",
+                "truncated":false
+            });
+        }
         catalog["completeness"] = json!({"status":"complete"});
-        catalog["symbols"][0]["evidence"][0]["revision"] = catalog["sources"][0]["revision"].clone();
+        let evidence_source_id = catalog["symbols"][0]["evidence"][0]["sourceId"].as_str().unwrap().to_owned();
+        let evidence_revision = catalog["sources"].as_array().unwrap().iter()
+            .find(|source| source["id"].as_str() == Some(&evidence_source_id)).unwrap()["revision"].clone();
+        catalog["symbols"][0]["evidence"][0]["revision"] = evidence_revision;
         stamp_catalog_identity(&mut catalog).unwrap();
         assert!(validate_catalog(&catalog, &schema()).is_ok());
 
