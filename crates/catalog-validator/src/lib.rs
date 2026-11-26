@@ -50,7 +50,8 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
     let mut source_ids = HashSet::new();
     let mut source_kinds = HashMap::new();
     let mut symbol_ids = HashSet::new();
-    let symbol_fields = schema.pointer("/$defs/symbol/properties")
+    let symbol_fields = schema
+        .pointer("/$defs/symbol/properties")
         .and_then(Value::as_object)
         .expect("schema validated symbol properties");
 
@@ -59,7 +60,10 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
         if !source_ids.insert(id) {
             errors.push(format!("/sources/{index}/id: duplicate source id '{id}'"));
         }
-        source_kinds.insert(id.to_owned(), source["kind"].as_str().unwrap_or_default().to_owned());
+        source_kinds.insert(
+            id.to_owned(),
+            source["kind"].as_str().unwrap_or_default().to_owned(),
+        );
         if let Some(url) = source["url"].as_str() {
             if url_has_credentials(url) {
                 errors.push(format!(
@@ -186,10 +190,16 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
         if let Some(field_evidence) = symbol["fieldEvidence"].as_object() {
             for field in field_evidence.keys() {
                 let path = format!("/symbols/{index}/fieldEvidence/{field}");
-                if !symbol_fields.contains_key(field) || matches!(field.as_str(), "fieldEvidence" | "evidence") {
-                    errors.push(format!("{path}: field is not a schema-defined symbol attribute"));
+                if !symbol_fields.contains_key(field)
+                    || matches!(field.as_str(), "fieldEvidence" | "evidence")
+                {
+                    errors.push(format!(
+                        "{path}: field is not a schema-defined symbol attribute"
+                    ));
                 } else if symbol.get(field).is_none() {
-                    errors.push(format!("{path}: evidence refers to a field that is absent from this symbol"));
+                    errors.push(format!(
+                        "{path}: evidence refers to a field that is absent from this symbol"
+                    ));
                 }
             }
         }
@@ -204,8 +214,13 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
                     ));
                     continue;
                 }
-                let evidence_kind = item["kind"].as_str().expect("schema validated evidence kind");
-                let source_kind = source_kinds.get(source_id).map(String::as_str).unwrap_or_default();
+                let evidence_kind = item["kind"]
+                    .as_str()
+                    .expect("schema validated evidence kind");
+                let source_kind = source_kinds
+                    .get(source_id)
+                    .map(String::as_str)
+                    .unwrap_or_default();
                 if !evidence_compatible(evidence_kind, source_kind) {
                     errors.push(format!(
                         "/symbols/{index}/evidence/{evidence_index}/kind: evidence kind '{evidence_kind}' is incompatible with source '{source_id}' of kind '{source_kind}'"
@@ -221,21 +236,32 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
 
 /// Reconcile manifest source metadata with the catalog records it describes.
 /// Unknown keys inside each provenance record are intentionally preserved for forward compatibility.
-pub fn validate_package_metadata(catalog: &Value, manifest: &Value) -> Result<(), ValidationErrors> {
+pub fn validate_package_metadata(
+    catalog: &Value,
+    manifest: &Value,
+) -> Result<(), ValidationErrors> {
     let mut errors = Vec::new();
     let Some(sources) = catalog["sources"].as_array() else {
-        return Err(ValidationErrors(vec!["/sources: catalog sources must be an array".into()]));
+        return Err(ValidationErrors(vec![
+            "/sources: catalog sources must be an array".into(),
+        ]));
     };
     let Some(revisions) = manifest["sourceRevisions"].as_object() else {
-        return Err(ValidationErrors(vec!["/sourceRevisions: manifest sourceRevisions must be an object".into()]));
+        return Err(ValidationErrors(vec![
+            "/sourceRevisions: manifest sourceRevisions must be an object".into(),
+        ]));
     };
     let Some(provenance) = manifest["provenance"].as_object() else {
-        return Err(ValidationErrors(vec!["/provenance: manifest provenance must be an object".into()]));
+        return Err(ValidationErrors(vec![
+            "/provenance: manifest provenance must be an object".into(),
+        ]));
     };
 
     let mut source_ids = HashSet::new();
     for (index, source) in sources.iter().enumerate() {
-        let Some(id) = source["id"].as_str() else { continue; };
+        let Some(id) = source["id"].as_str() else {
+            continue;
+        };
         source_ids.insert(id.to_owned());
         let expected_revision = source["revision"].as_str().unwrap_or_default();
         match revisions.get(id).and_then(Value::as_str) {
@@ -271,9 +297,11 @@ pub fn validate_package_metadata(catalog: &Value, manifest: &Value) -> Result<()
                     Some(expected) if actual_url != Some(expected) => errors.push(format!(
                         "/provenance/{id}/url: URL does not match catalog source /sources/{index}/url"
                     )),
-                    None if record.get("url").is_some_and(|value| !value.is_null()) => errors.push(format!(
-                        "/provenance/{id}/url: provenance URL is present but catalog source /sources/{index} has no URL"
-                    )),
+                    None if record.get("url").is_some_and(|value| !value.is_null()) => {
+                        errors.push(format!(
+                            "/provenance/{id}/url: provenance URL is present but catalog source /sources/{index} has no URL"
+                        ))
+                    }
                     _ => {}
                 }
             }
@@ -295,15 +323,26 @@ pub fn validate_package_metadata(catalog: &Value, manifest: &Value) -> Result<()
         }
     }
 
-    if errors.is_empty() { Ok(()) } else { Err(ValidationErrors(errors)) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(ValidationErrors(errors))
+    }
 }
 
 fn evidence_compatible(evidence_kind: &str, source_kind: &str) -> bool {
     match evidence_kind {
-        "controller-observed" => matches!(source_kind, "jenkins-controller" | "plugin" | "jenkins-core"),
-        "source-scanned" => matches!(source_kind, "shared-library" | "plugin" | "jenkins-core"),
+        "controller-observed" => {
+            matches!(source_kind, "jenkins-controller" | "plugin" | "jenkins-core")
+        }
+        "source-scanned" => {
+            matches!(source_kind, "shared-library" | "plugin" | "jenkins-core")
+        }
         "static-model" => matches!(source_kind, "jenkins-controller" | "jenkins-core"),
-        "inferred" => matches!(source_kind, "jenkins-controller" | "plugin" | "shared-library" | "jenkins-core"),
+        "inferred" => matches!(
+            source_kind,
+            "jenkins-controller" | "plugin" | "shared-library" | "jenkins-core"
+        ),
         _ => false,
     }
 }
@@ -342,15 +381,26 @@ fn coverage_source_kinds(surface: &str) -> Option<&'static [&'static str]> {
     }
 }
 
-fn validate_coverage_consistency(catalog: &Value, source_kinds: &HashMap<String, String>, errors: &mut Vec<String>) {
-    let Some(coverage) = catalog["coverage"].as_array() else { return; };
-    let Some(symbols) = catalog["symbols"].as_array() else { return; };
+fn validate_coverage_consistency(
+    catalog: &Value,
+    source_kinds: &HashMap<String, String>,
+    errors: &mut Vec<String>,
+) {
+    let Some(coverage) = catalog["coverage"].as_array() else {
+        return;
+    };
+    let Some(symbols) = catalog["symbols"].as_array() else {
+        return;
+    };
     for (coverage_index, entry) in coverage.iter().enumerate() {
         let status = entry["status"].as_str().unwrap_or_default();
         let source_id = entry["sourceId"].as_str().unwrap_or_default();
         let surface = entry["surface"].as_str().unwrap_or_default();
         if let Some(allowed) = coverage_source_kinds(surface) {
-            let actual = source_kinds.get(source_id).map(String::as_str).unwrap_or_default();
+            let actual = source_kinds
+                .get(source_id)
+                .map(String::as_str)
+                .unwrap_or_default();
             if !allowed.contains(&actual) {
                 errors.push(format!(
                     "/coverage/{coverage_index}/surface: surface '{surface}' is incompatible with source '{source_id}' of kind '{actual}'"
@@ -358,14 +408,24 @@ fn validate_coverage_consistency(catalog: &Value, source_kinds: &HashMap<String,
                 continue;
             }
         }
-        if status == "inspected" { continue; }
-        let Some(kinds) = coverage_symbol_kinds(surface) else { continue; };
+        if status == "inspected" {
+            continue;
+        }
+        let Some(kinds) = coverage_symbol_kinds(surface) else {
+            continue;
+        };
         for (symbol_index, symbol) in symbols.iter().enumerate() {
-            if !kinds.contains(&symbol["kind"].as_str().unwrap_or_default()) { continue; }
+            if !kinds.contains(&symbol["kind"].as_str().unwrap_or_default()) {
+                continue;
+            }
             let symbol_source_matches = symbol["sourceId"].as_str() == Some(source_id);
-            let evidence_source_matches = symbol["evidence"].as_array().is_some_and(|evidence| {
-                evidence.iter().any(|item| item["sourceId"].as_str() == Some(source_id))
-            });
+            let evidence_source_matches = symbol["evidence"]
+                .as_array()
+                .is_some_and(|evidence| {
+                    evidence
+                        .iter()
+                        .any(|item| item["sourceId"].as_str() == Some(source_id))
+                });
             if symbol_source_matches || evidence_source_matches {
                 errors.push(format!(
                     "/coverage/{coverage_index}: status '{status}' for surface '{surface}' contradicts symbol /symbols/{symbol_index} or its evidence from source '{source_id}'"
