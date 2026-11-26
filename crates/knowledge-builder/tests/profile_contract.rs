@@ -26,6 +26,12 @@ fn fixture_catalog() -> Value {
         "confidence": "verified",
         "provenance": ["Jenkins Core fixture"]
     }));
+    catalog["coverage"] = json!([
+        {"sourceId": "controller", "surface": "pipeline-gdsl", "status": "inspected"},
+        {"sourceId": "platform-lib", "surface": "shared-library", "status": "inspected"},
+        {"sourceId": "workflow-basic-steps", "surface": "plugin-inventory", "status": "inspected"},
+        {"sourceId": "jenkins-core-fixture", "surface": "core-version", "status": "inspected"}
+    ]);
     catalog
 }
 
@@ -109,6 +115,13 @@ fn package_include_filters_sources_symbols_and_controller_metadata() {
             "platform-lib" | "workflow-basic-steps"
         )
     }));
+    let coverage_ids: Vec<_> = catalog["coverage"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["sourceId"].as_str().unwrap())
+        .collect();
+    assert_eq!(coverage_ids, vec!["platform-lib", "workflow-basic-steps"]);
     assert_eq!(catalog["catalogId"], "selected-package");
 }
 
@@ -192,6 +205,8 @@ fn jenkins_core_selection_is_independent_of_controller_snapshot() {
     assert_eq!(catalog["sources"][0]["kind"], "jenkins-core");
     assert!(catalog.get("controller").is_none());
     assert!(catalog["symbols"].as_array().unwrap().is_empty());
+    assert_eq!(catalog["coverage"].as_array().unwrap().len(), 1);
+    assert_eq!(catalog["coverage"][0]["sourceId"], "jenkins-core-fixture");
 }
 
 #[test]
@@ -223,6 +238,11 @@ fn unmatched_explicit_selector_is_an_error() {
         .clone();
     catalog["sources"] = json!([library_source]);
     catalog["symbols"] = json!([library_symbol]);
+    catalog["coverage"] = json!([{
+        "sourceId": "platform-lib",
+        "surface": "shared-library",
+        "status": "inspected"
+    }]);
     catalog.as_object_mut().unwrap().remove("controller");
     fs::write(
         directory.path().join("fixture.json"),
