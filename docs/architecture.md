@@ -55,6 +55,16 @@ Git remotes are administrator-configured trusted inputs, not user-submitted host
 
 A refresh is an explicit Builder run. It produces a new package/snapshot; it does not mutate a package currently served by Runtime.
 
+## Bounded Jenkins API type inventory
+
+The optional Script Console probe builds a bounded type graph from Pipeline step implementation classes, Global Variables, Declarative descriptors, and optional administrator-configured `apiRoots` for each controller. The roots are explicit inputs to the Builder collection run; Runtime, LSP, and MCP do not query Jenkins or trigger collection.
+
+For selected roots, the probe records class/interface/enum identity, superclass and interfaces, public/protected method overloads, generic parameter and return types, inferred bean properties, plugin attribution, class-origin basenames, and descriptor help-file paths when exposed. It preserves unresolved, inaccessible, synthetic, bridge, and potentially dynamic metadata rather than treating incomplete reflection as complete API coverage.
+
+The default hard limits are 20 configured roots, 40 types, traversal depth 2, 12 methods per type, 300 methods total, 20 parameters per method, 20 properties per type, and 256 KiB of probe output. Configured limits may be lowered but cannot exceed these bounds. Collection does not enumerate class loaders, scan packages or plugin JARs, or invoke discovered methods or constructors. Reflection metadata does not establish Script Security approval, CPS compatibility, or safe invocation.
+
+This is a selected controller-observed API surface, not complete Groovy, Java, Jenkins, or plugin documentation. Unresolved and inaccessible information remains partial and must not be interpreted as evidence that an API is absent.
+
 ## Package boundary
 
 The Knowledge Package is the handoff artifact between stages. It contains the manifest, catalog, schema/version metadata, provenance, collection outcomes, and integrity checksums. The catalog is the canonical data contract shared by Builder and all consumers.

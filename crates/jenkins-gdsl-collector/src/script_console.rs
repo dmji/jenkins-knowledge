@@ -1175,7 +1175,10 @@ mod tests {
         assert!(!SCRIPT_TEMPLATE.contains("getClazz()"));
         assert!(!SCRIPT_TEMPLATE.contains("GroovyShell"));
         assert!(!SCRIPT_TEMPLATE.contains("evaluate("));
-        assert!(!SCRIPT_TEMPLATE.contains(".toString("));
+        // Formatting reflection metadata is safe; reject instance toString calls on plugin objects.
+        let without_modifier_formatting =
+            SCRIPT_TEMPLATE.replace("java.lang.reflect.Modifier.toString(", "");
+        assert!(!without_modifier_formatting.contains(".toString("));
     }
 
     #[test]
