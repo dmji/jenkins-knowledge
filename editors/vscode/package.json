@@ -28,7 +28,9 @@
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/vscode": "^1.85.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "@types/mocha": "10.0.10",
+    "@vscode/test-electron": "2.5.2"
   },
   "contributes": {
     "commands": [
