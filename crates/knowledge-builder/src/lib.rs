@@ -1,5 +1,5 @@
 use catalog_validator::{completeness_reason_codes, redact_sensitive_fields, source_collection_summary, stamp_catalog_identity, validate_catalog, validate_package_metadata};
-use jenkins_gdsl_collector::{CollectorError, DiscoveryError};
+use jenkins_gdsl_collector::{ApiTypeLimits, CollectorError, DiscoveryError};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -35,6 +35,10 @@ pub struct JenkinsConfig {
 pub struct ControllerConfig {
     pub id: String,
     pub url: String,
+    #[serde(default, rename = "apiRoots")]
+    pub api_roots: Vec<String>,
+    #[serde(default, rename = "apiLimits")]
+    pub api_limits: ApiTypeLimits,
 }
 
 #[derive(Debug, Deserialize)]
@@ -99,6 +103,19 @@ fn default_collection_profile() -> String {
     "standard".into()
 }
 
+fn valid_api_class_name(value: &str) -> bool {
+    if value.is_empty() || value.len() > 256 || value.trim() != value
+        || value.starts_with("groovy.") || value.starts_with("org.codehaus.groovy.")
+    {
+        return false;
+    }
+    value.split('.').all(|part| {
+        let mut chars = part.chars();
+        matches!(chars.next(), Some(ch) if ch.is_ascii_alphabetic() || ch == '_' || ch == '$')
+            && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '$')
+    })
+}
+
 fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
     if !matches!(profile.collection_profile.as_str(), "quick" | "standard" | "deep") {
         return Err(BuildError::Profile(
@@ -161,6 +178,29 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
         source_security::validate_controller_url(&controller.url).map_err(|error| {
             BuildError::Profile(format!("jenkins.controllers[{index}].url: {error}"))
         })?;
+        if controller.api_roots.len() > 20 {
+            return Err(BuildError::Profile(format!(
+                "jenkins.controllers[{index}].apiRoots: at most 20 explicit class roots are allowed"
+            )));
+        }
+        if !controller.api_limits.is_within_hard_limits() {
+            return Err(BuildError::Profile(format!(
+                "jenkins.controllers[{index}].apiLimits exceeds the hard safety maxima"
+            )));
+        }
+        let mut api_roots = HashSet::new();
+        for (root_index, root) in controller.api_roots.iter().enumerate() {
+            if !valid_api_class_name(root) {
+                return Err(BuildError::Profile(format!(
+                    "jenkins.controllers[{index}].apiRoots[{root_index}]: expected a fully-qualified Java class name; Groovy runtime roots are excluded"
+                )));
+            }
+            if !api_roots.insert(root) {
+                return Err(BuildError::Profile(format!(
+                    "jenkins.controllers[{index}].apiRoots[{root_index}]: duplicate API root"
+                )));
+            }
+        }
     }
 
     if profile.jenkins.controllers.len() > 1 {
@@ -290,6 +330,111 @@ impl std::fmt::Display for BuildError {
     }
 }
 impl std::error::Error for BuildError {}
+
+fn runtime_api_type_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
+    let mut symbols = Vec::new();
+    let mut member_count = 0usize;
+    for api_type in runtime["apiTypes"].as_array().into_iter().flatten().take(40) {
+        let (Some(class_name), Some(name)) = (api_type["className"].as_str(), api_type["name"].as_str()) else { continue; };
+        let class_confidence = if api_type["status"] == "available" && api_type["synthetic"] != true && api_type["dynamic"] != true { "verified" } else { "unknown" };
+        let mut class_symbol = json!({
+            "id": format!("{source_id}:api-class:{}", hex(&Sha256::digest(class_name.as_bytes()))),
+            "name": name, "kind": "class", "sourceId": source_id, "signature": class_name,
+            "confidence": class_confidence, "provenance": ["jenkins-script-console", "api-types"],
+            "fieldEvidence": {"name": class_confidence, "signature": "verified"},
+            "evidence": [{
+                "sourceId": source_id, "kind": "controller-observed", "confidence": class_confidence,
+                "provenance": "Bounded reflection of registered or explicitly configured API roots",
+                "retrievedAt": runtime["collectedAt"],
+                "location": format!("script-console/api-types/{class_name}"),
+                "sourceKind": "jenkins-controller"
+            }]
+        });
+        if let Some(plugin) = api_type["plugin"].as_str() { class_symbol["namespace"] = json!(plugin); }
+        if let Some(paths) = api_type["documentationPaths"].as_array() {
+            class_symbol["documentationPaths"] = json!(paths);
+        }
+        if let Some(status) = api_type["status"].as_str() {
+            class_symbol["typeStatus"] = json!(status);
+            class_symbol["fieldEvidence"]["typeStatus"] = json!("verified");
+        }
+        if let Some(status) = api_type["membersStatus"].as_str() {
+            class_symbol["membersStatus"] = json!(status);
+            class_symbol["fieldEvidence"]["membersStatus"] = json!("verified");
+        }
+        for field in ["depth", "rootCategories", "methodsTruncated", "propertiesTruncated", "classLoader"] {
+            if let Some(value) = api_type.get(field) { class_symbol[field] = value.clone(); }
+        }
+        for field in ["superClass", "origin"] {
+            if let Some(value) = api_type[field].as_str() {
+                class_symbol[field] = json!(value);
+                class_symbol["fieldEvidence"][field] = json!("verified");
+            }
+        }
+        if let Some(interfaces) = api_type["interfaces"].as_array() {
+            class_symbol["interfaces"] = json!(interfaces);
+            class_symbol["fieldEvidence"]["interfaces"] = json!("verified");
+        }
+        for field in ["synthetic", "dynamic"] {
+            if let Some(value) = api_type[field].as_bool() {
+                class_symbol[field] = json!(value);
+                class_symbol["fieldEvidence"][field] = json!("verified");
+            }
+        }
+        if let Some(properties) = api_type["properties"].as_array() {
+            class_symbol["properties"] = json!(properties);
+            if !properties.is_empty() { class_symbol["fieldEvidence"]["properties"] = json!("inferred"); }
+        }
+        symbols.push(class_symbol);
+        for method in api_type["methods"].as_array().into_iter().flatten() {
+            if member_count >= 300 { break; }
+            let (Some(method_name), Some(signature), Some(return_type), Some(declaring_class)) = (
+                method["name"].as_str(), method["signature"].as_str(),
+                method["returnType"].as_str(), method["declaringClass"].as_str()
+            ) else { continue; };
+            let confidence = if class_confidence == "verified" && method["synthetic"] != true && method["bridge"] != true && method["dynamic"] != true { "verified" } else { "unknown" };
+            let method_identity = format!("{class_name}\0{signature}");
+            let mut method_symbol = json!({
+                "id": format!("{source_id}:api-method:{}", hex(&Sha256::digest(method_identity.as_bytes()))),
+                "name": method_name, "kind": "method", "sourceId": source_id,
+                "signature": signature, "returnType": return_type, "declaringClass": declaring_class,
+                "confidence": confidence, "provenance": ["jenkins-script-console", "api-types", class_name],
+                "fieldEvidence": {"name": confidence, "signature": "verified", "returnType": "verified", "declaringClass": "verified"},
+                "evidence": [{
+                    "sourceId": source_id, "kind": "controller-observed", "confidence": confidence,
+                    "provenance": "Java reflection metadata; method body was not executed",
+                    "retrievedAt": runtime["collectedAt"],
+                    "location": format!("script-console/api-types/{class_name}"),
+                    "sourceKind": "jenkins-controller"
+                }]
+            });
+            if let Some(plugin) = api_type["plugin"].as_str() { method_symbol["namespace"] = json!(plugin); }
+            if let Some(parameters) = method["parameters"].as_array() {
+                method_symbol["parameters"] = json!(parameters);
+                method_symbol["fieldEvidence"]["parameters"] = json!("verified");
+            }
+            if let Some(truncated) = method["parametersTruncated"].as_bool() {
+                method_symbol["parametersTruncated"] = json!(truncated);
+                method_symbol["fieldEvidence"]["parametersTruncated"] = json!("verified");
+            }
+            for field in ["genericReturnType", "modifiers", "genericReturnTypeStatus"] {
+                if let Some(value) = method[field].as_str() {
+                    method_symbol[field] = json!(value);
+                    if field != "genericReturnTypeStatus" { method_symbol["fieldEvidence"][field] = json!("verified"); }
+                }
+            }
+            for field in ["synthetic", "dynamic", "bridge", "varargs"] {
+                if let Some(value) = method[field].as_bool() {
+                    method_symbol[field] = json!(value);
+                    method_symbol["fieldEvidence"][field] = json!("verified");
+                }
+            }
+            symbols.push(method_symbol);
+            member_count += 1;
+        }
+    }
+    symbols
+}
 
 fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
     let mut symbols = Vec::new();
@@ -606,10 +751,12 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 }
             }
             if profile.collection_profile == "deep" && controller_metadata_available {
-                let mut runtime_record = jenkins_gdsl_collector::collect_script_console(
+                let mut runtime_record = jenkins_gdsl_collector::collect_script_console_with_options(
                     &controller.url,
                     username.as_deref(),
                     api_token.as_deref(),
+                    &controller.api_roots,
+                    &controller.api_limits,
                 );
                 redact_sensitive_fields(&mut runtime_record);
                 let runtime_status = runtime_record["status"].as_str().unwrap_or("unavailable");
@@ -659,6 +806,8 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     _ => 4
                 });
             }
+            let api_type_symbols = runtime_api_type_symbols(&catalog["controller"]["runtime"], &controller_source_id);
+            if let Some(symbols) = catalog["symbols"].as_array_mut() { symbols.extend(api_type_symbols); }
             let declarative_runtime = catalog
                 .get("controller")
                 .and_then(|value| value.get("runtime"))
@@ -1091,7 +1240,7 @@ fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collec
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, runtime_symbols, validate_profile, Profile};
+    use super::{build_package, runtime_api_type_symbols, runtime_symbols, valid_api_class_name, validate_profile, Profile};
     use serde_json::{json, Value};
     use std::fs;
 
@@ -1118,6 +1267,73 @@ mod tests {
         assert_eq!(symbols[1]["namespace"], "two");
         assert_eq!(symbols[2]["kind"], "global-variable");
         assert_eq!(symbols[0]["evidence"][0]["kind"], "controller-observed");
+    }
+
+    #[test]
+    fn accepts_only_explicit_bounded_api_roots_in_profiles() {
+        let profile: Profile = serde_yaml::from_str(
+            "profile: api-roots-test\ncollectionProfile: deep\njenkins:\n  controllers:\n    - id: local\n      url: https://jenkins.example.test\n      apiRoots:\n        - hudson.model.Run\n        - org.example.Outer$Inner\n      apiLimits:\n        maxDepth: 1\n        maxTypes: 10\n        maxMembersPerType: 5\n        maxTotalMembers: 50\n"
+        ).unwrap();
+        validate_profile(&profile).unwrap();
+        assert_eq!(profile.jenkins.controllers[0].api_limits.max_depth, 1);
+        assert_eq!(profile.jenkins.controllers[0].api_limits.max_types, 10);
+        let invalid: Profile = serde_yaml::from_str(
+            "profile: api-roots-test\ncollectionProfile: deep\njenkins:\n  controllers:\n    - id: local\n      url: https://jenkins.example.test\n      apiRoots:\n        - java.lang.String;System.exit(0)\n"
+        ).unwrap();
+        assert!(validate_profile(&invalid).is_err());
+
+        let invalid_limits: Profile = serde_yaml::from_str(
+            "profile: api-roots-test\ncollectionProfile: deep\njenkins:\n  controllers:\n    - id: local\n      url: https://jenkins.example.test\n      apiLimits:\n        maxTypes: 41\n"
+        ).unwrap();
+        assert!(validate_profile(&invalid_limits).is_err());
+    }
+
+    #[test]
+    fn validates_explicit_api_roots_as_bounded_class_names() {
+        assert!(valid_api_class_name("hudson.model.Run"));
+        assert!(valid_api_class_name("org.example.Outer$Inner"));
+        assert!(!valid_api_class_name("java.lang.String;System.exit(0)"));
+        assert!(!valid_api_class_name("java.lang.String/../../etc/passwd"));
+        assert!(!valid_api_class_name("groovy.lang.Closure"));
+        assert!(!valid_api_class_name("java.lang.String "));
+    }
+
+    #[test]
+    fn emits_bounded_class_method_and_property_symbols() {
+        let runtime = json!({
+            "collectedAt": "2026-11-26T00:00:00Z",
+            "apiTypes": [{
+                "name": "hudson.model.Run", "className": "hudson.model.Run", "depth": 0,
+                "rootCategories": ["configured"], "status": "available", "synthetic": false,
+                "dynamic": false, "superClass": "hudson.model.AbstractBuild",
+                "interfaces": ["hudson.model.Queue$Executable"], "plugin": "jenkins-core",
+                "origin": "jenkins.war", "documentationPaths": ["help/Run.html"], "methodsTruncated": false, "propertiesTruncated": false,
+                "methods": [
+                    {"name":"getLog","declaringClass":"hudson.model.Run","signature":"getLog(int) -> java.util.List","returnType":"java.util.List","genericReturnType":"java.util.List<java.lang.String>","modifiers":"public","synthetic":false,"bridge":false,"varargs":false,"parameters":[{"name":"maxLines","type":"int","genericType":"int","namePresent":true}],"parametersTruncated":false},
+                    {"name":"getLog","declaringClass":"hudson.model.Run","signature":"getLog(java.lang.String) -> java.util.List","returnType":"java.util.List","genericReturnType":"java.util.List<java.lang.String>","modifiers":"public","synthetic":false,"bridge":false,"varargs":false,"parameters":[{"name":"path","type":"java.lang.String","genericType":"java.lang.String","namePresent":true}],"parametersTruncated":false}
+                ],
+                "properties": [{"name":"number","readType":"int","accessors":["getNumber"],"confidence":"inferred"}]
+            },{
+                "name":"hudson.model.AbstractBuild","className":"hudson.model.AbstractBuild","depth":2,
+                "rootCategories":["supertype-of:hudson.model.Run"],"status":"partial","synthetic":false,
+                "dynamic":false,"superClass":"hudson.model.Run","interfaces":[],"membersStatus":"inaccessible",
+                "methods":[],"properties":[],"methodsTruncated":false,"propertiesTruncated":false
+            }]
+        });
+        let symbols = runtime_api_type_symbols(&runtime, "controller:test");
+        assert_eq!(symbols.len(), 4);
+        assert_eq!(symbols[0]["kind"], "class");
+        assert_eq!(symbols[0]["superClass"], "hudson.model.AbstractBuild");
+        assert_eq!(symbols[0]["interfaces"][0], "hudson.model.Queue$Executable");
+        assert_eq!(symbols[0]["properties"][0]["confidence"], "inferred");
+        assert_eq!(symbols[0]["documentationPaths"][0], "help/Run.html");
+        assert_eq!(symbols[1]["name"], "getLog");
+        assert_eq!(symbols[2]["name"], "getLog");
+        assert_ne!(symbols[1]["id"], symbols[2]["id"]);
+        assert_eq!(symbols[2]["parameters"][0]["namePresent"], true);
+        assert_eq!(symbols[3]["confidence"], "unknown");
+        assert_eq!(symbols[3]["typeStatus"], "partial");
+        assert_eq!(symbols[3]["membersStatus"], "inaccessible");
     }
 
     #[test]

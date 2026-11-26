@@ -393,6 +393,13 @@ fn one_builder_package_keeps_contracts_across_runtime_lsp_and_mcp() {
             && symbol["nameKind"] == "implementation-class"
             && symbol["confidence"] == "unknown"
     }));
+    let api_symbols = runtime.catalog()["symbols"].as_array().unwrap();
+    assert!(api_symbols
+        .iter()
+        .any(|symbol| { symbol["kind"] == "class" && symbol["name"] == "hudson.model.Run" }));
+    assert!(api_symbols
+        .iter()
+        .any(|symbol| { symbol["kind"] == "method" && symbol["name"] == "getNumber" }));
 
     let deploy = runtime.get("deployApp").unwrap();
     assert_eq!(deploy["sourceId"], "shared-library-fixture");

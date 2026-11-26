@@ -25,11 +25,19 @@ Without `fixtures`, the Builder first requires bounded Jenkins Core/controller m
 | `standard` | Jenkins Core/controller metadata | Plugin inventory, full GDSL extraction, and configured Shared Libraries are optional. Script Console is skipped. |
 | `deep` | Jenkins Core/controller metadata | Plugin inventory, full GDSL, configured Shared Libraries, and the fixed read-only Script Console probe are optional. |
 
-The Declarative Pipeline model is generated locally for each configured controller. Controller metadata is mandatory because it establishes the identity and version anchor for controller-backed sources. A failure there aborts the build. Optional failures do not discard successful snapshots: the Builder publishes a partial package with stable status and error codes. A failed Shared Library scan is isolated to that library; other controllers/libraries remain available. The Script Console probe runs only in `deep`, uses repository-owned Groovy, and does not accept caller-supplied scripts.
+The Declarative Pipeline model is generated locally for each configured controller. Controller metadata is mandatory because it establishes the identity and version anchor for controller-backed sources. A failure there aborts the build. Optional failures do not discard successful snapshots: the Builder publishes a partial package with stable status and error codes. A failed Shared Library scan is isolated to that library; other controllers/libraries remain available. The Script Console probe runs only in `deep`, uses repository-owned Groovy, and does not accept caller-supplied scripts. It discovers a bounded API type surface rooted in observed Pipeline/Declarative classes and optional per-controller `apiRoots`; it never enumerates a ClassLoader or scans packages/JARs.
 
 Retries are explicit rather than automatic to avoid multiplying controller load. Network timeouts and transient HTTP failures are safe to retry by rerunning the build. Permission failures require corrected Jenkins/Git permissions or credentials first. Malformed responses should be investigated against the Jenkins/plugin version before retrying. The package records no raw remote response bodies or error text.
 
 Shared Library `commit` values, when supplied, must be full 40-character commit SHAs. The scanner records the resolved commit in the catalog source revision. When omitted, the configured ref is fetched and the resolved commit is recorded by the scanner.
+
+## Bounded Jenkins API type inventory
+
+Deep collection roots API inspection only in classes already observed from Pipeline Steps, Global Variables, Declarative descriptors, plus explicitly configured `jenkins.controllers[].apiRoots`. The explicit list accepts at most 20 fully-qualified Java class names (for example `hudson.model.Run`); arbitrary Groovy, package wildcards, JAR paths, and caller-provided scripts are rejected.
+
+Traversal is breadth-first. Per-controller `apiLimits` can lower the defaults (40 types, depth 2, 12 methods per type, 300 methods total); hard maxima cannot be raised. Parameter/property caps (20 each) and the 256 KiB Script Console output limit remain fixed. The collector reads class/member metadata only: it does not invoke methods or constructors, enumerate ClassLoaders, or scan packages/JARs. Superclasses, interfaces, overloads, generic signatures, parameter names where present, plugin attribution, class-origin basenames, and descriptor help-file paths where Jenkins exposes them are retained. Help paths are metadata references only; the collector does not fetch help-file contents. Bean properties are inferred only from public/protected getter/setter signatures and are marked `confidence: inferred`.
+
+Synthetic and bridge methods are explicitly marked; unresolved classes and inaccessible member metadata remain partial/unknown. Reflection presence is not evidence of Jenkins Script Security Sandbox approval or Pipeline CPS compatibility. Groovy language/runtime APIs remain distinct from controller-specific Jenkins/plugin classes.
 
 ## Profile contract
 
@@ -39,7 +47,7 @@ Profiles use strict YAML deserialization: unknown keys at the root or in any nes
 |---|---|---|
 | `profile` | Required, non-empty | Package profile identity written to `manifest.json`; used as the catalog ID when `package.id` is omitted. |
 | `collectionProfile` | Defaults to `standard` | Collection policy: `quick`, `standard`, or `deep`; independent of the package profile identity. |
-| `jenkins.controllers` | Empty when omitted; at most one supported | The controller ID scopes source identity and its URL is the HTTP(S) endpoint. Multiple controllers are rejected before collection because the current catalog schema has one top-level controller snapshot. |
+| `jenkins.controllers` | Empty when omitted; at most one supported | The controller ID scopes source identity and its URL is the HTTP(S) endpoint. Optional `apiRoots` lists at most 20 fully-qualified Java class names for explicit type roots; roots are validated before collection and are inspected only in `deep`. Multiple controllers are rejected before collection because the current catalog schema has one top-level controller snapshot. |
 | `libraries` | Empty when omitted | Each Shared Library is scanned once. `name`, `url`, and `revision` are required; optional `commit` pins the fetch to a full 40-character SHA while retaining the configured revision as metadata. Duplicate names are rejected. |
 | `fixtures` | Empty when omitted | Offline catalog JSON paths, relative to the profile file. Fixture mode is mutually exclusive with live controllers/libraries. Duplicate and absolute paths are rejected. |
 | `package.id` | Omitted | Catalog ID defaults to `profile`; a supplied ID must be non-empty and have no surrounding whitespace. |

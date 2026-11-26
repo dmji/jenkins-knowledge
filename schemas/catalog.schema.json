@@ -262,6 +262,15 @@
         "description": {
           "type": "string"
         },
+        "genericType": {
+          "type": "string"
+        },
+        "genericTypeStatus": {
+          "enum": ["available", "unresolved"]
+        },
+        "namePresent": {
+          "type": "boolean"
+        },
         "default": {}
       }
     },
@@ -303,6 +312,79 @@
         },
         "signature": {
           "type": "string"
+        },
+        "superClass": {
+          "type": "string"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "typeStatus": {
+          "enum": ["available", "partial", "unresolved", "inaccessible"]
+        },
+        "membersStatus": {
+          "enum": ["inaccessible"]
+        },
+        "rootCategories": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"type": "string", "maxLength": 256}
+        },
+        "methodsTruncated": {
+          "type": "boolean"
+        },
+        "propertiesTruncated": {
+          "type": "boolean"
+        },
+        "parametersTruncated": {
+          "type": "boolean"
+        },
+        "interfaces": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"type": "string"}
+        },
+        "origin": {
+          "type": "string"
+        },
+        "documentationPaths": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"type": "string", "maxLength": 256}
+        },
+        "classLoader": {
+          "type": "string"
+        },
+        "declaringClass": {
+          "type": "string"
+        },
+        "genericReturnType": {
+          "type": "string"
+        },
+        "modifiers": {
+          "type": "string"
+        },
+        "synthetic": {
+          "type": "boolean"
+        },
+        "dynamic": {
+          "type": "boolean"
+        },
+        "genericReturnTypeStatus": {
+          "enum": ["available", "unresolved"]
+        },
+        "bridge": {
+          "type": "boolean"
+        },
+        "varargs": {
+          "type": "boolean"
+        },
+        "properties": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"$ref": "#/$defs/controllerApiProperty"}
         },
         "description": {
           "type": "string"
@@ -724,6 +806,123 @@
         }
       }
     },
+    "controllerApiType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "className",
+        "depth",
+        "rootCategories",
+        "status",
+        "interfaces",
+        "methods",
+        "properties",
+        "methodsTruncated",
+        "propertiesTruncated"
+      ],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "className": {"type": "string", "minLength": 1, "maxLength": 256},
+        "depth": {"type": "integer", "minimum": 0, "maximum": 2},
+        "rootCategories": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        },
+        "status": {"enum": ["available", "partial", "unresolved", "inaccessible"]},
+        "superClass": {"type": "string", "minLength": 1, "maxLength": 256},
+        "interfaces": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        },
+        "plugin": {"type": "string", "minLength": 1, "maxLength": 256},
+        "origin": {"type": "string", "minLength": 1, "maxLength": 256},
+        "documentationPaths": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        },
+        "classLoader": {"type": "string", "minLength": 1, "maxLength": 256},
+        "synthetic": {"type": "boolean"},
+        "dynamic": {"type": "boolean"},
+        "membersStatus": {"enum": ["inaccessible"]},
+        "methods": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {"$ref": "#/$defs/controllerApiMethod"}
+        },
+        "properties": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"$ref": "#/$defs/controllerApiProperty"}
+        },
+        "methodsTruncated": {"type": "boolean"},
+        "propertiesTruncated": {"type": "boolean"}
+      }
+    },
+    "controllerApiMethod": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "declaringClass",
+        "signature",
+        "returnType",
+        "parameters",
+        "synthetic",
+        "bridge",
+        "varargs"
+      ],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "declaringClass": {"type": "string", "minLength": 1, "maxLength": 256},
+        "signature": {"type": "string", "minLength": 1, "maxLength": 256},
+        "returnType": {"type": "string", "minLength": 1, "maxLength": 256},
+        "genericReturnType": {"type": "string", "minLength": 1, "maxLength": 256},
+        "genericReturnTypeStatus": {"enum": ["available", "unresolved"]},
+        "modifiers": {"type": "string", "maxLength": 128},
+        "dynamic": {"type": "boolean"},
+        "synthetic": {"type": "boolean"},
+        "bridge": {"type": "boolean"},
+        "varargs": {"type": "boolean"},
+        "parametersTruncated": {"type": "boolean"},
+        "parameters": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"$ref": "#/$defs/controllerApiParameter"}
+        }
+      }
+    },
+    "controllerApiParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "namePresent"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "type": {"type": "string", "minLength": 1, "maxLength": 256},
+        "genericType": {"type": "string", "minLength": 1, "maxLength": 256},
+        "genericTypeStatus": {"enum": ["available", "unresolved"]},
+        "namePresent": {"type": "boolean"}
+      }
+    },
+    "controllerApiProperty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "accessors", "confidence"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "readType": {"type": "string", "minLength": 1, "maxLength": 256},
+        "writeType": {"type": "string", "minLength": 1, "maxLength": 256},
+        "accessors": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        },
+        "confidence": {"enum": ["inferred"]}
+      }
+    },
     "controllerRuntime": {
       "type": "object",
       "additionalProperties": false,
@@ -734,6 +933,9 @@
         "status",
         "collectedAt",
         "extensionRegistries",
+        "apiTypeInventoryStatus",
+        "configuredApiRoots",
+        "apiTypes",
         "errors"
       ],
       "properties": {
@@ -741,7 +943,7 @@
           "const": "1.0.0"
         },
         "templateVersion": {
-          "const": "2"
+          "const": "3"
         },
         "source": {
           "const": "script-console"
@@ -782,6 +984,25 @@
           "maxItems": 3,
           "items": {
             "$ref": "#/$defs/controllerExtensionRegistry"
+          }
+        },
+        "apiTypeInventoryStatus": {
+          "enum": ["available", "partial", "unavailable"]
+        },
+        "configuredApiRoots": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "apiTypes": {
+          "type": "array",
+          "maxItems": 40,
+          "items": {
+            "$ref": "#/$defs/controllerApiType"
           }
         },
         "errors": {
@@ -844,6 +1065,11 @@
                 "maxLength": 256
               },
               "displayName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "documentationPath": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 256
@@ -927,12 +1153,18 @@
             "pipeline-steps",
             "pipeline-globals",
             "declarative-extensions",
+            "api-types",
             "output"
           ]
         },
         "code": {
           "enum": [
             "credentials-must-be-paired",
+            "invalid-api-roots",
+            "invalid-api-limits",
+            "class-unavailable",
+            "type-traversal-truncated",
+            "member-inspection-failed",
             "invalid-controller-url",
             "request-timeout",
             "request-failed",

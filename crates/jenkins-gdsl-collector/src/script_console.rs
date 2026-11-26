@@ -4,6 +4,7 @@ use reqwest::{
     header::ACCEPT,
     redirect::Policy,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
     io::Read,
@@ -16,7 +17,49 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_SCRIPT_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_ITEMS_PER_REGISTRY: usize = 100;
 const MAX_TEXT_LENGTH: usize = 256;
-const TEMPLATE_VERSION: &str = "2";
+const MAX_API_DEPTH: usize = 2;
+const MAX_API_TYPES: usize = 40;
+const MAX_API_MEMBERS_PER_TYPE: usize = 12;
+const MAX_API_TOTAL_MEMBERS: usize = 300;
+const TEMPLATE_VERSION: &str = "3";
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApiTypeLimits {
+    #[serde(default = "default_api_max_depth")]
+    pub max_depth: usize,
+    #[serde(default = "default_api_max_types")]
+    pub max_types: usize,
+    #[serde(default = "default_api_max_members_per_type")]
+    pub max_members_per_type: usize,
+    #[serde(default = "default_api_max_total_members")]
+    pub max_total_members: usize,
+}
+
+impl Default for ApiTypeLimits {
+    fn default() -> Self {
+        Self {
+            max_depth: default_api_max_depth(),
+            max_types: default_api_max_types(),
+            max_members_per_type: default_api_max_members_per_type(),
+            max_total_members: default_api_max_total_members(),
+        }
+    }
+}
+
+impl ApiTypeLimits {
+    pub fn is_within_hard_limits(&self) -> bool {
+        self.max_depth <= MAX_API_DEPTH
+            && (1..=MAX_API_TYPES).contains(&self.max_types)
+            && (1..=MAX_API_MEMBERS_PER_TYPE).contains(&self.max_members_per_type)
+            && (1..=MAX_API_TOTAL_MEMBERS).contains(&self.max_total_members)
+    }
+}
+
+const fn default_api_max_depth() -> usize { MAX_API_DEPTH }
+const fn default_api_max_types() -> usize { MAX_API_TYPES }
+const fn default_api_max_members_per_type() -> usize { MAX_API_MEMBERS_PER_TYPE }
+const fn default_api_max_total_members() -> usize { MAX_API_TOTAL_MEMBERS }
 const SCRIPT_TEMPLATE: &str = include_str!("probes/script_console_v1.groovy");
 
 /// Describe every network operation in the deep profile without contacting Jenkins.
@@ -75,6 +118,25 @@ pub fn script_console_plan() -> Value {
             "maxItemsPerRegistry": MAX_ITEMS_PER_REGISTRY,
             "maxTextLength": MAX_TEXT_LENGTH,
             "maxResponseBytes": MAX_SCRIPT_RESPONSE_BYTES,
+            "maxConfiguredApiRoots": 20,
+            "apiTypeInventory": {
+                "defaultLimits": {
+                    "maxTypes": MAX_API_TYPES,
+                    "maxDepth": MAX_API_DEPTH,
+                    "maxMembersPerType": MAX_API_MEMBERS_PER_TYPE,
+                    "maxTotalMembers": MAX_API_TOTAL_MEMBERS
+                },
+                "hardMaximums": {
+                    "maxTypes": MAX_API_TYPES,
+                    "maxDepth": MAX_API_DEPTH,
+                    "maxMembersPerType": MAX_API_MEMBERS_PER_TYPE,
+                    "maxTotalMembers": MAX_API_TOTAL_MEMBERS
+                },
+                "maxParametersPerMethod": 20,
+                "maxPropertiesPerType": 20,
+                "classLoaderEnumeration": false,
+                "methodOrConstructorExecution": false
+            },
             "clientTimeoutSeconds": REQUEST_TIMEOUT.as_secs(),
             "serverSideTerminationGuaranteed": false,
             "timeoutBehavior": "client stops waiting; Jenkins may continue executing the submitted script"
@@ -93,10 +155,34 @@ pub fn collect_script_console(
     username: Option<&str>,
     api_token: Option<&str>,
 ) -> Value {
+    collect_script_console_with_roots(controller, username, api_token, &[])
+}
+
+pub fn collect_script_console_with_roots(
+    controller: &str,
+    username: Option<&str>,
+    api_token: Option<&str>,
+    api_roots: &[String],
+) -> Value {
+    collect_script_console_with_options(controller, username, api_token, api_roots, &ApiTypeLimits::default())
+}
+
+pub fn collect_script_console_with_options(
+    controller: &str,
+    username: Option<&str>,
+    api_token: Option<&str>,
+    api_roots: &[String],
+    api_limits: &ApiTypeLimits,
+) -> Value {
     if username.is_some() != api_token.is_some() {
         return unavailable("credentials-must-be-paired");
     }
-
+    if !valid_api_roots(api_roots) {
+        return unavailable("invalid-api-roots");
+    }
+    if !api_limits.is_within_hard_limits() {
+        return unavailable("invalid-api-limits");
+    }
     let endpoint = match script_console_endpoint(controller) {
         Ok(endpoint) => endpoint,
         Err(()) => return unavailable("invalid-controller-url"),
@@ -110,14 +196,61 @@ pub fn collect_script_console(
         Ok(client) => client,
         Err(_) => return unavailable("request-failed"),
     };
-
-    collect_with_client(&endpoint, username, api_token, &client)
+    let script = render_script(api_roots, api_limits);
+    collect_with_script(&endpoint, username, api_token, &script, &client)
 }
 
+fn valid_api_roots(api_roots: &[String]) -> bool {
+    if api_roots.len() > 20 {
+        return false;
+    }
+    let mut unique = std::collections::HashSet::new();
+    api_roots.iter().all(|root| {
+        if root.is_empty() || root.len() > MAX_TEXT_LENGTH || root.trim() != root
+            || root.starts_with("groovy.") || root.starts_with("org.codehaus.groovy.")
+        {
+            return false;
+        }
+        let valid = root.split('.').all(|part| {
+            let mut chars = part.chars();
+            matches!(chars.next(), Some(ch) if ch.is_ascii_alphabetic() || ch == '_' || ch == '$')
+                && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '$')
+        });
+        valid && unique.insert(root)
+    })
+}
+
+fn render_script(api_roots: &[String], api_limits: &ApiTypeLimits) -> String {
+    // Class-name validation excludes quotes and escapes, so single-quoted Groovy
+    // literals safely preserve '$' in nested class names without GString expansion.
+    let roots = format!(
+        "[{}]",
+        api_roots.iter().map(|root| format!("'{root}'")).collect::<Vec<_>>().join(",")
+    );
+    SCRIPT_TEMPLATE
+        .replace("__JENKINS_KNOWLEDGE_API_ROOTS__", &roots)
+        .replace("__API_MAX_DEPTH__", &api_limits.max_depth.to_string())
+        .replace("__API_MAX_TYPES__", &api_limits.max_types.to_string())
+        .replace("__API_MAX_MEMBERS_PER_TYPE__", &api_limits.max_members_per_type.to_string())
+        .replace("__API_MAX_TOTAL_MEMBERS__", &api_limits.max_total_members.to_string())
+}
+
+#[cfg(test)]
 fn collect_with_client(
     endpoint: &Url,
     username: Option<&str>,
     api_token: Option<&str>,
+    client: &Client,
+) -> Value {
+    let script = render_script(&[], &ApiTypeLimits::default());
+    collect_with_script(endpoint, username, api_token, &script, client)
+}
+
+fn collect_with_script(
+    endpoint: &Url,
+    username: Option<&str>,
+    api_token: Option<&str>,
+    script: &str,
     client: &Client,
 ) -> Value {
     let mut request = client
@@ -127,7 +260,7 @@ fn collect_with_client(
         request = request.basic_auth(user, Some(token));
     }
 
-    let response = match request.form(&[("script", SCRIPT_TEMPLATE)]).send() {
+    let response = match request.form(&[("script", script)]).send() {
         Ok(response) => response,
         Err(error) => {
             return unavailable(if error.is_timeout() {
@@ -204,6 +337,9 @@ fn normalize_probe_output(value: &Value) -> Value {
         "status": "partial",
         "collectedAt": timestamp(),
         "extensionRegistries": [],
+        "apiTypeInventoryStatus": "unavailable",
+        "configuredApiRoots": [],
+        "apiTypes": [],
         "errors": []
     });
 
@@ -231,7 +367,7 @@ fn normalize_probe_output(value: &Value) -> Value {
         .as_array()
         .expect("registry array was checked");
     let mut available_registries = 0;
-    let mut registry_results = Vec::with_capacity(2);
+    let mut registry_results = Vec::with_capacity(3);
     for name in ["pipeline-steps", "pipeline-globals", "declarative-extensions"] {
         let raw = raw_registries
             .iter()
@@ -243,6 +379,30 @@ fn normalize_probe_output(value: &Value) -> Value {
         registry_results.push(registry);
     }
     runtime["extensionRegistries"] = json!(registry_results);
+    runtime["apiTypeInventoryStatus"] = json!(
+        match value["apiTypeInventoryStatus"].as_str() {
+            Some("available") => "available",
+            Some("partial") => "partial",
+            _ => "unavailable"
+        }
+    );
+    let configured_roots: Vec<&str> = value["configuredApiRoots"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|root| valid_api_roots(&[root.to_string()]))
+        .take(20)
+        .collect();
+    runtime["configuredApiRoots"] = json!(configured_roots);
+    let api_types: Vec<Value> = value["apiTypes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(40)
+        .filter_map(normalize_api_type)
+        .collect();
+    runtime["apiTypes"] = json!(api_types);
 
     if let Some(raw_errors) = value.get("errors").and_then(Value::as_array) {
         for error in raw_errors.iter().take(16) {
@@ -262,6 +422,7 @@ fn normalize_probe_output(value: &Value) -> Value {
 
     let status = if metadata_count == metadata_fields.len()
         && available_registries == 3
+        && runtime["apiTypeInventoryStatus"] == "available"
         && errors.is_empty()
     {
         "collected"
@@ -274,6 +435,113 @@ fn normalize_probe_output(value: &Value) -> Value {
     runtime["errors"] = json!(errors);
     redact_sensitive_fields(&mut runtime);
     runtime
+}
+
+fn normalize_api_type(value: &Value) -> Option<Value> {
+    let name = value.get("name").and_then(Value::as_str).filter(|name| !name.trim().is_empty())?;
+    let class_name = value.get("className").and_then(Value::as_str).filter(|name| !name.trim().is_empty())?;
+    let status = match value.get("status").and_then(Value::as_str) {
+        Some("available") => "available",
+        Some("partial") => "partial",
+        Some("unresolved") => "unresolved",
+        Some("inaccessible") => "inaccessible",
+        _ => "unresolved",
+    };
+    let mut normalized = json!({
+        "name": truncate(name), "className": truncate(class_name), "status": status,
+        "depth": value.get("depth").and_then(Value::as_u64).unwrap_or(0).min(2),
+        "rootCategories": [], "interfaces": [], "methods": [], "properties": [],
+        "methodsTruncated": value.get("methodsTruncated").and_then(Value::as_bool).unwrap_or(false),
+        "propertiesTruncated": value.get("propertiesTruncated").and_then(Value::as_bool).unwrap_or(false)
+    });
+    if let Some(categories) = value.get("rootCategories").and_then(Value::as_array) {
+        normalized["rootCategories"] = json!(categories.iter().filter_map(Value::as_str).take(8).map(truncate).collect::<Vec<_>>());
+    }
+    if let Some(interfaces) = value.get("interfaces").and_then(Value::as_array) {
+        normalized["interfaces"] = json!(interfaces.iter().filter_map(Value::as_str).take(20).map(truncate).collect::<Vec<_>>());
+    }
+    if let Some(documentation_paths) = value.get("documentationPaths").and_then(Value::as_array) {
+        normalized["documentationPaths"] = json!(
+            documentation_paths.iter().filter_map(Value::as_str).take(8).map(truncate).collect::<Vec<_>>()
+        );
+    }
+    for field in ["superClass", "plugin", "origin", "classLoader", "membersStatus"] {
+        if let Some(text) = value.get(field).and_then(Value::as_str).filter(|text| !text.trim().is_empty()) {
+            if field != "membersStatus" || text == "inaccessible" {
+                normalized[field] = json!(truncate(text));
+            }
+        }
+    }
+    for field in ["synthetic", "dynamic"] {
+        if let Some(flag) = value.get(field).and_then(Value::as_bool) {
+            normalized[field] = json!(flag);
+        }
+    }
+    if let Some(methods) = value.get("methods").and_then(Value::as_array) {
+        normalized["methods"] = json!(methods.iter().take(12).filter_map(normalize_api_method).collect::<Vec<_>>());
+    }
+    if let Some(properties) = value.get("properties").and_then(Value::as_array) {
+        normalized["properties"] = json!(properties.iter().take(20).filter_map(normalize_api_property).collect::<Vec<_>>());
+    }
+    Some(normalized)
+}
+
+fn normalize_api_method(value: &Value) -> Option<Value> {
+    let name = value.get("name").and_then(Value::as_str)?;
+    let declaring_class = value.get("declaringClass").and_then(Value::as_str)?;
+    let signature = value.get("signature").and_then(Value::as_str)?;
+    let return_type = value.get("returnType").and_then(Value::as_str)?;
+    let mut normalized = json!({
+        "name": truncate(name), "declaringClass": truncate(declaring_class),
+        "signature": truncate(signature), "returnType": truncate(return_type),
+        "parameters": [], "synthetic": value.get("synthetic").and_then(Value::as_bool).unwrap_or(false),
+        "bridge": value.get("bridge").and_then(Value::as_bool).unwrap_or(false),
+        "varargs": value.get("varargs").and_then(Value::as_bool).unwrap_or(false),
+        "parametersTruncated": value.get("parametersTruncated").and_then(Value::as_bool).unwrap_or(false)
+    });
+    for field in ["modifiers", "genericReturnType"] {
+        if let Some(text) = value.get(field).and_then(Value::as_str).filter(|text| !text.trim().is_empty()) {
+            normalized[field] = json!(truncate(text));
+        }
+    }
+    if let Some(status) = value.get("genericReturnTypeStatus").and_then(Value::as_str).filter(|status| matches!(*status, "available" | "unresolved")) {
+        normalized["genericReturnTypeStatus"] = json!(status);
+    }
+    if let Some(dynamic) = value.get("dynamic").and_then(Value::as_bool) {
+        normalized["dynamic"] = json!(dynamic);
+    }
+    if let Some(parameters) = value.get("parameters").and_then(Value::as_array) {
+        let values: Vec<Value> = parameters.iter().take(20).filter_map(|parameter| {
+            let (Some(name), Some(parameter_type)) = (parameter.get("name").and_then(Value::as_str), parameter.get("type").and_then(Value::as_str)) else { return None; };
+            let mut item = json!({
+                "name": truncate(name), "type": truncate(parameter_type),
+                "namePresent": parameter.get("namePresent").and_then(Value::as_bool).unwrap_or(false)
+            });
+            if let Some(generic_type) = parameter.get("genericType").and_then(Value::as_str) {
+                item["genericType"] = json!(truncate(generic_type));
+            }
+            if let Some(status) = parameter.get("genericTypeStatus").and_then(Value::as_str).filter(|status| matches!(*status, "available" | "unresolved")) {
+                item["genericTypeStatus"] = json!(status);
+            }
+            Some(item)
+        }).collect();
+        normalized["parameters"] = json!(values);
+    }
+    Some(normalized)
+}
+
+fn normalize_api_property(value: &Value) -> Option<Value> {
+    let name = value.get("name").and_then(Value::as_str)?;
+    let mut normalized = json!({"name": truncate(name), "accessors": [], "confidence": "inferred"});
+    for field in ["readType", "writeType"] {
+        if let Some(text) = value.get(field).and_then(Value::as_str) {
+            normalized[field] = json!(truncate(text));
+        }
+    }
+    if let Some(accessors) = value.get("accessors").and_then(Value::as_array) {
+        normalized["accessors"] = json!(accessors.iter().filter_map(Value::as_str).take(8).map(truncate).collect::<Vec<_>>());
+    }
+    Some(normalized)
 }
 
 fn normalize_registry(
@@ -324,6 +592,13 @@ fn normalize_registry(
                 .filter(|value| !value.trim().is_empty())
             {
                 normalized["plugin"] = json!(truncate(plugin));
+            }
+            if let Some(documentation_path) = item
+                .get("documentationPath")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                normalized["documentationPath"] = json!(truncate(documentation_path));
             }
             if let Some(value) = item
                 .get("category")
@@ -430,6 +705,7 @@ fn allowed_probe(value: &str) -> bool {
             | "pipeline-steps"
             | "pipeline-globals"
             | "declarative-extensions"
+            | "api-types"
             | "output"
     )
 }
@@ -441,6 +717,9 @@ fn allowed_error_code(value: &str) -> bool {
             | "jenkins-unavailable"
             | "extension-type-unavailable"
             | "enumeration-failed"
+            | "class-unavailable"
+            | "type-traversal-truncated"
+            | "member-inspection-failed"
             | "output-truncated"
     )
 }
@@ -457,6 +736,9 @@ fn unavailable(code: &str) -> Value {
         "status": "unavailable",
         "collectedAt": timestamp(),
         "extensionRegistries": [],
+        "apiTypeInventoryStatus": "unavailable",
+        "configuredApiRoots": [],
+        "apiTypes": [],
         "errors": [{ "probe": "script-console", "code": code }]
     });
     redact_sensitive_fields(&mut runtime);
@@ -586,11 +868,14 @@ mod tests {
     fn valid_probe_output() -> Value {
         json!({
             "schemaVersion": "1.0.0",
-            "templateVersion": "2",
+            "templateVersion": "3",
             "groovyVersion": "4.0.24",
             "javaVersion": "17.0.12",
             "javaVendor": "Eclipse Adoptium",
             "jenkinsCoreVersion": "2.479.1",
+            "apiTypeInventoryStatus": "available",
+            "configuredApiRoots": [],
+            "apiTypes": [],
             "extensionRegistries": [
                 {
                     "name": "pipeline-steps",
@@ -649,7 +934,7 @@ mod tests {
         assert!(!request.contains("must-not-escape"));
         assert_eq!(form.len(), 1);
         assert_eq!(form[0].0, "script");
-        assert_eq!(form[0].1, SCRIPT_TEMPLATE);
+        assert_eq!(form[0].1, render_script(&[], &ApiTypeLimits::default()));
         assert_eq!(result["status"], "collected");
         assert_eq!(result["jenkinsCoreVersion"], "2.479.1");
     }
@@ -871,11 +1156,135 @@ mod tests {
         assert!(SCRIPT_TEMPLATE.contains("BuildCondition"));
         assert!(SCRIPT_TEMPLATE.contains("ParameterDefinition"));
         assert!(SCRIPT_TEMPLATE.contains("hudson.triggers.Trigger"));
+        assert!(SCRIPT_TEMPLATE.contains("getMethods()"));
+        assert!(SCRIPT_TEMPLATE.contains("getDeclaredMethods()"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_API_TYPES = __API_MAX_TYPES__"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_API_DEPTH = __API_MAX_DEPTH__"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_API_MEMBERS_PER_TYPE = __API_MAX_MEMBERS_PER_TYPE__"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_API_TOTAL_MEMBERS = __API_MAX_TOTAL_MEMBERS__"));
+        assert!(SCRIPT_TEMPLATE.contains("inspectedMembers >= MAX_API_TOTAL_MEMBERS"));
+        assert!(SCRIPT_TEMPLATE.contains("entry.depth < MAX_API_DEPTH"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_OUTPUT_BYTES = 262144"));
+        assert!(SCRIPT_TEMPLATE.contains("visited"));
+        assert!(SCRIPT_TEMPLATE.contains("new TreeMap()"));
+        assert!(SCRIPT_TEMPLATE.contains("pending.sort"));
+        assert!(SCRIPT_TEMPLATE.contains("__JENKINS_KNOWLEDGE_API_ROOTS__"));
+        assert!(!SCRIPT_TEMPLATE.contains("getResources("));
+        assert!(!SCRIPT_TEMPLATE.contains("getURLs("));
+        assert!(!SCRIPT_TEMPLATE.contains("getLoadedClasses("));
+        assert!(!SCRIPT_TEMPLATE.contains("method.invoke("));
+        assert!(!SCRIPT_TEMPLATE.contains("newInstance("));
+        assert!(!SCRIPT_TEMPLATE.contains("getDeclaredConstructors("));
         assert!(SCRIPT_TEMPLATE.contains("getKlass()"));
         assert!(!SCRIPT_TEMPLATE.contains("getClazz()"));
         assert!(!SCRIPT_TEMPLATE.contains("GroovyShell"));
         assert!(!SCRIPT_TEMPLATE.contains("evaluate("));
-        assert!(!SCRIPT_TEMPLATE.contains(".toString("));
+        // Formatting reflection metadata is safe; reject instance toString calls on plugin objects.
+        let without_modifier_formatting =
+            SCRIPT_TEMPLATE.replace("Modifier.toString(", "");
+        assert!(!without_modifier_formatting.contains(".toString("));
+    }
+
+    #[test]
+    fn renders_only_validated_explicit_api_roots_into_the_fixed_probe() {
+        let roots = vec!["hudson.model.Run".to_owned(), "java.lang.String".to_owned(), "org.example.Outer$Inner".to_owned()];
+        let limits = ApiTypeLimits { max_depth: 1, max_types: 10, max_members_per_type: 5, max_total_members: 50 };
+        let script = render_script(&roots, &limits);
+        assert!(script.contains(r#"['hudson.model.Run','java.lang.String','org.example.Outer$Inner']"#));
+        assert!(script.contains("MAX_API_DEPTH = 1"));
+        assert!(script.contains("MAX_API_TYPES = 10"));
+        assert!(script.contains("MAX_API_MEMBERS_PER_TYPE = 5"));
+        assert!(script.contains("MAX_API_TOTAL_MEMBERS = 50"));
+        assert!(!script.contains("__JENKINS_KNOWLEDGE_API_ROOTS__"));
+        assert!(!script.contains("__API_MAX_DEPTH__"));
+        assert!(!valid_api_roots(&["java.lang.String;System.exit(0)".to_owned()]));
+        assert!(!valid_api_roots(&["groovy.lang.Closure".to_owned()]));
+        assert!(!valid_api_roots(&["java.lang.String".to_owned(), "java.lang.String".to_owned()]));
+        assert!(!valid_api_roots(&vec!["a.B".to_owned(); 21]));
+    }
+
+    #[test]
+    fn rejects_invalid_explicit_api_roots_before_contacting_jenkins() {
+        let result = collect_script_console_with_roots(
+            "https://jenkins.example.test", None, None,
+            &["java.lang.String;System.exit(0)".to_owned()]
+        );
+        assert_eq!(result["status"], "unavailable");
+        assert_eq!(result["errors"][0]["code"], "invalid-api-roots");
+    }
+
+    #[test]
+    fn rejects_api_limits_above_hard_safety_maxima() {
+        let limits = ApiTypeLimits { max_depth: 3, ..ApiTypeLimits::default() };
+        assert!(!limits.is_within_hard_limits());
+        let result = collect_script_console_with_options(
+            "https://jenkins.example.test", None, None, &[], &limits
+        );
+        assert_eq!(result["status"], "unavailable");
+        assert_eq!(result["errors"][0]["code"], "invalid-api-limits");
+    }
+
+    #[test]
+    fn normalizes_api_type_limits_and_explicit_unknown_member_states() {
+        let mut output = valid_probe_output();
+        let parameters: Vec<Value> = (0..25).map(|index| json!({
+            "name": format!("arg{index}"), "type": "java.lang.String",
+            "namePresent": false, "genericTypeStatus": "unresolved"
+        })).collect();
+        let methods: Vec<Value> = (0..15).map(|index| json!({
+            "name": "overloaded", "declaringClass": "example.Api",
+            "signature": format!("overloaded({index}) -> java.lang.String"),
+            "returnType": "java.lang.String", "synthetic": index == 14,
+            "bridge": false, "varargs": false, "parameters": parameters.clone(),
+            "parametersTruncated": true, "genericReturnTypeStatus": "unresolved"
+        })).collect();
+        let properties: Vec<Value> = (0..25).map(|index| json!({
+            "name": format!("property{index}"), "readType": "java.lang.String",
+            "accessors": ["getValue"], "confidence": "inferred"
+        })).collect();
+        output["apiTypeInventoryStatus"] = json!("partial");
+        output["extensionRegistries"][0]["items"][0]["documentationPath"] = json!("help/step.html");
+        output["apiTypes"] = json!([{
+            "name":"example.Api","className":"example.Api","depth":1,"rootCategories":["configured"],
+            "status":"partial","synthetic":false,"dynamic":true,"membersStatus":"inaccessible",
+            "interfaces":["example.Interface"],"documentationPaths":["help/Run.html"],"methods":methods,"properties":properties,
+            "methodsTruncated":true,"propertiesTruncated":true
+        }]);
+        let result = normalize_probe_output(&output);
+        let api_type = &result["apiTypes"][0];
+        assert_eq!(api_type["status"], "partial");
+        assert_eq!(api_type["dynamic"], true);
+        assert_eq!(api_type["membersStatus"], "inaccessible");
+        assert_eq!(api_type["documentationPaths"][0], "help/Run.html");
+        assert_eq!(result["extensionRegistries"][0]["items"][0]["documentationPath"], "help/step.html");
+        assert_eq!(api_type["methods"].as_array().unwrap().len(), 12);
+        assert_eq!(api_type["methods"][0]["parameters"].as_array().unwrap().len(), 20);
+        assert_eq!(api_type["methods"][0]["parameters"][0]["genericTypeStatus"], "unresolved");
+        assert_eq!(api_type["properties"].as_array().unwrap().len(), 20);
+    }
+
+    #[test]
+    fn caps_api_type_count_and_preserves_cyclic_reference_metadata() {
+        let mut output = valid_probe_output();
+        let api_types: Vec<Value> = (0..45).map(|index| {
+            let (name, parent) = if index == 0 {
+                ("example.A".to_owned(), "example.B".to_owned())
+            } else if index == 1 {
+                ("example.B".to_owned(), "example.A".to_owned())
+            } else {
+                (format!("example.Type{index}"), "java.lang.Object".to_owned())
+            };
+            json!({
+                "name":name.clone(),"className":name,"depth":2,"rootCategories":["configured"],
+                "status":"available","superClass":parent,"interfaces":[],"methods":[],"properties":[],
+                "methodsTruncated":false,"propertiesTruncated":false
+            })
+        }).collect();
+        output["apiTypes"] = json!(api_types);
+        let result = normalize_probe_output(&output);
+        assert_eq!(result["apiTypes"].as_array().unwrap().len(), 40);
+        assert_eq!(result["apiTypes"][0]["superClass"], "example.B");
+        assert_eq!(result["apiTypes"][1]["superClass"], "example.A");
     }
 
     #[test]
