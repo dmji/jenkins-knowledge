@@ -34,7 +34,7 @@ ROOT_SHA256 = {
 
 def version_key(value: str) -> tuple[tuple[int, int | str], ...]:
     return tuple(
-        (0, int(part)) if part.isdigit() else (1, part.lower())
+        (1, int(part)) if part.isdigit() else (0, part.lower())
         for part in re.findall(r"[0-9]+|[A-Za-z]+", value)
     )
 
