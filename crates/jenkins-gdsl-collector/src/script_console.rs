@@ -4,6 +4,7 @@ use reqwest::{
     header::ACCEPT,
     redirect::Policy,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
     io::Read,
@@ -16,7 +17,49 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_SCRIPT_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_ITEMS_PER_REGISTRY: usize = 100;
 const MAX_TEXT_LENGTH: usize = 256;
+const MAX_API_DEPTH: usize = 2;
+const MAX_API_TYPES: usize = 40;
+const MAX_API_MEMBERS_PER_TYPE: usize = 12;
+const MAX_API_TOTAL_MEMBERS: usize = 300;
 const TEMPLATE_VERSION: &str = "3";
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApiTypeLimits {
+    #[serde(default = "default_api_max_depth")]
+    pub max_depth: usize,
+    #[serde(default = "default_api_max_types")]
+    pub max_types: usize,
+    #[serde(default = "default_api_max_members_per_type")]
+    pub max_members_per_type: usize,
+    #[serde(default = "default_api_max_total_members")]
+    pub max_total_members: usize,
+}
+
+impl Default for ApiTypeLimits {
+    fn default() -> Self {
+        Self {
+            max_depth: default_api_max_depth(),
+            max_types: default_api_max_types(),
+            max_members_per_type: default_api_max_members_per_type(),
+            max_total_members: default_api_max_total_members(),
+        }
+    }
+}
+
+impl ApiTypeLimits {
+    pub fn is_within_hard_limits(&self) -> bool {
+        self.max_depth <= MAX_API_DEPTH
+            && (1..=MAX_API_TYPES).contains(&self.max_types)
+            && (1..=MAX_API_MEMBERS_PER_TYPE).contains(&self.max_members_per_type)
+            && (1..=MAX_API_TOTAL_MEMBERS).contains(&self.max_total_members)
+    }
+}
+
+const fn default_api_max_depth() -> usize { MAX_API_DEPTH }
+const fn default_api_max_types() -> usize { MAX_API_TYPES }
+const fn default_api_max_members_per_type() -> usize { MAX_API_MEMBERS_PER_TYPE }
+const fn default_api_max_total_members() -> usize { MAX_API_TOTAL_MEMBERS }
 const SCRIPT_TEMPLATE: &str = include_str!("probes/script_console_v1.groovy");
 
 /// Describe every network operation in the deep profile without contacting Jenkins.
@@ -77,10 +120,18 @@ pub fn script_console_plan() -> Value {
             "maxResponseBytes": MAX_SCRIPT_RESPONSE_BYTES,
             "maxConfiguredApiRoots": 20,
             "apiTypeInventory": {
-                "maxTypes": 40,
-                "maxDepth": 2,
-                "maxMembersPerType": 12,
-                "maxTotalMembers": 300,
+                "defaultLimits": {
+                    "maxTypes": MAX_API_TYPES,
+                    "maxDepth": MAX_API_DEPTH,
+                    "maxMembersPerType": MAX_API_MEMBERS_PER_TYPE,
+                    "maxTotalMembers": MAX_API_TOTAL_MEMBERS
+                },
+                "hardMaximums": {
+                    "maxTypes": MAX_API_TYPES,
+                    "maxDepth": MAX_API_DEPTH,
+                    "maxMembersPerType": MAX_API_MEMBERS_PER_TYPE,
+                    "maxTotalMembers": MAX_API_TOTAL_MEMBERS
+                },
                 "maxParametersPerMethod": 20,
                 "maxPropertiesPerType": 20,
                 "classLoaderEnumeration": false,
@@ -113,11 +164,24 @@ pub fn collect_script_console_with_roots(
     api_token: Option<&str>,
     api_roots: &[String],
 ) -> Value {
+    collect_script_console_with_options(controller, username, api_token, api_roots, &ApiTypeLimits::default())
+}
+
+pub fn collect_script_console_with_options(
+    controller: &str,
+    username: Option<&str>,
+    api_token: Option<&str>,
+    api_roots: &[String],
+    api_limits: &ApiTypeLimits,
+) -> Value {
     if username.is_some() != api_token.is_some() {
         return unavailable("credentials-must-be-paired");
     }
     if !valid_api_roots(api_roots) {
         return unavailable("invalid-api-roots");
+    }
+    if !api_limits.is_within_hard_limits() {
+        return unavailable("invalid-api-limits");
     }
     let endpoint = match script_console_endpoint(controller) {
         Ok(endpoint) => endpoint,
@@ -132,7 +196,7 @@ pub fn collect_script_console_with_roots(
         Ok(client) => client,
         Err(_) => return unavailable("request-failed"),
     };
-    let script = render_script(api_roots);
+    let script = render_script(api_roots, api_limits);
     collect_with_script(&endpoint, username, api_token, &script, &client)
 }
 
@@ -156,14 +220,19 @@ fn valid_api_roots(api_roots: &[String]) -> bool {
     })
 }
 
-fn render_script(api_roots: &[String]) -> String {
+fn render_script(api_roots: &[String], api_limits: &ApiTypeLimits) -> String {
     // Class-name validation excludes quotes and escapes, so single-quoted Groovy
     // literals safely preserve '$' in nested class names without GString expansion.
     let roots = format!(
         "[{}]",
         api_roots.iter().map(|root| format!("'{root}'")).collect::<Vec<_>>().join(",")
     );
-    SCRIPT_TEMPLATE.replace("__JENKINS_KNOWLEDGE_API_ROOTS__", &roots)
+    SCRIPT_TEMPLATE
+        .replace("__JENKINS_KNOWLEDGE_API_ROOTS__", &roots)
+        .replace("__API_MAX_DEPTH__", &api_limits.max_depth.to_string())
+        .replace("__API_MAX_TYPES__", &api_limits.max_types.to_string())
+        .replace("__API_MAX_MEMBERS_PER_TYPE__", &api_limits.max_members_per_type.to_string())
+        .replace("__API_MAX_TOTAL_MEMBERS__", &api_limits.max_total_members.to_string())
 }
 
 fn collect_with_client(
@@ -172,7 +241,7 @@ fn collect_with_client(
     api_token: Option<&str>,
     client: &Client,
 ) -> Value {
-    let script = render_script(&[]);
+    let script = render_script(&[], &ApiTypeLimits::default());
     collect_with_script(endpoint, username, api_token, &script, client)
 }
 
@@ -1111,7 +1180,7 @@ mod tests {
     #[test]
     fn renders_only_validated_explicit_api_roots_into_the_fixed_probe() {
         let roots = vec!["hudson.model.Run".to_owned(), "java.lang.String".to_owned(), "org.example.Outer$Inner".to_owned()];
-        let script = render_script(&roots);
+        let script = render_script(&roots, &ApiTypeLimits::default());
         assert!(script.contains(r#"['hudson.model.Run','java.lang.String','org.example.Outer$Inner']"#));
         assert!(!script.contains("__JENKINS_KNOWLEDGE_API_ROOTS__"));
         assert!(!valid_api_roots(&["java.lang.String;System.exit(0)".to_owned()]));
