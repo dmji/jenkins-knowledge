@@ -343,11 +343,13 @@ registrySpecs.each { spec ->
                 continue
             }
 
+            Class itemClass = spec.name == 'pipeline-steps' ? extension.getKlass() : extension.getClass()
             def item = [
                 name: safeText(itemName),
-                className: safeText(extension.getClass().getName())
+                className: safeText(itemClass.getName())
             ]
             if (spec.name == 'pipeline-steps') {
+                item.descriptorClass = safeText(extension.getClass().getName())
                 try {
                     def displayName = safeText(extension.getDisplayName())
                     if (displayName != null) item.displayName = displayName
@@ -405,7 +407,7 @@ registrySpecs.each { spec ->
                 }
             }
             try {
-                def plugin = jenkins.getPluginManager().whichPlugin(extension.getClass())
+                def plugin = jenkins.getPluginManager().whichPlugin(itemClass)
                 if (plugin != null) {
                     item.plugin = safeText(plugin.getShortName())
                 }
