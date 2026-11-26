@@ -359,7 +359,7 @@ fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
         let mut class_symbol = json!({
             "id": type_id,
             "name": type_name,
-            "kind": "class",
+            "kind": api_type["kind"].as_str().unwrap_or("class"),
             "sourceId": source_id,
             "signature": type_name,
             "synthetic": api_type["synthetic"].as_bool().unwrap_or(false),
@@ -368,6 +368,12 @@ fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
             "fieldEvidence": {"name": "verified", "signature": "verified"},
             "evidence": evidence
         });
+        for field in ["superclass", "modifiers"] {
+            if let Some(value) = api_type[field].as_str() { class_symbol[field] = json!(value); }
+        }
+        if let Some(interfaces) = api_type["interfaces"].as_array() {
+            class_symbol["interfaces"] = json!(interfaces);
+        }
         if let Some(plugin) = api_type["plugin"].as_str() {
             class_symbol["namespace"] = json!(plugin);
         }
@@ -384,6 +390,8 @@ fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
                 "id": format!("{type_id}:method:{method_name}:{method_index}"),
                 "name": method_name,
                 "kind": "method",
+                "synthetic": method["synthetic"].as_bool().unwrap_or(false),
+                "modifiers": method["modifiers"],
                 "sourceId": source_id,
                 "namespace": type_name,
                 "signature": signature,
@@ -404,6 +412,8 @@ fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
                 "id": format!("{type_id}:property:{property_name}:{property_index}"),
                 "name": property_name,
                 "kind": "property",
+                "readable": property["readable"].as_bool().unwrap_or(false),
+                "writable": property["writable"].as_bool().unwrap_or(false),
                 "sourceId": source_id,
                 "namespace": type_name,
                 "confidence": "verified",
