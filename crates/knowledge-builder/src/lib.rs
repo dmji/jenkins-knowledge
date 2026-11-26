@@ -1545,9 +1545,28 @@ fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collec
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, collection_plan, java_metadata_status, runtime_api_type_symbols, runtime_symbols, valid_api_class_name, validate_profile, Profile};
+    use super::{build_package, collection_plan, java_metadata_status, runtime_api_type_symbols, runtime_symbols, update_collection_source_revision, valid_api_class_name, validate_profile, Profile};
     use serde_json::{json, Value};
     use std::{fs, path::Path};
+
+    #[test]
+    fn merged_gdsl_revision_updates_existing_controller_outcomes_only() {
+        let mut outcomes = vec![
+            json!({"sourceId": "controller-1", "revision": "discovery-revision"}),
+            json!({"sourceId": "controller-1", "status": "permission-denied"}),
+            json!({"sourceId": "plugin-1", "revision": "plugin-version"}),
+        ];
+
+        update_collection_source_revision(
+            &mut outcomes,
+            "controller-1",
+            &json!("gdsl-revision"),
+        );
+
+        assert_eq!(outcomes[0]["revision"], "gdsl-revision");
+        assert!(outcomes[1].get("revision").is_none());
+        assert_eq!(outcomes[2]["revision"], "plugin-version");
+    }
 
     #[test]
     fn java_metadata_status_distinguishes_profile_and_probe_outcomes() {
