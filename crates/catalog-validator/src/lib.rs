@@ -398,6 +398,11 @@ pub fn validate_package_metadata(
                         )),
                     }
                 }
+                if let Some(expected_fingerprint) = source.get("fingerprint").and_then(Value::as_str) {
+                    if record.get("fingerprint").and_then(Value::as_str) != Some(expected_fingerprint) {
+                        errors.push(format!("/provenance/{id}/fingerprint: fingerprint does not match catalog source /sources/{index}/fingerprint"));
+                    }
+                }
                 let expected_url = source.get("url").and_then(Value::as_str);
                 let actual_url = record.get("url").and_then(Value::as_str);
                 match expected_url {
