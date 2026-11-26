@@ -717,6 +717,29 @@ mod tests {
     }
 
     #[test]
+    fn nested_declarative_contexts_unwind_one_block_at_a_time() {
+        let pipeline = "pipeline {\n stages {\n stage('build') {\n steps {\n sh";
+        assert_eq!(
+            scan_block_contexts(pipeline).unwrap(),
+            vec!["pipeline", "stages", "stage", "steps"]
+        );
+        assert_eq!(
+            scan_block_contexts(&format!("{pipeline}\n }}")).unwrap(),
+            vec!["pipeline", "stages", "stage"]
+        );
+        assert_eq!(
+            scan_block_contexts(&format!("{pipeline}\n }}\n }}")).unwrap(),
+            vec!["pipeline", "stages"]
+        );
+        assert_eq!(
+            scan_block_contexts(&format!("{pipeline}\n }}\n }}\n }}")).unwrap(),
+            vec!["pipeline"]
+        );
+        assert!(scan_block_contexts(&format!("{pipeline}\n }}\n }}\n }}\n }}"))
+            .unwrap().is_empty());
+    }
+
+    #[test]
     fn context_scan_is_bounded_for_very_large_documents() {
         let source = format!("{}pipeline {{", " ".repeat(MAX_CONTEXT_SCAN_BYTES));
         assert!(scan_block_contexts(&source).is_none());
@@ -752,6 +775,7 @@ mod tests {
                 def list = [{ agent { } }, [steps: { }]]
                 def value = helper(stage: [script: { }])
                 helper.stage()
+                def result = stage('not a block')
                 sh
 "#;
         let (_, contexts, _) = context_at_end(source);
