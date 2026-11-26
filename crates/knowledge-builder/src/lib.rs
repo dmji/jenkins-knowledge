@@ -525,6 +525,16 @@ fn controller_cache_path(base: &Path, controller: &ControllerConfig, profile: &P
     Ok(cache_root(base).join(format!("{key}.json")))
 }
 
+fn update_collection_source_revision(outcomes: &mut [Value], source_id: &str, revision: &Value) {
+    for outcome in outcomes {
+        if outcome["sourceId"].as_str() == Some(source_id)
+            && outcome["revision"].is_string()
+        {
+            outcome["revision"] = revision.clone();
+        }
+    }
+}
+
 fn controller_fingerprint(catalog: &Value) -> Result<String, BuildError> {
     let controller = catalog.get("controller").ok_or_else(|| BuildError::Source(
         "controller discovery returned no metadata for fingerprinting".into()
@@ -943,6 +953,11 @@ pub fn build_package_with_options(profile_path: &Path, output: &Path, refresh: b
                         }
                         if let Some(revision) = gdsl_catalog["sources"][0].get("revision") {
                             catalog["sources"][0]["revision"] = revision.clone();
+                            update_collection_source_revision(
+                                &mut collection_outcomes,
+                                &controller_source_id,
+                                revision,
+                            );
                         }
                         if let (Some(target), Some(additional)) = (
                             catalog["symbols"].as_array_mut(),
