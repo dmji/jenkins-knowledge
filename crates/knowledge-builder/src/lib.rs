@@ -816,6 +816,10 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             }
         }
     }
+    let included_source_ids = sources
+        .iter()
+        .filter_map(|source| source["id"].as_str())
+        .collect::<HashSet<_>>();
     for outcome in &mut collection_outcomes {
         let kind = outcome["kind"].as_str().unwrap_or_default();
         let section = match kind {
@@ -824,8 +828,12 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             "shared-library" => Some(PackageSection::SharedLibraries),
             _ => None,
         };
+        let source_excluded = outcome["sourceId"]
+            .as_str()
+            .is_some_and(|source_id| !included_source_ids.contains(source_id));
         let excluded = section.is_some_and(|section| !selection.includes(section))
-            || (kind == "plugin-inventory" && !selection.includes(PackageSection::Plugins));
+            || (kind == "plugin-inventory" && !selection.includes(PackageSection::Plugins))
+            || source_excluded;
         if excluded {
             outcome["status"] = json!("skipped-by-profile");
             if let Some(fields) = outcome.as_object_mut() {
