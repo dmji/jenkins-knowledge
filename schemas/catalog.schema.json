@@ -357,6 +357,7 @@
           "type": "string"
         },
         "typeName": {"type": "string"},
+        "depth": {"type": "integer", "minimum": 0, "maximum": 1},
         "readable": {"type": "boolean"},
         "writable": {"type": "boolean"},
         "modifiers": {"type": "string"},
