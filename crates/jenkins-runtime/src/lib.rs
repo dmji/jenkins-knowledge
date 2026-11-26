@@ -15,6 +15,7 @@ pub mod groovy;
 
 pub const DEFAULT_SEARCH_LIMIT: usize = 50;
 pub const MAX_SEARCH_RESULTS: usize = 100;
+pub const MAX_SEARCH_OFFSET: usize = 10_000;
 const MAX_MANIFEST_BYTES: u64 = 1_048_576;
 const MAX_CHECKSUM_ENTRIES: usize = 10_000;
 const MAX_PACKAGE_FILE_BYTES: u64 = 67_108_864;
@@ -31,6 +32,9 @@ pub struct SearchOptions {
     pub owner: Option<String>,
     pub type_name: Option<String>,
     pub confidence: Option<String>,
+    pub prefix: Option<String>,
+    pub contexts: Option<Vec<String>>,
+    pub kinds: Option<Vec<String>>,
     pub limit: usize,
 }
 
@@ -44,9 +48,21 @@ impl Default for SearchOptions {
             owner: None,
             type_name: None,
             confidence: None,
+            prefix: None,
+            contexts: None,
+            kinds: None,
             limit: DEFAULT_SEARCH_LIMIT,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchPage {
+    pub offset: usize,
+    pub limit: usize,
+    pub total: usize,
+    pub has_more: bool,
+    pub results: Vec<Value>,
 }
 
 #[derive(Debug)]
@@ -269,9 +285,19 @@ impl Runtime {
     }
 
     pub fn search_with_options(&self, options: &SearchOptions) -> Vec<Value> {
+        self.search_page(options, 0).expect("zero offset is always valid").results
+    }
+
+    pub fn search_page(&self, options: &SearchOptions, offset: usize) -> Result<SearchPage, RuntimeError> {
+        if offset > MAX_SEARCH_OFFSET {
+            return Err(RuntimeError(format!("search offset exceeds limit ({MAX_SEARCH_OFFSET})")));
+        }
         let query = options.query.to_lowercase();
+        let prefix = options.prefix.as_deref().map(str::to_lowercase);
         let limit = options.limit.clamp(1, MAX_SEARCH_RESULTS);
-        let mut best = BinaryHeap::<(String, String, usize)>::with_capacity(limit);
+        let selection_limit = offset + limit;
+        let mut best = BinaryHeap::<(String, String, usize)>::with_capacity(selection_limit);
+        let mut total = 0usize;
 
         for (index, symbol) in self.symbols().iter().enumerate() {
             let source_id = symbol["sourceId"].as_str().unwrap_or_default();
@@ -296,9 +322,26 @@ impl Runtime {
                     .filter_map(|key| symbol.get(key).and_then(Value::as_str))
                     .any(|value| value == type_name || value.contains(type_name))
             });
+            let matches_prefix = prefix.as_deref().is_none_or(|prefix| {
+                symbol["name"].as_str().unwrap_or_default().to_lowercase().starts_with(prefix)
+            });
+            let matches_context = options.contexts.as_ref().is_none_or(|contexts| {
+                let declared = symbol["contexts"].as_array();
+                let execution = symbol["executionConstraints"]["contexts"].as_array();
+                contexts.iter().any(|context| {
+                    declared.is_some_and(|values| values.iter().any(|value| value.as_str() == Some(context)))
+                        || execution.is_some_and(|values| values.iter().any(|value| value.as_str() == Some(context)))
+                })
+            });
+            let matches_kind = options.kinds.as_ref().is_none_or(|kinds| {
+                kinds.iter().any(|kind| symbol["kind"].as_str() == Some(kind))
+            });
             let matches = (query.is_empty() || ["name", "description", "signature", "namespace", "returnType"]
                 .iter().filter_map(|key| symbol.get(key).and_then(Value::as_str))
                 .any(|value| value.to_lowercase().contains(&query)))
+                && matches_prefix
+                && matches_context
+                && matches_kind
                 && options.kind.as_deref().is_none_or(|value| symbol["kind"].as_str() == Some(value))
                 && options.source.as_deref().is_none_or(|value| source_id == value)
                 && matches_plugin
@@ -307,12 +350,13 @@ impl Runtime {
                 && options.confidence.as_deref().is_none_or(|value| symbol["confidence"].as_str() == Some(value));
 
             if matches {
+                total += 1;
                 let key = (
                     symbol["name"].as_str().unwrap_or_default().to_owned(),
                     symbol["id"].as_str().unwrap_or_default().to_owned(),
                     index,
                 );
-                if best.len() < limit {
+                if best.len() < selection_limit {
                     best.push(key);
                 } else if best.peek().is_some_and(|largest| key < *largest) {
                     best.pop();
@@ -323,9 +367,17 @@ impl Runtime {
 
         let mut selected = best.into_vec();
         selected.sort_unstable();
-        selected.into_iter()
+        let results: Vec<_> = selected.into_iter().skip(offset)
             .map(|(_, _, index)| self.enrich(&self.symbols()[index]))
-            .collect()
+            .collect();
+        let returned = results.len();
+        Ok(SearchPage {
+            offset,
+            limit,
+            total,
+            has_more: total > offset.saturating_add(returned),
+            results,
+        })
     }
 
     pub fn coverage(&self) -> &[Value] {
