@@ -738,9 +738,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             "shared-library" => Some(PackageSection::SharedLibraries),
             _ => None,
         };
-        if section.is_some_and(|section| !selection.includes(section))
-            && matches!(outcome["status"].as_str(), Some("succeeded" | "succeeded-with-truncation"))
-        {
+        if section.is_some_and(|section| !selection.includes(section)) {
             outcome["status"] = json!("skipped-by-profile");
             if let Some(fields) = outcome.as_object_mut() {
                 fields.remove("sourceId");
