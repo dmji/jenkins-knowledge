@@ -1324,6 +1324,20 @@ mod tests {
     }
 
     #[test]
+    fn unqualified_plugin_inventory_is_partial_not_complete() {
+        let mut catalog: Value =
+            serde_json::from_str(include_str!("../../../tests/fixtures/catalog-valid.json"))
+                .unwrap();
+        let manifest = json!({"profile":"test"});
+        let runtime = Runtime::from_validated_parts(manifest.clone(), catalog.clone());
+        assert_eq!(runtime.plugin_inventory_status(), "partial");
+
+        catalog["controller"]["plugins"] = json!([]);
+        let runtime = Runtime::from_validated_parts(manifest, catalog);
+        assert_eq!(runtime.plugin_inventory_status(), "unknown");
+    }
+
+    #[test]
     fn compatibility_report_keeps_comparison_unknown_without_target_metadata() {
         let report = runtime().compatibility_report(None);
         assert_eq!(report["status"], "unknown");
