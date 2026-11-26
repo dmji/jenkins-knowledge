@@ -751,7 +751,7 @@ mod tests {
     stages {
         stage('real') {
             steps {
-                def slashy = /script { } stage('fake') { } \/ and // text/
+                def slashy = /script { } stage('fake') { } \/ and \\/\\/ text/
                 def dollar = $/post { } pipeline { } escaped $/ slash and $$ sign /$
                 def interpolated = "value @@INTERP@@ [script: { steps { } }] }"
                 sh
