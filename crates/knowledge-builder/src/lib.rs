@@ -1316,6 +1316,8 @@ mod tests {
         assert_ne!(symbols[1]["id"], symbols[2]["id"]);
         assert_eq!(symbols[2]["parameters"][0]["namePresent"], true);
         assert_eq!(symbols[3]["confidence"], "unknown");
+        assert_eq!(symbols[3]["typeStatus"], "partial");
+        assert_eq!(symbols[3]["membersStatus"], "inaccessible");
     }
 
     #[test]
