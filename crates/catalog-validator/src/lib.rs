@@ -63,7 +63,8 @@ pub fn stamp_catalog_identity(catalog: &mut Value) -> Result<(), String> {
             source["fingerprint"] = Value::String(fingerprint);
         }
     }
-    catalog["snapshotId"] = Value::String(catalog_snapshot_id(catalog)?);
+    let snapshot_id = catalog_snapshot_id(catalog)?;
+    catalog["snapshotId"] = Value::String(snapshot_id);
     Ok(())
 }
 
