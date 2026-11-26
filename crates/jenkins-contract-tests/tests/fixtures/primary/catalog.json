@@ -337,6 +337,9 @@
           "location": "script-console/api-types/hudson.model.Run",
           "sourceKind": "jenkins-controller"
         }
+      ],
+      "documentationPaths": [
+        "help/Run.html"
       ]
     },
     {
@@ -575,7 +578,10 @@
             }
           ],
           "methodsTruncated": false,
-          "propertiesTruncated": false
+          "propertiesTruncated": false,
+          "documentationPaths": [
+            "help/Run.html"
+          ]
         }
       ]
     }
