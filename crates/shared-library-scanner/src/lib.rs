@@ -608,9 +608,6 @@ fn read_adjacent_documentation(groovy_file: &Path, relative_path: &str) -> Resul
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err(ScanError::Io(format!("cannot inspect adjacent documentation for {relative_path}"))),
     };
-    if metadata.len() > 1_048_576 {
-        return Err(ScanError::Io("adjacent documentation exceeds 1048576 bytes".into()));
-    }
     match fs::read_to_string(&documentation_file) {
         Ok(content) => {
             let content = content.trim();
