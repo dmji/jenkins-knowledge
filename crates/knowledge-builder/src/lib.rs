@@ -632,10 +632,11 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 }
             }
             if profile.collection_profile == "deep" && controller_metadata_available {
-                let mut runtime_record = jenkins_gdsl_collector::collect_script_console(
+                let mut runtime_record = jenkins_gdsl_collector::collect_script_console_with_roots(
                     &controller.url,
                     username.as_deref(),
                     api_token.as_deref(),
+                    &controller.api_roots,
                 );
                 redact_sensitive_fields(&mut runtime_record);
                 let runtime_status = runtime_record["status"].as_str().unwrap_or("unavailable");
