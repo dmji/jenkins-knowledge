@@ -703,4 +703,59 @@ mod tests {
         assert!(validate_package_metadata(&catalog, &manifest).is_ok());
     }
 
+    #[test]
+    fn rejects_field_evidence_for_unknown_schema_attributes() {
+        let mut invalid = valid_catalog();
+        invalid["symbols"][0]["fieldEvidence"] = json!({"madeUpField":"verified"});
+        let error = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        assert!(error.contains("/symbols/0/fieldEvidence/madeUpField"));
+        assert!(error.contains("not a schema-defined symbol attribute"));
+    }
+
+    #[test]
+    fn rejects_field_evidence_for_attributes_absent_from_the_symbol() {
+        let mut invalid = valid_catalog();
+        invalid["symbols"][0]["fieldEvidence"] = json!({"examples":"verified"});
+        let error = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        assert!(error.contains("/symbols/0/fieldEvidence/examples"));
+        assert!(error.contains("field is absent"));
+    }
+
+    #[test]
+    fn enforces_evidence_kind_and_source_kind_compatibility() {
+        let mut valid = valid_catalog();
+        valid["symbols"][0]["evidence"][0]["sourceId"] = json!("platform-lib");
+        valid["symbols"][0]["evidence"][0]["kind"] = json!("source-scanned");
+        assert!(validate_catalog(&valid, &schema()).is_ok());
+
+        let mut invalid = valid_catalog();
+        invalid["symbols"][0]["evidence"][0]["sourceId"] = json!("platform-lib");
+        let error = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        assert!(error.contains("/symbols/0/evidence/0/kind"));
+        assert!(error.contains("incompatible with source 'platform-lib' of kind 'shared-library'"));
+    }
+
+    #[test]
+    fn rejects_coverage_claims_contradicted_by_catalog_records() {
+        let mut invalid = valid_catalog();
+        invalid["coverage"] = json!([{
+            "sourceId":"controller",
+            "surface":"pipeline-steps",
+            "status":"not-collected"
+        }]);
+        let error = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        assert!(error.contains("/coverage/0"));
+        assert!(error.contains("contradicts symbol /symbols/0"));
+    }
+
+    #[test]
+    fn allows_empty_inspected_surfaces_and_unknown_forward_compatible_surfaces() {
+        let mut catalog = valid_catalog();
+        catalog["coverage"] = json!([
+            {"sourceId":"platform-lib","surface":"shared-library-vars","status":"inspected"},
+            {"sourceId":"controller","surface":"future-surface-v2","status":"unavailable"}
+        ]);
+        assert!(validate_catalog(&catalog, &schema()).is_ok());
+    }
+
 }
