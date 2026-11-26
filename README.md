@@ -41,7 +41,7 @@ The root Cargo workspace includes all seven Rust crates. The pinned stable toolc
 
 ## Development environment
 
-Open the repository in VS Code and choose **Reopen in Container**. The Dev Container provides Rust, Node.js 20, Git, and access to the host Docker engine. Its post-create step installs the VS Code extension dependencies.
+Open the repository in VS Code and choose **Reopen in Container**. The Dev Container provides Rust 1.100.0, Node.js 26.13.1 (npm 11.20.0), Git, and access to the host Docker engine. Its post-create step installs the VS Code extension dependencies.
 
 Run the complete local validation from the repository root:
 
@@ -55,9 +55,21 @@ Individual workspace commands:
 
 ```sh
 cargo fmt --all -- --check
-cargo test --workspace --all-targets
-cargo clippy --workspace --all-targets -- -D warnings
+cargo --locked test --workspace --all-targets
+cargo --locked clippy --workspace --all-targets -- -D warnings
 ```
+
+## Reproducible dependencies and lockfile policy
+
+The repository commits the workspace `Cargo.lock` and VS Code `editors/vscode/package-lock.json`. CI and the Dev Container install the exact locked dependency graph (`cargo --locked` and `npm ci`); validation must not create, rewrite, or silently commit lockfiles.
+
+Use the explicit refresh command when intentionally updating dependency resolution:
+
+```sh
+sh scripts/refresh-lockfiles.sh
+```
+
+Review both lockfile diffs with the manifest changes, then run the full validation before opening a dependency-update PR. Dependabot checks Cargo, npm, and GitHub Actions weekly. Workflow actions are pinned to immutable upstream commit SHAs with their release tags recorded as comments. The Rust compiler and Node/npm versions are pinned in `rust-toolchain.toml` and the workflow/Dev Container configuration.
 
 ## Catalog contract and validation
 
