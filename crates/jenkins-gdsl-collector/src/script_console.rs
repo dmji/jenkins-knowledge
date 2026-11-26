@@ -15,9 +15,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_SCRIPT_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_ITEMS_PER_REGISTRY: usize = 100;
+const MAX_PARAMETERS_PER_STEP: usize = 32;
+const MAX_REQUIRED_CONTEXT_ITEMS: usize = 32;
 const MAX_TEXT_LENGTH: usize = 256;
-const TEMPLATE_VERSION: &str = "1";
-const SCRIPT_TEMPLATE: &str = include_str!("probes/script_console_v1.groovy");
+const TEMPLATE_VERSION: &str = "2";
+const SCRIPT_TEMPLATE: &str = include_str!("probes/script_console_v2.groovy");
 
 /// Describe every network operation in the deep profile without contacting Jenkins.
 pub fn script_console_plan() -> Value {
@@ -58,7 +60,7 @@ pub fn script_console_plan() -> Value {
                 "method": "POST",
                 "path": "/scriptText",
                 "formFields": ["script"],
-                "probeTemplate": "src/probes/script_console_v1.groovy",
+                "probeTemplate": "src/probes/script_console_v2.groovy",
                 "templateVersion": TEMPLATE_VERSION,
                 "requestCount": 1,
                 "purpose": "read-only Groovy/JVM/Core metadata and selected extension registries",
@@ -73,6 +75,8 @@ pub fn script_console_plan() -> Value {
             "readOnly": true,
             "registries": ["pipeline-steps", "pipeline-globals"],
             "maxItemsPerRegistry": MAX_ITEMS_PER_REGISTRY,
+            "maxParametersPerStep": MAX_PARAMETERS_PER_STEP,
+            "maxRequiredContextItems": MAX_REQUIRED_CONTEXT_ITEMS,
             "maxTextLength": MAX_TEXT_LENGTH,
             "maxResponseBytes": MAX_SCRIPT_RESPONSE_BYTES,
             "clientTimeoutSeconds": REQUEST_TIMEOUT.as_secs(),
@@ -260,9 +264,19 @@ fn normalize_probe_output(value: &Value) -> Value {
         }
     }
 
+    let item_metadata_complete = registry_results
+        .iter()
+        .find(|registry| registry["name"] == "pipeline-steps")
+        .and_then(|registry| registry["items"].as_array())
+        .is_some_and(|items| {
+            items
+                .iter()
+                .all(|item| item["parametersStatus"] == "available")
+        });
     let status = if metadata_count == metadata_fields.len()
         && available_registries == 2
         && errors.is_empty()
+        && item_metadata_complete
     {
         "collected"
     } else if metadata_count > 0 || available_registries > 0 {
@@ -298,6 +312,7 @@ fn normalize_registry(
     };
     let mut items = Vec::new();
     let raw_items = raw.get("items").and_then(Value::as_array);
+    let mut truncated = raw.get("truncated").and_then(Value::as_bool).unwrap_or(false);
     if let Some(raw_items) = raw_items {
         for item in raw_items.iter().take(MAX_ITEMS_PER_REGISTRY) {
             let Some(item_name) = item
@@ -318,19 +333,113 @@ fn normalize_registry(
                 "name": truncate(item_name),
                 "className": truncate(class_name)
             });
-            if let Some(plugin) = item
-                .get("plugin")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-            {
-                normalized["plugin"] = json!(truncate(plugin));
+            for field in [
+                "plugin",
+                "implementationClass",
+                "displayName",
+                "description",
+                "metaStepArgumentType",
+            ] {
+                if let Some(value) = item
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    normalized[field] = json!(truncate(value));
+                }
+            }
+            for field in [
+                "takesImplicitBlockArgument",
+                "isAdvanced",
+                "isMetaStep",
+            ] {
+                if let Some(value) = item.get(field).and_then(Value::as_bool) {
+                    normalized[field] = json!(value);
+                }
+            }
+            if name == "pipeline-steps" {
+                let parameters_status = match item.get("parametersStatus").and_then(Value::as_str) {
+                    Some("available") => "available",
+                    Some("unavailable") => "unavailable",
+                    _ => "unknown",
+                };
+                normalized["parametersStatus"] = json!(parameters_status);
+                if let Some(raw_parameters) = item.get("parameters").and_then(Value::as_array) {
+                    let mut parameters = Vec::new();
+                    for parameter in raw_parameters.iter().take(MAX_PARAMETERS_PER_STEP) {
+                        let Some(parameter_name) = parameter
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .filter(|value| !value.trim().is_empty())
+                        else {
+                            continue;
+                        };
+                        let mut normalized_parameter = json!({
+                            "name": truncate(parameter_name)
+                        });
+                        for field in ["type", "description"] {
+                            if let Some(value) = parameter
+                                .get(field)
+                                .and_then(Value::as_str)
+                                .filter(|value| !value.trim().is_empty())
+                            {
+                                normalized_parameter[field] = json!(truncate(value));
+                            }
+                        }
+                        for field in ["required", "deprecated"] {
+                            if let Some(value) = parameter.get(field).and_then(Value::as_bool) {
+                                normalized_parameter[field] = json!(value);
+                            }
+                        }
+                        if let Some(value) = parameter
+                            .get("defaultValueStatus")
+                            .and_then(Value::as_str)
+                            .filter(|value| {
+                                matches!(value, "available" | "not-exposed" | "unknown")
+                            })
+                        {
+                            normalized_parameter["defaultValueStatus"] = json!(value);
+                        }
+                        parameters.push(normalized_parameter);
+                    }
+                    if raw_parameters.len() > MAX_PARAMETERS_PER_STEP {
+                        truncated = true;
+                    }
+                    normalized["parameters"] = json!(parameters);
+                } else if parameters_status == "available" {
+                    normalized["parametersStatus"] = json!("unknown");
+                }
+            }
+            if let Some(contexts) = item.get("requiredContext").and_then(Value::as_array) {
+                let mut normalized_contexts = contexts
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .take(MAX_REQUIRED_CONTEXT_ITEMS)
+                    .map(truncate)
+                    .collect::<Vec<_>>();
+                normalized_contexts.sort();
+                normalized_contexts.dedup();
+                if contexts.len() > MAX_REQUIRED_CONTEXT_ITEMS {
+                    truncated = true;
+                }
+                normalized["requiredContext"] = json!(normalized_contexts);
+            }
+            for (field, allowed) in [("typeStatus", &["available", "not-exposed", "unknown"][..])] {
+                if let Some(value) = item
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .filter(|value| allowed.contains(value))
+                {
+                    normalized[field] = json!(value);
+                }
             }
             items.push(normalized);
         }
+        if raw_items.len() > MAX_ITEMS_PER_REGISTRY {
+            truncated = true;
+        }
     }
-    let truncated = raw.get("truncated").and_then(Value::as_bool).unwrap_or(false)
-        || raw_items.is_some_and(|items| items.len() > MAX_ITEMS_PER_REGISTRY);
-
     if status != "available" {
         let code = raw
             .get("errorCode")
