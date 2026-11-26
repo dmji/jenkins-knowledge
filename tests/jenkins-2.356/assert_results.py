@@ -87,6 +87,7 @@ plugins = deep["controller"]["plugins"]
 plugin_by_name = {plugin["shortName"]: plugin for plugin in plugins}
 missing = sorted(required_plugins - plugin_by_name.keys())
 assert not missing, f"missing required Jenkins plugins: {missing}"
+assert plugin_by_name["matrix-auth"]["version"] == "2.6.11"
 (ROOT / "plugin-inventory.json").write_text(
     json.dumps(plugins, indent=2, sort_keys=True) + "\n", encoding="utf-8"
 )
