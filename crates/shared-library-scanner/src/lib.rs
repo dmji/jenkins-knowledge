@@ -88,7 +88,7 @@ fn scan_checkout_with_limits(
     resolved_commit: &str,
     limits: ScanLimits,
 ) -> Result<ScanResult, ScanError> {
-    let source_identity = format!("{}\\n{}\\n{}", config.name, config.repository, config.reference);
+    let source_identity = format!("{}\n{}\n{}", config.name, config.repository, config.reference);
     let identity_hash = catalog_validator::sha256_hex(source_identity.as_bytes());
     let source_id = format!("shared-library:{}:{}", slug(&config.name), &identity_hash[7..23]);
     let mut symbols = Vec::new();
@@ -152,7 +152,7 @@ fn scan_checkout_with_limits(
     let generated_at = timestamp();
     let mut catalog = json!({
         "schemaVersion": "1.0.0",
-        "catalogId": format!("shared-library-{}-{}", slug(&config.name), slug(&config.reference)),
+        "catalogId": format!("shared-library-{}-{}", slug(&config.name), &identity_hash[7..23]),
         "generatedAt": generated_at,
         "sources": [{
             "id": source_id,
