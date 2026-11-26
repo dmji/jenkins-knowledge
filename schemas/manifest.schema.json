@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/jenkins-knowledge/manifest.schema.json",
+  "$id": "https://github.com/dmji/jenkins-knowledge/schemas/manifest.schema.json",
   "title": "Knowledge Package Manifest",
   "type": "object",
   "additionalProperties": false,
@@ -18,7 +18,8 @@
   "properties": {
     "packageVersion": {
       "type": "string",
-      "minLength": 1
+      "const": "1.0.0",
+      "description": "Knowledge Package/manifest format version. Runtime supports 1.0.0; incompatible format changes require a version bump."
     },
     "catalogSchemaVersion": {
       "type": "string",
