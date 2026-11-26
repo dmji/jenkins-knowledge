@@ -913,6 +913,38 @@ mod tests {
     }
 
     #[test]
+    fn missing_java_properties_do_not_degrade_a_successful_probe() {
+        let mut output = valid_probe_output();
+        output["javaVersion"] = Value::Null;
+        output["javaVendor"] = Value::Null;
+
+        let result = normalize_probe_output(&output);
+
+        assert_eq!(result["status"], "collected");
+        assert!(result.get("javaVersion").is_none());
+        assert!(result.get("javaVendor").is_none());
+        assert!(result["errors"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn java_property_probe_errors_remain_field_local() {
+        let mut output = valid_probe_output();
+        output["javaVersion"] = Value::Null;
+        output["errors"] = json!([{
+            "probe": "java-version",
+            "code": "probe-failed"
+        }]);
+
+        let result = normalize_probe_output(&output);
+
+        assert_eq!(result["status"], "collected");
+        assert!(result.get("javaVersion").is_none());
+        assert_eq!(result["javaVendor"], "Eclipse Adoptium");
+        assert_eq!(result["errors"][0]["probe"], "java-version");
+        assert_eq!(result["errors"][0]["code"], "probe-failed");
+    }
+
+    #[test]
     fn normalizes_bounded_step_parameters_and_ignores_non_scalar_defaults() {
         let mut output = valid_probe_output();
         output["extensionRegistries"][0]["items"][0]["displayName"] = json!("Shell");
