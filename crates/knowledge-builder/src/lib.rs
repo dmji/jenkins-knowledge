@@ -183,7 +183,7 @@ fn valid_api_class_name(value: &str) -> bool {
         for (root_index, root) in controller.api_roots.iter().enumerate() {
             if !valid_api_class_name(root) {
                 return Err(BuildError::Profile(format!(
-                    "jenkins.controllers[{index}].apiRoots[{root_index}]: expected a fully-qualified Java class name"
+                    "jenkins.controllers[{index}].apiRoots[{root_index}]: expected a fully-qualified Jenkins/plugin Java class name"
                 )));
             }
             if !api_roots.insert(root) {
@@ -1335,6 +1335,16 @@ mod tests {
     }
 
     #[test]
+    fn validates_explicit_api_roots_as_bounded_class_names() {
+        assert!(valid_api_class_name("hudson.model.Run"));
+        assert!(valid_api_class_name("org.example.Outer$Inner"));
+        assert!(!valid_api_class_name("java.lang.String;System.exit(0)"));
+        assert!(!valid_api_class_name("java.lang.String/../../etc/passwd"));
+        assert!(!valid_api_class_name("groovy.lang.Closure"));
+        assert!(!valid_api_class_name("java.lang.String "));
+    }
+
+    #[test]
     fn emits_bounded_class_method_and_property_symbols() {
         let runtime = json!({
             "collectedAt": "2026-11-26T00:00:00Z",
@@ -1345,6 +1355,7 @@ mod tests {
                 "rootCategories": ["configured"],
                 "status": "available",
                 "synthetic": false,
+                "dynamic": false,
                 "superClass": "hudson.model.AbstractBuild",
                 "interfaces": ["hudson.model.Queue$Executable"],
                 "plugin": "jenkins-core",
@@ -1394,7 +1405,9 @@ mod tests {
                     "readType": "int",
                     "accessors": ["getNumber"],
                     "confidence": "inferred"
-                }]
+                }],
+                "methodsTruncated": false,
+                "propertiesTruncated": false
             },{
                 "name": "hudson.model.AbstractBuild",
                 "className": "hudson.model.AbstractBuild",
@@ -1425,16 +1438,6 @@ mod tests {
         assert_eq!(symbols[2]["genericReturnType"], "java.util.List<java.lang.String>");
         assert_ne!(symbols[1]["id"], symbols[2]["id"]);
         assert_eq!(symbols[3]["confidence"], "unknown");
-    }
-
-    #[test]
-    fn validates_explicit_api_roots_as_bounded_class_names() {
-        assert!(valid_api_class_name("hudson.model.Run"));
-        assert!(valid_api_class_name("org.example.Outer$Inner"));
-        assert!(!valid_api_class_name("java.lang.String;System.exit(0)"));
-        assert!(!valid_api_class_name("java.lang.String/../../etc/passwd"));
-        assert!(!valid_api_class_name("groovy.lang.Closure"));
-        assert!(!valid_api_class_name("java.lang.String "));
     }
 
     #[test]
@@ -1903,7 +1906,7 @@ fixtures:
         for (root_index, root) in controller.api_roots.iter().enumerate() {
             if !valid_api_class_name(root) {
                 return Err(BuildError::Profile(format!(
-                    "jenkins.controllers[{index}].apiRoots[{root_index}]: expected a fully-qualified Java class name"
+                    "jenkins.controllers[{index}].apiRoots[{root_index}]: expected a fully-qualified Jenkins/plugin Java class name"
                 )));
             }
             if !api_roots.insert(root) {
@@ -3340,7 +3343,7 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
         for (root_index, root) in controller.api_roots.iter().enumerate() {
             if !valid_api_class_name(root) {
                 return Err(BuildError::Profile(format!(
-                    "jenkins.controllers[{index}].apiRoots[{root_index}]: expected a fully-qualified Java class name"
+                    "jenkins.controllers[{index}].apiRoots[{root_index}]: expected a fully-qualified Jenkins/plugin Java class name"
                 )));
             }
             if !api_roots.insert(root) {
