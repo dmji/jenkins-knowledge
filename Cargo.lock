@@ -671,6 +671,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "jenkins-contract-tests"
+version = "0.1.0"
+dependencies = [
+ "jenkins-runtime",
+ "knowledge-builder",
+ "lsp-server",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "jenkins-lsp"
 version = "0.1.0"
 dependencies = [
