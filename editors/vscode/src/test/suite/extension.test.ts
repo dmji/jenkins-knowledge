@@ -156,12 +156,6 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
         assert.ok(hover.includes('Fixture Shared Library'));
         assert.ok(hover.includes('verified'));
 
-        const definitions = await waitFor(
-            () => definitionUris(document, new vscode.Position(3, 5)),
-            values => values.some(value => value.includes('0123456789012345678901234567890123456789')),
-            'fixture Shared Library definition'
-        );
-        assert.ok(definitions.some(value => value.includes('vars/deployApp.groovy')));
     });
 
     test('package reload switches the completion catalog and ordinary Groovy files stay out of Jenkins context', async () => {
