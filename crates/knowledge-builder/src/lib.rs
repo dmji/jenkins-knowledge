@@ -699,6 +699,9 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 let local_id = symbol["id"].as_str().unwrap_or("unknown").to_owned();
                 symbol["id"] = json!(format!("{source_id}:{local_id}"));
             }
+            if let Some(runtime) = catalog.get("controller").and_then(|value| value.get("runtime")) {
+                model_symbols.extend(declarative_model::runtime_symbols(runtime, &source_id));
+            }
             let model_catalog = json!({
                 "schemaVersion":"1.0.0","catalogId":source_id,"generatedAt":build_timestamp(),
                 "sources":[{"id":source_id,"kind":"jenkins-controller","name":format!("Declarative Pipeline model ({})", controller.id),"revision":"model-v1"}],
