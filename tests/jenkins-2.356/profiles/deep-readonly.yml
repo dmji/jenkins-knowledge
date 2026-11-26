@@ -1,0 +1,6 @@
+profile: jenkins-2356-deep-readonly
+collectionProfile: deep
+jenkins:
+  controllers:
+    - id: jenkins-2356
+      url: http://127.0.0.1:18080/

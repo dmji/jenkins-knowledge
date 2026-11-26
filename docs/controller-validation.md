@@ -1,6 +1,6 @@
 # Controller discovery validation
 
-This procedure separates offline CI evidence from an administrator-run smoke test. CI never contacts Jenkins, Git remotes, or Script Console. A live smoke test is optional and must use a disposable or explicitly approved controller.
+This procedure separates offline contract evidence, the pinned live integration target, and an administrator-run smoke test. Fixture/contract CI does not contact an external Jenkins or Git remote. A dedicated CI job starts only the disposable, loopback-bound Jenkins 2.356 container documented in [the integration target](../tests/jenkins-2.356/README.md); it exercises the real HTTP, Git, and Script Console paths. No customer controller is contacted by CI. A separate live smoke test remains optional and must use a disposable or explicitly approved controller.
 
 ## Collection plan before a live run
 
@@ -62,6 +62,8 @@ The sanitized primary fixture used by the cross-component contract test contains
 Confidence distribution: 11 verified, 2 inferred, 2 unknown. Sources cover one controller snapshot, two plugin sources, a Declarative model, Jenkins Core, and a Shared Library. The fixture deliberately represents incomplete collection: plugin inventory permission denied, GDSL truncated, Script Console unavailable, and Shared Library scan failed. These outcomes remain visible; the fixture is not evidence of a successful live-controller run.
 
 CI builds fixture packages for `quick`, `standard`, and `deep`, then validates the selected package through Runtime. A separate cross-component test exercises LSP and MCP against the deep fixture, including completion, hover, the verified unavailable-plugin diagnostic, collection status, symbol provenance, controller inventory, and profile isolation. A loopback listener verifies that Builder fixture builds and Runtime/LSP/MCP consumption do not contact a controller.
+
+The separate `Jenkins 2.356 integration` Actions job runs the same three collection profiles against the digest-pinned `jenkins/jenkins:2.356-jdk17` image. It uses an ephemeral Matrix Authorization Strategy setup to verify Quick/Standard with `Overall/Read`, Deep with `Overall/Administer`, and Deep denial with the read-only account. It checks Core version, Java 17 metadata, plugin inventory, GDSL, a Shared Library pinned to a fixed commit, a deliberately unavailable Git revision, and profile-specific Script Console outcomes. Sanitized catalogs/manifests and the exact plugin inventory are uploaded as a workflow artifact. See [tests/jenkins-2.356](../tests/jenkins-2.356/README.md) for the pins and local reproduction command.
 
 ## Coverage boundaries and known gaps
 
