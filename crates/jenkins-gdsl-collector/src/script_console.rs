@@ -682,18 +682,18 @@ mod tests {
             let (mut stream, _) = listener.accept().unwrap();
             let _ = read_request(&mut stream);
             let _ = stream.write_all(
-                b"HTTP/1.1 200 OK\\r\\nTransfer-Encoding: chunked\\r\\nConnection: close\\r\\n\\r\\n",
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
             );
             for chunk in body.chunks(8192) {
-                let size = format!("{:X}\\r\\n", chunk.len());
+                let size = format!("{:X}\r\n", chunk.len());
                 if stream.write_all(size.as_bytes()).is_err()
                     || stream.write_all(chunk).is_err()
-                    || stream.write_all(b"\\r\\n").is_err()
+                    || stream.write_all(b"\r\n").is_err()
                 {
                     return;
                 }
             }
-            let _ = stream.write_all(b"0\\r\\n\\r\\n");
+            let _ = stream.write_all(b"0\r\n\r\n");
         });
         let endpoint = script_console_endpoint(&format!("http://{address}/jenkins")).unwrap();
         let result = collect_with_client(&endpoint, None, None, &test_client());
