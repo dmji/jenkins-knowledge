@@ -2,11 +2,12 @@ use catalog_validator::{redact_sensitive_fields, validate_catalog, validate_pack
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, env, fs, path::Path};
+use std::{collections::{BTreeMap, BTreeSet, HashSet}, env, fs, path::Path};
 
 mod source_security;
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Profile {
     pub profile: String,
     #[serde(default)]
@@ -18,14 +19,222 @@ pub struct Profile {
     #[serde(default)]
     pub package: PackageConfig,
 }
+
 #[derive(Debug, Default, Deserialize)]
-pub struct JenkinsConfig { #[serde(default)] pub controllers: Vec<ControllerConfig> }
+#[serde(deny_unknown_fields)]
+pub struct JenkinsConfig {
+    #[serde(default)]
+    pub controllers: Vec<ControllerConfig>,
+}
+
 #[derive(Debug, Deserialize)]
-pub struct ControllerConfig { pub id: String, pub url: String }
+#[serde(deny_unknown_fields)]
+pub struct ControllerConfig {
+    pub id: String,
+    pub url: String,
+}
+
 #[derive(Debug, Deserialize)]
-pub struct LibraryConfig { pub name: String, pub url: String, pub revision: String, pub commit: Option<String> }
+#[serde(deny_unknown_fields)]
+pub struct LibraryConfig {
+    pub name: String,
+    pub url: String,
+    pub revision: String,
+    pub commit: Option<String>,
+}
+
 #[derive(Debug, Default, Deserialize)]
-pub struct PackageConfig { pub id: Option<String>, #[serde(default)] pub include: Vec<String> }
+#[serde(deny_unknown_fields)]
+pub struct PackageConfig {
+    pub id: Option<String>,
+    pub include: Option<Vec<PackageSection>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PackageSection {
+    JenkinsCore,
+    Controller,
+    Plugins,
+    SharedLibraries,
+}
+
+impl PackageSection {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::JenkinsCore => "jenkins-core",
+            Self::Controller => "controller",
+            Self::Plugins => "plugins",
+            Self::SharedLibraries => "shared-libraries",
+        }
+    }
+
+    fn for_source_kind(kind: &str) -> Option<Self> {
+        match kind {
+            "jenkins-core" => Some(Self::JenkinsCore),
+            "jenkins-controller" => Some(Self::Controller),
+            "plugin" => Some(Self::Plugins),
+            "shared-library" => Some(Self::SharedLibraries),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct PackageSelection {
+    included: BTreeSet<PackageSection>,
+    explicit: bool,
+}
+
+impl PackageSelection {
+    fn includes(&self, section: PackageSection) -> bool {
+        self.included.contains(&section)
+    }
+}
+
+fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
+    if profile.profile.trim().is_empty() || profile.profile.trim() != profile.profile {
+        return Err(BuildError::Profile(
+            "profile: identity must be non-empty and have no surrounding whitespace".into(),
+        ));
+    }
+    if profile.package.id.as_ref().is_some_and(|id| id.trim().is_empty() || id.trim() != id) {
+        return Err(BuildError::Profile(
+            "package.id: must be non-empty and have no surrounding whitespace when provided".into(),
+        ));
+    }
+
+    let fixtures_mode = !profile.fixtures.is_empty();
+    if fixtures_mode && (!profile.jenkins.controllers.is_empty() || !profile.libraries.is_empty()) {
+        return Err(BuildError::Profile(
+            "fixtures: offline fixture catalogs cannot be combined with live Jenkins controllers or Shared Libraries".into(),
+        ));
+    }
+    if !fixtures_mode && profile.jenkins.controllers.is_empty() && profile.libraries.is_empty() {
+        return Err(BuildError::Profile(
+            "configure at least one Jenkins controller, Shared Library, or fixture catalog".into(),
+        ));
+    }
+
+    let mut controller_ids = HashSet::new();
+    for (index, controller) in profile.jenkins.controllers.iter().enumerate() {
+        if controller.id.trim().is_empty() || controller.id.trim() != controller.id {
+            return Err(BuildError::Profile(format!(
+                "jenkins.controllers[{index}].id: must be non-empty and have no surrounding whitespace"
+            )));
+        }
+        if !controller_ids.insert(&controller.id) {
+            return Err(BuildError::Profile(format!(
+                "jenkins.controllers[{index}].id: duplicate controller id"
+            )));
+        }
+        source_security::validate_controller_url(&controller.url).map_err(|error| {
+            BuildError::Profile(format!("jenkins.controllers[{index}].url: {error}"))
+        })?;
+    }
+
+    let mut library_names = HashSet::new();
+    for (index, library) in profile.libraries.iter().enumerate() {
+        if library.name.trim().is_empty() || library.name.trim() != library.name {
+            return Err(BuildError::Profile(format!(
+                "libraries[{index}].name: must be non-empty and have no surrounding whitespace"
+            )));
+        }
+        if !library_names.insert(&library.name) {
+            return Err(BuildError::Profile(format!(
+                "libraries[{index}].name: duplicate Shared Library name"
+            )));
+        }
+        source_security::validate_git_url(&library.url).map_err(|error| {
+            BuildError::Profile(format!("libraries[{index}].url: {error}"))
+        })?;
+        source_security::validate_git_reference(&library.revision).map_err(|error| {
+            BuildError::Profile(format!("libraries[{index}].revision: {error}"))
+        })?;
+        if let Some(commit) = &library.commit {
+            if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(BuildError::Profile(format!(
+                    "libraries[{index}].commit: must be a full 40-character SHA"
+                )));
+            }
+            if library.revision.len() == 40
+                && library.revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+                && !library.revision.eq_ignore_ascii_case(commit)
+            {
+                return Err(BuildError::Profile(format!(
+                    "libraries[{index}].commit: conflicts with the full-SHA revision"
+                )));
+            }
+        }
+    }
+
+    let mut fixtures = HashSet::new();
+    for (index, fixture) in profile.fixtures.iter().enumerate() {
+        let path = Path::new(fixture);
+        let has_windows_prefix = fixture.as_bytes().get(1) == Some(&b':');
+        if fixture.trim().is_empty()
+            || fixture.trim() != fixture
+            || path.is_absolute()
+            || has_windows_prefix
+            || fixture.chars().any(char::is_control)
+        {
+            return Err(BuildError::Profile(format!(
+                "fixtures[{index}]: must be a non-empty relative path without control characters"
+            )));
+        }
+        if !fixtures.insert(fixture) {
+            return Err(BuildError::Profile(format!(
+                "fixtures[{index}]: duplicate fixture path"
+            )));
+        }
+    }
+
+    let all_sections = [
+        PackageSection::JenkinsCore,
+        PackageSection::Controller,
+        PackageSection::Plugins,
+        PackageSection::SharedLibraries,
+    ];
+    let (included, explicit) = match &profile.package.include {
+        None => (all_sections.into_iter().collect(), false),
+        Some(values) if values.is_empty() => {
+            return Err(BuildError::Profile(
+                "package.include: omit the field to include all sections; an explicit empty list is invalid".into(),
+            ));
+        }
+        Some(values) => {
+            let included: BTreeSet<_> = values.iter().copied().collect();
+            if included.len() != values.len() {
+                return Err(BuildError::Profile(
+                    "package.include: duplicate section selector".into(),
+                ));
+            }
+            if !fixtures_mode {
+                for section in &included {
+                    match section {
+                        PackageSection::JenkinsCore | PackageSection::Controller | PackageSection::Plugins
+                            if profile.jenkins.controllers.is_empty() =>
+                        {
+                            return Err(BuildError::Profile(format!(
+                                "package.include: '{}' requires at least one Jenkins controller",
+                                section.as_str()
+                            )));
+                        }
+                        PackageSection::SharedLibraries if profile.libraries.is_empty() => {
+                            return Err(BuildError::Profile(
+                                "package.include: 'shared-libraries' requires at least one configured Shared Library".into(),
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            (included, true)
+        }
+    };
+
+    Ok(PackageSelection { included, explicit })
+}
 
 #[derive(Debug)]
 pub enum BuildError { Io(String), Profile(String), Source(String), InvalidCatalog(String), OutputExists(String) }
