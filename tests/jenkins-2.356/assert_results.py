@@ -96,6 +96,7 @@ deep_readonly, deep_readonly_manifest = assert_controller("deep-readonly", "deep
 assert deep_readonly["controller"]["collection"]["javaVersionStatus"] == "unavailable"
 assert deep_readonly["controller"]["collection"]["javaVendorStatus"] == "unavailable"
 assert outcome(deep_readonly_manifest, "script-console")["status"] == "permission-denied"
+assert deep_readonly_manifest["collection"]["status"] == "partial"
 
 summary = {
     "jenkinsCoreVersion": deep["controller"]["coreVersion"],
