@@ -222,6 +222,8 @@ fn canonicalize_arrays(value: &mut Value) {
                             item["sourceId"].as_str().unwrap_or_default().to_owned(),
                             item["kind"].as_str().unwrap_or_default().to_owned(),
                             item["provenance"].as_str().unwrap_or_default().to_owned(),
+                            item["revision"].as_str().unwrap_or_default().to_owned(),
+                            item["location"].as_str().unwrap_or_default().to_owned(),
                         )
                     }),
                     "extensionRegistries" => array
@@ -230,6 +232,7 @@ fn canonicalize_arrays(value: &mut Value) {
                         (
                             item["name"].as_str().unwrap_or_default().to_owned(),
                             item["className"].as_str().unwrap_or_default().to_owned(),
+                            item["plugin"].as_str().unwrap_or_default().to_owned(),
                         )
                     }),
                     _ => {}
