@@ -680,10 +680,8 @@ fn endpoint_for(controller: &str, suffix: &[&str]) -> Result<Url, DiscoveryError
 }
 
 fn stable_id(value: &str) -> String {
-    let hash = value.bytes().fold(2166136261_u32, |hash, byte| {
-        (hash ^ u32::from(byte)).wrapping_mul(16777619)
-    });
-    format!("{hash:08x}")
+    let digest = sha256_hex(value.as_bytes());
+    digest[7..23].to_owned()
 }
 
 fn timestamp() -> String {
