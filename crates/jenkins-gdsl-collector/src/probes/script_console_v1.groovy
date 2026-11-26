@@ -108,6 +108,12 @@ def appendDeclarativeItem = { registry, extension, category, suppliedName, nameK
     } catch (Throwable ignored) {
         // Display metadata is optional.
     }
+    try {
+        def documentationPath = safeText(extension.getHelpFile())
+        if (documentationPath != null) item.documentationPath = documentationPath
+    } catch (Throwable ignored) {
+        // Help metadata is optional across descriptor implementations.
+    }
     if (describableClass != null) {
         try {
             Class modelType = Class.forName(
@@ -349,6 +355,12 @@ registrySpecs.each { spec ->
                     // Display metadata is optional across Jenkins/plugin versions.
                 }
                 try {
+                    def documentationPath = safeText(extension.getHelpFile())
+                    if (documentationPath != null) item.documentationPath = documentationPath
+                } catch (Throwable ignored) {
+                    // Help metadata is optional across Jenkins/plugin versions.
+                }
+                try {
                     Class modelType = Class.forName(
                         'org.jenkinsci.plugins.structs.describable.DescribableModel',
                         false,
@@ -464,6 +476,7 @@ def isJenkinsApiClass = { Class type ->
 
 def collectApiTypes = {
     def roots = new TreeMap()
+    def rootDocumentation = new TreeMap()
     result.extensionRegistries.each { registry ->
         registry.items.each { item ->
             String className = item.className
@@ -471,6 +484,11 @@ def collectApiTypes = {
                 def categories = roots[className] ?: new TreeSet()
                 categories << registry.name + (item.category == null ? '' : ':' + item.category)
                 roots[className] = categories
+                if (item.documentationPath != null) {
+                    def docs = rootDocumentation[className] ?: new TreeSet()
+                    docs << item.documentationPath
+                    rootDocumentation[className] = docs
+                }
             }
         }
     }
@@ -482,7 +500,7 @@ def collectApiTypes = {
 
     def pending = []
     roots.each { className, categories ->
-        pending << [className: className, depth: 0, rootCategories: categories.toList()]
+        pending << [className: className, depth: 0, rootCategories: categories.toList(), documentationPaths: (rootDocumentation[className] ?: []).toList()]
     }
     def visited = new HashSet()
     int inspectedMembers = 0
@@ -561,6 +579,9 @@ def collectApiTypes = {
             typeItem.dynamic = false
         }
 
+        if (entry.documentationPaths != null && !entry.documentationPaths.isEmpty()) {
+            typeItem.documentationPaths = entry.documentationPaths.take(8)
+        }
         def methodMap = new TreeMap()
         try {
             (type.getMethods() as List).each { method ->
