@@ -1050,9 +1050,18 @@ mod tests {
         assert_eq!(value["metadata"]["safeLabel"], "preserved");
         assert_eq!(value["metadata"]["nested"][0]["description"], "safe");
         assert_eq!(value["headers"]["Content-Type"], "application/json");
-        assert_eq!(value["documentationUrl"], "https://docs.example.test/step#details");
-        assert_eq!(value["apiEndpoint"], "https://controller.example.test/api#details");
-        assert_eq!(value["privateDocumentationUrl"], "https://docs.example.test/page");
+        assert_eq!(
+            value["documentationUrl"],
+            "https://docs.example.test/step#details"
+        );
+        assert_eq!(
+            value["apiEndpoint"],
+            "https://controller.example.test/api#details"
+        );
+        assert_eq!(
+            value["privateDocumentationUrl"],
+            "https://docs.example.test/page"
+        );
         assert_eq!(
             value["repositoryUrl"],
             "github.example.test:team/library.git"
@@ -1095,7 +1104,9 @@ mod tests {
         invalid["sources"][0]["metadata"] = json!({
             "documentationUrl": "https://docs.example.test/page#access_token=do-not-echo"
         });
-        let errors = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        let errors = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(errors.contains("/sources/0/metadata/documentationUrl"));
         assert!(errors.contains("secret query parameters or fragments"));
         assert!(!errors.contains("do-not-echo"));
