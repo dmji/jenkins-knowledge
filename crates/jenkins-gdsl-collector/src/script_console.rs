@@ -946,6 +946,100 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_api_type_limits_and_explicit_unknown_member_states() {
+        let mut output = valid_probe_output();
+        let parameters: Vec<Value> = (0..25)
+            .map(|index| json!({
+                "name": format!("arg{index}"),
+                "type": "java.lang.String",
+                "namePresent": false,
+                "genericTypeStatus": "unresolved"
+            }))
+            .collect();
+        let methods: Vec<Value> = (0..15)
+            .map(|index| json!({
+                "name": "overloaded",
+                "declaringClass": "example.Api",
+                "signature": format!("overloaded({index}) -> java.lang.String"),
+                "returnType": "java.lang.String",
+                "synthetic": index == 14,
+                "bridge": false,
+                "varargs": false,
+                "parameters": parameters,
+                "parametersTruncated": true,
+                "genericReturnTypeStatus": "unresolved"
+            }))
+            .collect();
+        let properties: Vec<Value> = (0..25)
+            .map(|index| json!({
+                "name": format!("property{index}"),
+                "readType": "java.lang.String",
+                "accessors": ["getValue"],
+                "confidence": "inferred"
+            }))
+            .collect();
+        output["apiTypeInventoryStatus"] = json!("partial");
+        output["apiTypes"] = json!([{
+            "name": "example.Api",
+            "className": "example.Api",
+            "depth": 1,
+            "rootCategories": ["configured"],
+            "status": "partial",
+            "synthetic": false,
+            "dynamic": true,
+            "membersStatus": "inaccessible",
+            "interfaces": ["example.Interface"],
+            "methods": methods,
+            "properties": properties,
+            "methodsTruncated": true,
+            "propertiesTruncated": true
+        }]);
+        let result = normalize_probe_output(&output);
+        let api_type = &result["apiTypes"][0];
+        assert_eq!(api_type["status"], "partial");
+        assert_eq!(api_type["dynamic"], true);
+        assert_eq!(api_type["membersStatus"], "inaccessible");
+        assert_eq!(api_type["methods"].as_array().unwrap().len(), 12);
+        assert_eq!(api_type["methods"][0]["parameters"].as_array().unwrap().len(), 20);
+        assert_eq!(api_type["methods"][0]["parameters"][0]["genericTypeStatus"], "unresolved");
+        assert_eq!(api_type["properties"].as_array().unwrap().len(), 20);
+    }
+
+    #[test]
+    fn caps_api_type_count_and_records_cyclic_reference_depth() {
+        let mut output = valid_probe_output();
+        let api_types: Vec<Value> = (0..45)
+            .map(|index| {
+                let (name, parent) = if index == 0 {
+                    ("example.A".to_owned(), "example.B".to_owned())
+                } else if index == 1 {
+                    ("example.B".to_owned(), "example.A".to_owned())
+                } else {
+                    (format!("example.Type{index}"), "java.lang.Object".to_owned())
+                };
+                json!({
+                    "name": name,
+                    "className": name,
+                    "depth": 2,
+                    "rootCategories": ["configured"],
+                    "status": "available",
+                    "superClass": parent,
+                    "interfaces": [],
+                    "methods": [],
+                    "properties": [],
+                    "methodsTruncated": false,
+                    "propertiesTruncated": false
+                })
+            })
+            .collect();
+        output["apiTypes"] = json!(api_types);
+        let result = normalize_probe_output(&output);
+        assert_eq!(result["apiTypes"].as_array().unwrap().len(), 40);
+        assert_eq!(result["apiTypes"][0]["superClass"], "example.B");
+        assert_eq!(result["apiTypes"][1]["superClass"], "example.A");
+    }
+
+    #[test]
     fn preserves_partial_results_when_one_registry_is_unavailable() {
         let mut output = valid_probe_output();
         output["extensionRegistries"][1]["status"] = json!("unavailable");
@@ -1106,6 +1200,10 @@ mod tests {
         assert!(SCRIPT_TEMPLATE.contains("hudson.triggers.Trigger"));
         assert!(SCRIPT_TEMPLATE.contains("getMethods()"));
         assert!(SCRIPT_TEMPLATE.contains("getDeclaredMethods()"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_API_TYPES = 40"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_API_DEPTH = 2"));
+        assert!(SCRIPT_TEMPLATE.contains("MAX_API_MEMBERS_PER_TYPE = 12"));
+        assert!(SCRIPT_TEMPLATE.contains("visited"));
         assert!(SCRIPT_TEMPLATE.contains("__JENKINS_KNOWLEDGE_API_ROOTS__"));
         assert!(SCRIPT_TEMPLATE.contains("getKlass()"));
         assert!(!SCRIPT_TEMPLATE.contains("getClazz()"));
