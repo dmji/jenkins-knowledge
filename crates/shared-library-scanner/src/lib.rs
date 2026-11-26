@@ -275,18 +275,35 @@ fn checkout_size(root: &Path, limit: u64) -> std::io::Result<u64> {
     let mut total = 0u64;
     let mut entries = 0usize;
     while let Some(directory) = pending.pop() {
-        for entry in fs::read_dir(directory)? {
+        let directory_entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        for entry in directory_entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
             entries += 1;
             if entries > MAX_CHECKOUT_ENTRIES {
                 return Ok(limit.saturating_add(1));
             }
-            let entry = entry?;
-            let metadata = fs::symlink_metadata(entry.path())?;
+            let path = entry.path();
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                // Git creates and atomically renames pack/index files while the
+                // watchdog walks the directory. A vanished entry is not a quota
+                // accounting failure; the next poll observes the stable state.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
             if metadata.file_type().is_symlink() {
                 continue;
             }
             if metadata.is_dir() {
-                pending.push(entry.path());
+                pending.push(path);
             } else if metadata.is_file() {
                 total = total.saturating_add(metadata.len());
                 if total > limit {
