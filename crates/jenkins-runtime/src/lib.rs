@@ -570,7 +570,7 @@ impl Runtime {
                 "catalogId":self.catalog["catalogId"],
                 "snapshotId":self.catalog["snapshotId"],
                 "completeness":completeness,
-                "completenessReasonCodes":self.catalog["completeness"]["reasonCodes"]
+                "completenessReasonCodes":self.catalog.get("completeness").and_then(|value| value.get("reasonCodes")).cloned().unwrap_or_else(|| json!([]))
             },
             "packageEnvironment":{
                 "status":environment_status,
