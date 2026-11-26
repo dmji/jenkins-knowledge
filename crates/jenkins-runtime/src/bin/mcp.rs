@@ -304,8 +304,8 @@ mod tests {
         let default = structured_tool_page(&runtime, "list_api", json!({}));
         assert_eq!(default["offset"], 0);
         assert_eq!(default["limit"], DEFAULT_SEARCH_LIMIT);
-        assert_eq!(default["total"], 13);
-        assert_eq!(default["returned"], 13);
+        assert_eq!(default["total"], 18);
+        assert_eq!(default["returned"], 18);
         assert_eq!(default["hasMore"], false);
     }
 
