@@ -506,6 +506,9 @@ impl Runtime {
             warnings.push(json!({"code":"environment-match-does-not-prove-compatibility"}));
         }
         if let Some(outcomes) = self.collection().and_then(|value| value["sources"].as_array()) {
+            let reported_source_ids: Vec<_> = outcomes.iter()
+                .filter_map(|outcome| outcome["sourceId"].as_str())
+                .collect();
             for outcome in outcomes {
                 let status = outcome["status"].as_str().unwrap_or_default();
                 if !matches!(status, "succeeded") {
@@ -522,8 +525,30 @@ impl Runtime {
                     warnings.push(warning);
                 }
             }
+            for source in self.sources() {
+                if let Some(source_id) = source["id"].as_str() {
+                    if !reported_source_ids.contains(&source_id) {
+                        warnings.push(json!({
+                            "code":"source-outcome-missing",
+                            "sourceId":source_id,
+                            "sourceName":source["name"],
+                            "sourceKind":source["kind"],
+                            "revision":source["revision"]
+                        }));
+                    }
+                }
+            }
         } else {
             warnings.push(json!({"code":"collection-outcomes-not-recorded"}));
+            for source in self.sources() {
+                warnings.push(json!({
+                    "code":"source-outcome-missing",
+                    "sourceId":source["id"],
+                    "sourceName":source["name"],
+                    "sourceKind":source["kind"],
+                    "revision":source["revision"]
+                }));
+            }
         }
 
         json!({
