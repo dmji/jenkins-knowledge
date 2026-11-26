@@ -1,0 +1,202 @@
+{
+  "schemaVersion": "1.0.0",
+  "catalogId": "contract-primary",
+  "generatedAt": "2026-01-01T00:00:00Z",
+  "sources": [
+    {
+      "id": "controller-fixture",
+      "kind": "jenkins-controller",
+      "name": "Offline Jenkins Controller",
+      "revision": "2.500",
+      "url": "http://127.0.0.1:9/",
+      "metadata": {"snapshot": "sanitized-controller-fixture"}
+    },
+    {
+      "id": "plugin-a",
+      "kind": "plugin",
+      "name": "Plugin A",
+      "version": "1.0.0",
+      "revision": "1.0.0",
+      "metadata": {"shortName": "plugin-a"}
+    },
+    {
+      "id": "plugin-b",
+      "kind": "plugin",
+      "name": "Plugin B",
+      "version": "2.0.0",
+      "revision": "2.0.0",
+      "metadata": {"shortName": "plugin-b"}
+    },
+    {
+      "id": "declarative-model-fixture",
+      "kind": "jenkins-controller",
+      "name": "Declarative Pipeline Model",
+      "revision": "model-v1"
+    },
+    {
+      "id": "jenkins-core-fixture",
+      "kind": "jenkins-core",
+      "name": "Jenkins Core",
+      "version": "2.500",
+      "revision": "2.500"
+    },
+    {
+      "id": "shared-library-fixture",
+      "kind": "shared-library",
+      "name": "Fixture Shared Library",
+      "version": "main",
+      "revision": "0123456789012345678901234567890123456789",
+      "url": "https://example.test/fixture-library.git"
+    }
+  ],
+  "symbols": [
+    {
+      "id": "plugin-a:step:sh",
+      "name": "sh",
+      "kind": "step",
+      "sourceId": "plugin-a",
+      "signature": "sh(String script)",
+      "description": "Runs a shell command.",
+      "parameters": [{"name": "script", "type": "String", "required": true}],
+      "contexts": ["pipeline", "scripted"],
+      "confidence": "verified",
+      "provenance": ["pipeline-gdsl:steps/sh"],
+      "availability": {"status": "available", "pluginSourceIds": ["plugin-a"]}
+    },
+    {
+      "id": "plugin-a:step:build",
+      "name": "build",
+      "kind": "step",
+      "sourceId": "plugin-a",
+      "signature": "build(String job)",
+      "description": "Builds a downstream job.",
+      "contexts": ["pipeline"],
+      "confidence": "verified",
+      "provenance": ["plugin-a:step-descriptor"]
+    },
+    {
+      "id": "plugin-b:step:build",
+      "name": "build",
+      "kind": "step",
+      "sourceId": "plugin-b",
+      "signature": "build(Map options)",
+      "description": "Builds using plugin B options.",
+      "contexts": ["pipeline"],
+      "confidence": "inferred",
+      "provenance": ["plugin-b:groovy-type-metadata"]
+    },
+    {
+      "id": "plugin-b:step:maybeStep",
+      "name": "maybeStep",
+      "kind": "step",
+      "sourceId": "plugin-b",
+      "description": "A step whose exact availability is not known.",
+      "contexts": ["pipeline"],
+      "confidence": "unknown",
+      "provenance": ["script-console:extension-registry"]
+    },
+    {
+      "id": "shared-library-fixture:global:deployApp",
+      "name": "deployApp",
+      "kind": "global-variable",
+      "sourceId": "shared-library-fixture",
+      "signature": "deployApp(Map options)",
+      "description": "Deploys an application from a Shared Library.",
+      "contexts": ["pipeline"],
+      "confidence": "verified",
+      "provenance": ["vars/deployApp.groovy:1"],
+      "fieldEvidence": {"description": "verified", "signature": "verified"}
+    },
+    {
+      "id": "shared-library-fixture:method:deploy-string",
+      "name": "deploy",
+      "kind": "method",
+      "sourceId": "shared-library-fixture",
+      "namespace": "com.example.Deployer",
+      "signature": "deploy(String environment)",
+      "parameters": [{"name": "environment", "type": "String", "required": true}],
+      "returnType": "void",
+      "confidence": "verified",
+      "provenance": ["src/com/example/Deployer.groovy:12"]
+    },
+    {
+      "id": "shared-library-fixture:method:deploy-map",
+      "name": "deploy",
+      "kind": "method",
+      "sourceId": "shared-library-fixture",
+      "namespace": "com.example.Deployer",
+      "signature": "deploy(Map options)",
+      "parameters": [{"name": "options", "type": "Map", "required": true}],
+      "returnType": "void",
+      "confidence": "inferred",
+      "provenance": ["src/com/example/Deployer.groovy:20"]
+    },
+    {
+      "id": "shared-library-fixture:class:DeployRequest",
+      "name": "DeployRequest",
+      "kind": "class",
+      "sourceId": "shared-library-fixture",
+      "namespace": "com.example",
+      "description": "Request type from sanitized Groovy type metadata.",
+      "confidence": "verified",
+      "provenance": ["src/com/example/DeployRequest.groovy:1"]
+    },
+    {
+      "id": "declarative-model-fixture:directive:agent",
+      "name": "agent",
+      "kind": "declarative-directive",
+      "sourceId": "declarative-model-fixture",
+      "description": "Selects the execution agent for a Declarative Pipeline.",
+      "contexts": ["declarative"],
+      "confidence": "verified",
+      "provenance": ["declarative-descriptors:agent"]
+    },
+    {
+      "id": "jenkins-core-fixture:method:getInstance",
+      "name": "getInstance",
+      "kind": "method",
+      "sourceId": "jenkins-core-fixture",
+      "namespace": "jenkins.model.Jenkins",
+      "signature": "getInstance()",
+      "returnType": "jenkins.model.Jenkins",
+      "confidence": "verified",
+      "provenance": ["groovy-type-metadata:jenkins.model.Jenkins"]
+    }
+  ],
+  "controller": {
+    "identity": {
+      "id": "controller-fixture",
+      "displayName": "Offline Jenkins Controller",
+      "baseUrl": "http://127.0.0.1:9/"
+    },
+    "coreVersion": "2.500",
+    "plugins": [
+      {
+        "sourceId": "plugin-a",
+        "shortName": "plugin-a",
+        "version": "1.0.0",
+        "enabled": true,
+        "active": true,
+        "dependencies": []
+      },
+      {
+        "sourceId": "plugin-b",
+        "shortName": "plugin-b",
+        "version": "2.0.0",
+        "enabled": true,
+        "active": true,
+        "dependencies": []
+      }
+    ],
+    "capabilities": [
+      {"name": "plugin-inventory", "status": "unknown", "details": "The fixture represents a partial inventory."},
+      {"name": "pipeline-gdsl", "status": "available", "details": "The fixture includes bounded GDSL symbols."},
+      {"name": "script-console", "status": "unavailable", "details": "Permission denied in the fixture."}
+    ],
+    "collection": {
+      "profile": "deep",
+      "retrievedAt": "2026-01-01T00:00:00Z",
+      "requestCount": 5
+    }
+  }
+}
