@@ -45,6 +45,7 @@ EOF
 chmod 600 "$ENV_FILE"
 
 mkdir -p "$OUT/docker-context/plugins"
+python3 tests/jenkins-2.356/test_resolve_plugins.py
 cp tests/jenkins-2.356/Dockerfile "$OUT/docker-context/Dockerfile"
 if [ -f tests/jenkins-2.356/plugins.lock.json ]; then
     python3 tests/jenkins-2.356/resolve_plugins.py \
