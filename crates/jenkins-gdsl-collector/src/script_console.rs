@@ -16,7 +16,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_SCRIPT_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_ITEMS_PER_REGISTRY: usize = 100;
 const MAX_TEXT_LENGTH: usize = 256;
-const TEMPLATE_VERSION: &str = "1";
+const TEMPLATE_VERSION: &str = "2";
 const SCRIPT_TEMPLATE: &str = include_str!("probes/script_console_v1.groovy");
 
 /// Describe every network operation in the deep profile without contacting Jenkins.
@@ -232,7 +232,7 @@ fn normalize_probe_output(value: &Value) -> Value {
         .expect("registry array was checked");
     let mut available_registries = 0;
     let mut registry_results = Vec::with_capacity(2);
-    for name in ["pipeline-steps", "pipeline-globals"] {
+    for name in ["pipeline-steps", "pipeline-globals", "declarative-extensions"] {
         let raw = raw_registries
             .iter()
             .find(|registry| registry.get("name").and_then(Value::as_str) == Some(name));
@@ -261,7 +261,7 @@ fn normalize_probe_output(value: &Value) -> Value {
     }
 
     let status = if metadata_count == metadata_fields.len()
-        && available_registries == 2
+        && available_registries == 3
         && errors.is_empty()
     {
         "collected"
@@ -325,6 +325,36 @@ fn normalize_registry(
             {
                 normalized["plugin"] = json!(truncate(plugin));
             }
+            for field in ["category", "nameKind", "descriptorClass"] {
+                if let Some(value) = item
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    normalized[field] = json!(truncate(value));
+                }
+            }
+            if let Some(contexts) = item.get("contexts").and_then(Value::as_array) {
+                let values: Vec<&str> = contexts
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter(|value| matches!(*value, "pipeline" | "stage"))
+                    .take(2)
+                    .collect();
+                if !values.is_empty() {
+                    normalized["contexts"] = json!(values);
+                }
+            }
+            for field in ["stageOnly", "canUseInStage", "invisible"] {
+                if let Some(value) = item.get(field).and_then(Value::as_bool) {
+                    normalized[field] = json!(value);
+                }
+            }
+            if let Some(value) = item.get("allowedChildrenCount").and_then(Value::as_i64) {
+                if (-1..=100).contains(&value) {
+                    normalized["allowedChildrenCount"] = json!(value);
+                }
+            }
             if let Some(value) = item
                 .get("displayName")
                 .and_then(Value::as_str)
@@ -387,6 +417,7 @@ fn allowed_probe(value: &str) -> bool {
             | "jenkins-core-version"
             | "pipeline-steps"
             | "pipeline-globals"
+            | "declarative-extensions"
             | "output"
     )
 }
@@ -543,7 +574,7 @@ mod tests {
     fn valid_probe_output() -> Value {
         json!({
             "schemaVersion": "1.0.0",
-            "templateVersion": "1",
+            "templateVersion": "2",
             "groovyVersion": "4.0.24",
             "javaVersion": "17.0.12",
             "javaVendor": "Eclipse Adoptium",
@@ -566,6 +597,20 @@ mod tests {
                         "name": "env",
                         "className": "org.jenkinsci.plugins.workflow.cps.EnvActionImpl",
                         "plugin": "workflow-cps"
+                    }],
+                    "truncated": false
+                },
+                {
+                    "name": "declarative-extensions",
+                    "status": "available",
+                    "items": [{
+                        "category": "agent",
+                        "name": "any",
+                        "nameKind": "dsl-token",
+                        "className": "org.jenkinsci.plugins.pipeline.modeldefinition.agent.impl.Any",
+                        "descriptorClass": "org.jenkinsci.plugins.pipeline.modeldefinition.agent.impl.Any.DescriptorImpl",
+                        "contexts": ["pipeline", "stage"],
+                        "plugin": "pipeline-model-definition"
                     }],
                     "truncated": false
                 }
