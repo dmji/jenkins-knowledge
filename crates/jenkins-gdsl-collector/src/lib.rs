@@ -1,7 +1,7 @@
 pub mod discovery;
 pub use discovery::{discover, DiscoveryError};
 pub mod script_console;
-pub use script_console::{collect_script_console, script_console_plan};
+pub use script_console::{collect_script_console, collect_script_console_with_roots, script_console_plan};
 
 use catalog_validator::{redact_sensitive_fields, validate_catalog};
 use regex::Regex;
