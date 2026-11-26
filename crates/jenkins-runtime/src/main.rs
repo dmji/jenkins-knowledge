@@ -79,6 +79,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "results": runtime.search_with_options(&search_options)
         }),
         "coverage" => json!({"profile": runtime.profile(), "coverage": runtime.coverage()}),
+        "compatibility" => runtime.compatibility_report(None),
         "controller" => json!({"profile": runtime.profile(), "controller": runtime.controller_details()}),
         "plugins" => json!({"profile": runtime.profile(), "status": runtime.plugin_inventory_status(), "plugins": runtime.plugins()}),
         "sources" => json!({"profile": runtime.profile(), "sources": runtime.source_details()}),
