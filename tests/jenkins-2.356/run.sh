@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RUNNER_TEMP="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 cd "$ROOT"
+export GIT_TERMINAL_PROMPT=0
 
 OUT="$ROOT/target/jenkins-2.356"
 IMAGE="jenkins-knowledge-2.356"
@@ -41,7 +42,7 @@ TEST_READER_PASSWORD=$reader_password
 EOF
 chmod 600 "$ENV_FILE"
 
-docker build --pull=false -f tests/jenkins-2.356/Dockerfile -t "$IMAGE" tests/jenkins-2.356
+docker build --platform linux/amd64 --pull=false -f tests/jenkins-2.356/Dockerfile -t "$IMAGE" tests/jenkins-2.356
 docker run --detach \
     --name "$CONTAINER" \
     --publish 127.0.0.1:18080:8080 \
