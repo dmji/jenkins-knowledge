@@ -1,11 +1,15 @@
 #!/usr/bin/env sh
 set -eu
 
+format_fixture=""
 generated_lockfile=0
 if [ ! -f Cargo.lock ]; then
   generated_lockfile=1
 fi
 cleanup() {
+  if [ -n "$format_fixture" ]; then
+    rm -f "$format_fixture"
+  fi
   if [ "$generated_lockfile" -eq 1 ]; then
     rm -f Cargo.lock
   fi
@@ -34,6 +38,14 @@ if [ -n "$changed_rust" ]; then
     rustfmt --check --edition 2021 "$path"
   done
 fi
+format_fixture="$(mktemp "${TMPDIR:-/tmp}/rustfmt-regression-XXXXXX.rs")"
+printf 'fn main( ){ println!("unformatted"); }\n' > "$format_fixture"
+if rustfmt --check --edition 2021 "$format_fixture" >/dev/null 2>&1; then
+  echo "rustfmt --check accepted an intentionally unformatted fixture" >&2
+  exit 1
+fi
+rm -f "$format_fixture"
+format_fixture=""
 cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p catalog-validator -- examples/catalog/catalog.json schemas/catalog.schema.json
