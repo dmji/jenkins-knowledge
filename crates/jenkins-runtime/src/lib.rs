@@ -392,6 +392,12 @@ impl Runtime {
         self.catalog["coverage"].as_array().map(Vec::as_slice).unwrap_or(&[])
     }
 
+    /// Returns explicit package-level and per-source collection outcomes.
+    /// Older packages without this additive manifest field return None.
+    pub fn collection(&self) -> Option<&Value> {
+        self.manifest.get("collection")
+    }
+
     pub fn get(&self, name_or_id: &str) -> Result<Value, RuntimeError> {
         let matches: Vec<_> = self
             .symbols()

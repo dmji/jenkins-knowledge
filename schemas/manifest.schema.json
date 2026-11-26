@@ -98,6 +98,35 @@
         "type": "string",
         "minLength": 1
       }
+    },
+    "collection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "profile", "startedAt", "completedAt", "sources"],
+      "properties": {
+        "status": { "enum": ["complete", "partial"] },
+        "profile": { "enum": ["quick", "standard", "deep", "custom"] },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind", "name", "surface", "status"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "kind": { "enum": ["fixture", "controller", "plugin", "plugin-inventory", "pipeline-gdsl", "jenkins-core", "declarative-model", "script-console", "shared-library"] },
+              "name": { "type": "string", "minLength": 1 },
+              "surface": { "type": "string", "minLength": 1 },
+              "sourceId": { "type": "string", "minLength": 1 },
+              "revision": { "type": "string", "minLength": 1 },
+              "status": { "enum": ["succeeded", "succeeded-with-truncation", "partial", "unavailable", "permission-denied", "failed", "skipped-by-profile", "not-configured"] },
+              "errorCode": { "enum": ["permission-denied", "http-unavailable", "request-timeout", "response-too-large", "invalid-encoding", "limit-exceeded", "empty-response", "malformed-response", "invalid-catalog", "invalid-controller-url", "request-failed", "collection-failed", "invalid-response", "missing-outcome", "credentials-must-be-paired", "endpoint-unavailable", "http-error", "incompatible-probe-output", "probe-failed", "jenkins-unavailable", "extension-type-unavailable", "enumeration-failed", "output-truncated"] }
+            }
+          }
+        }
+      }
     }
   }
 }

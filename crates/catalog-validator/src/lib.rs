@@ -551,6 +551,49 @@ pub fn validate_package_metadata(
         }
     }
 
+    if let Some(collection) = manifest.get("collection") {
+        if let Some(outcomes) = collection.get("sources").and_then(Value::as_array) {
+            let mut outcome_ids = HashSet::new();
+            let mut expected_partial = false;
+            for (index, outcome) in outcomes.iter().enumerate() {
+                if let Some(id) = outcome.get("id").and_then(Value::as_str) {
+                    if !outcome_ids.insert(id) {
+                        errors.push(format!(
+                            "/collection/sources/{index}/id: duplicate collection outcome id '{id}'"
+                        ));
+                    }
+                }
+                if let Some(source_id) = outcome.get("sourceId").and_then(Value::as_str) {
+                    if !source_ids.contains(source_id) {
+                        errors.push(format!(
+                            "/collection/sources/{index}/sourceId: unknown catalog source id '{source_id}'"
+                        ));
+                    }
+                }
+                if matches!(
+                    outcome.get("status").and_then(Value::as_str),
+                    Some(
+                        "succeeded-with-truncation"
+                            | "partial"
+                            | "unavailable"
+                            | "permission-denied"
+                            | "failed"
+                    )
+                ) {
+                    expected_partial = true;
+                }
+            }
+            let declared_partial =
+                collection.get("status").and_then(Value::as_str) == Some("partial");
+            if declared_partial != expected_partial {
+                errors.push(
+                    "/collection/status: package completeness does not match per-source outcomes"
+                        .into(),
+                );
+            }
+        }
+    }
+
     reject_secret_fields(manifest, "/manifest", &mut errors);
 
     if errors.is_empty() {

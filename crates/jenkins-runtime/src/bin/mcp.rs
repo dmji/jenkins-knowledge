@@ -135,6 +135,11 @@ fn pipeline_page(uri: &str) -> Result<(usize, usize), String> {
 fn read_resource(rt: &Runtime, uri: &str) -> Result<Value,String> {
     match uri {
         "jenkins://catalog/manifest" => Ok(rt.manifest().clone()),
+        "jenkins://catalog/collection" => Ok(rt.collection().cloned().unwrap_or_else(|| json!({
+            "status": "unknown",
+            "sources": [],
+            "details": "This package predates explicit collection outcome metadata"
+        }))),
         "jenkins://catalog/coverage" => Ok(json!({"profile":rt.profile(),"coverage":rt.coverage()})),
         "jenkins://catalog/libraries" => Ok(json!({"profile":rt.profile(),"sources":rt.sources().iter().filter(|s|s["kind"]=="shared-library").collect::<Vec<_>>()})),
         _ if uri == "jenkins://catalog/pipeline-steps" || uri.starts_with("jenkins://catalog/pipeline-steps?") => {
@@ -174,6 +179,7 @@ fn handle(rt: &Runtime, req: Value) -> Option<Value> {
         }
         "resources/list" => Ok(json!({"resources":[
             {"uri":"jenkins://catalog/manifest","name":"Knowledge package manifest","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/collection","name":"Package collection outcomes","description":"Package-level completeness and per-source succeeded, unavailable, permission-denied, failed, skipped, or unconfigured outcomes.","mimeType":"application/json"},
             {"uri":"jenkins://catalog/coverage","name":"Catalog collection coverage","mimeType":"application/json"},
             {"uri":"jenkins://catalog/libraries","name":"Shared Library sources","mimeType":"application/json"},
             {"uri":"jenkins://catalog/pipeline-steps","name":"Jenkins Pipeline steps","description":"Paginated with ?offset=0&limit=50; responses include total, returned, and hasMore.","mimeType":"application/json"},
@@ -413,11 +419,34 @@ mod tests {
             "sourceRevisions": source_revisions,
             "provenance": provenance,
             "checksums": {"catalog.json": checksum},
-            "toolVersions": {}
+            "toolVersions": {},
+            "collection": {
+                "status": "partial",
+                "profile": "standard",
+                "startedAt": "2026-01-01T00:00:00Z",
+                "completedAt": "2026-01-01T00:00:01Z",
+                "sources": [{
+                    "id": "controller:ci:pipeline-gdsl",
+                    "kind": "pipeline-gdsl",
+                    "name": "ci",
+                    "surface": "pipeline-gdsl",
+                    "status": "unavailable",
+                    "errorCode": "http-unavailable"
+                }]
+            }
         }).to_string()).unwrap();
         let runtime = Runtime::open(&package).unwrap();
         fs::remove_dir_all(package).unwrap();
         runtime
+    }
+
+    #[test]
+    fn collection_resource_preserves_partial_outcomes_and_legacy_unknown() {
+        let runtime = fixture_runtime();
+        let collection = read_resource(&runtime, "jenkins://catalog/collection").unwrap();
+        assert_eq!(collection["status"], "partial");
+        assert_eq!(collection["sources"][0]["status"], "unavailable");
+        assert_eq!(read_resource(&runtime, "jenkins://catalog/manifest").unwrap()["collection"]["status"], "partial");
     }
 
     #[test]

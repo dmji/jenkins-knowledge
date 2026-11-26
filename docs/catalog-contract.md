@@ -31,6 +31,27 @@ A symbol may include `availability` and `executionConstraints`. Availability is 
 
 The optional `evidence` array attaches source identity, evidence class (`controller-observed`, `source-scanned`, `static-model`, or `inferred`), confidence, retrieval time, and an optional evidence location to an individual symbol. Evidence source IDs and plugin availability references must resolve to catalog sources. Existing `sourceId`, `provenance`, `confidence`, and `fieldEvidence` remain supported for older producers.
 
+## Package collection outcomes
+
+The manifest's optional `collection` object is the package-level execution record; catalog `coverage` remains the per-source/API-surface observation record. These are related but not interchangeable. The manifest records the selected collection profile, start/completion timestamps, package status (`complete` or `partial`), and one outcome per configured collection surface.
+
+Collection outcome statuses are:
+
+- `succeeded`: the configured surface was collected successfully.
+- `succeeded-with-truncation`: usable data was retained but a documented bound truncated the result.
+- `partial`: the surface returned usable data alongside one or more bounded probe failures.
+- `unavailable`: the endpoint or source could not be reached or is not exposed.
+- `permission-denied`: Jenkins or Git explicitly rejected access.
+- `failed`: the source was configured but its response, parsing, or collection failed.
+- `skipped-by-profile`: the selected quick/standard/deep profile or package section intentionally omitted the surface.
+- `not-configured`: the surface is not configured for this package.
+
+The package is `partial` if any outcome is truncated, partial, unavailable, permission-denied, or failed. A skipped or not-configured surface does not make the selected package incomplete. Controller metadata is mandatory in all live Jenkins profiles; failure aborts the build because no safe controller identity/version anchor exists. Plugin inventory is optional in all profiles. Quick probes GDSL availability only; standard and deep attempt full GDSL collection. Standard and deep scan configured Shared Libraries independently. Deep additionally executes the fixed repository-owned read-only Script Console probe; Script Console permission failure does not discard REST/GDSL results.
+
+Each outcome carries a stable ID, source kind, display name, surface, status, and optional catalog source ID/revision/error code. Error codes are stable machine values; raw exception strings, HTTP bodies, request headers, credentials, and response fragments are never stored. Runtime, MCP, and LSP preserve these outcomes as distinct from symbol confidence. Consumers must not infer complete coverage from successful package loading or from a symbol marked verified.
+
+Retry guidance is profile-aware and explicit: retry timeouts and transient server errors by rerunning collection; correct permissions before retrying authorization failures; investigate malformed or incompatible responses before repeating the same request. The Builder does not automatically retry because that would increase Jenkins load and make request counts nondeterministic.
+
 ## Evidence and unknown values
 
 Use `null`, `unknown`, or `not-inspected` according to the field's schema; do not replace missing observations with version-based guesses. Partial collection is valid: record the profile, retrieval time, known facts, and explicit capability/coverage status. A failed or forbidden probe is not proof that a feature is absent. Controller snapshots must not include credentials, tokens, authorization headers, or secret-bearing metadata.

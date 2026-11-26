@@ -1,4 +1,5 @@
 use catalog_validator::{redact_sensitive_fields, stamp_catalog_identity, validate_catalog, validate_package_metadata};
+use jenkins_gdsl_collector::{CollectorError, DiscoveryError};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -10,6 +11,8 @@ mod source_security;
 #[serde(deny_unknown_fields)]
 pub struct Profile {
     pub profile: String,
+    #[serde(rename = "collectionProfile", default = "default_collection_profile")]
+    pub collection_profile: String,
     #[serde(default)]
     pub jenkins: JenkinsConfig,
     #[serde(default)]
@@ -92,7 +95,16 @@ impl PackageSelection {
     }
 }
 
+fn default_collection_profile() -> String {
+    "standard".into()
+}
+
 fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
+    if !matches!(profile.collection_profile.as_str(), "quick" | "standard" | "deep") {
+        return Err(BuildError::Profile(
+            "collectionProfile: expected quick, standard, or deep".into(),
+        ));
+    }
     if profile.profile.trim().is_empty()
         || profile.profile.trim() != profile.profile
         || profile.profile.chars().any(char::is_control)
@@ -118,6 +130,16 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
     if !fixtures_mode && profile.jenkins.controllers.is_empty() && profile.libraries.is_empty() {
         return Err(BuildError::Profile(
             "configure at least one Jenkins controller, Shared Library, or fixture catalog".into(),
+        ));
+    }
+    if !fixtures_mode && profile.collection_profile == "quick" && profile.jenkins.controllers.is_empty() {
+        return Err(BuildError::Profile(
+            "collectionProfile: quick requires a Jenkins controller".into(),
+        ));
+    }
+    if !fixtures_mode && profile.collection_profile == "deep" && profile.jenkins.controllers.is_empty() {
+        return Err(BuildError::Profile(
+            "collectionProfile: deep requires a Jenkins controller".into(),
         ));
     }
 
@@ -275,6 +297,8 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     let profile: Profile = serde_yaml::from_str(&input).map_err(|e| BuildError::Profile(e.to_string()))?;
     let selection = validate_profile(&profile)?;
     let base = profile_path.parent().unwrap_or(Path::new("."));
+    let collection_started_at = build_timestamp();
+    let mut collection_outcomes = Vec::new();
     let mut catalogs = Vec::new();
 
     if !profile.fixtures.is_empty() {
@@ -282,21 +306,266 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             let path = base.join(fixture);
             let text = fs::read_to_string(&path).map_err(|e| BuildError::Source(format!("fixture {}: {e}", path.display())))?;
             let catalog: Value = serde_json::from_str(&text).map_err(|e| BuildError::Source(format!("fixture {} is invalid JSON: {e}", path.display())))?;
+            collection_outcomes.push(json!({
+                "id": format!("fixture:{fixture}"),
+                "kind": "fixture",
+                "name": fixture,
+                "surface": "catalog",
+                "status": "succeeded"
+            }));
             catalogs.push((fixture.clone(), catalog));
         }
     } else {
+        let username = env::var("JENKINS_USERNAME").ok();
+        let api_token = env::var("JENKINS_API_TOKEN").ok();
         for controller in &profile.jenkins.controllers {
-            let catalog = jenkins_gdsl_collector::collect(&controller.url, env::var("JENKINS_USERNAME").ok().as_deref(), env::var("JENKINS_API_TOKEN").ok().as_deref())
-                .map_err(|e| BuildError::Source(format!("Jenkins controller '{}': {e}", controller.id)))?;
+            // Core controller metadata is mandatory. Optional inventories and GDSL
+            // are recorded independently so their failure cannot discard valid data.
+            let gdsl_only_profile = selection.explicit
+                && selection.included.len() == 1
+                && selection.includes(PackageSection::Controller)
+                && profile.collection_profile == "standard";
+            let discovery = jenkins_gdsl_collector::discover(
+                &controller.url,
+                username.as_deref(),
+                api_token.as_deref(),
+            );
+            let (mut catalog, controller_metadata_available, discovery_failure) = match discovery {
+                Ok(snapshot) => (snapshot, true, None),
+                Err(error) if gdsl_only_profile => {
+                    // Preserve legacy GDSL-only profiles: when the caller explicitly
+                    // selects only the controller/GDSL section, Core metadata is not
+                    // a prerequisite for the requested catalog.
+                    let gdsl = jenkins_gdsl_collector::collect(
+                        &controller.url,
+                        username.as_deref(),
+                        api_token.as_deref(),
+                    )
+                    .map_err(|gdsl_error| BuildError::Source(format!(
+                        "Jenkins controller '{}' GDSL collection failed: {gdsl_error}",
+                        controller.id
+                    )))?;
+                    (gdsl, false, Some(error))
+                }
+                Err(error) => {
+                    return Err(BuildError::Source(format!(
+                        "Jenkins controller '{}' mandatory metadata collection failed: {error}",
+                        controller.id
+                    )));
+                }
+            };
+            let controller_source_id = catalog["sources"][0]["id"]
+                .as_str()
+                .ok_or_else(|| BuildError::Source("controller collection returned no source identity".into()))?
+                .to_owned();
             let core_version = catalog["controller"]["coreVersion"]
                 .as_str()
                 .unwrap_or("unknown")
                 .to_owned();
-            let controller_source_id = catalog["sources"][0]["id"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_owned();
+
+            if controller_metadata_available {
+                collection_outcomes.push(json!({
+                    "id": format!("controller:{}", controller.id),
+                    "kind": "controller",
+                    "name": controller.id,
+                    "surface": "controller-metadata",
+                    "sourceId": controller_source_id,
+                    "revision": catalog["sources"][0]["revision"],
+                    "status": "succeeded"
+                }));
+            } else {
+                let (status, code) = discovery_outcome(discovery_failure.as_ref().expect("fallback has discovery error"));
+                collection_outcomes.push(json!({
+                    "id": format!("controller:{}", controller.id),
+                    "kind": "controller",
+                    "name": controller.id,
+                    "surface": "controller-metadata",
+                    "sourceId": controller_source_id,
+                    "status": status,
+                    "errorCode": code
+                }));
+            }
+
+            if controller_metadata_available {
+                let plugin_coverage = catalog["coverage"].as_array()
+                    .and_then(|entries| entries.iter().find(|entry| entry["surface"] == "plugin-inventory"));
+                let (plugin_status, plugin_error) = match plugin_coverage {
+                    Some(entry) if entry["status"] == "inspected" => ("succeeded", None),
+                    Some(entry) if entry["status"] == "unavailable" => {
+                        let details = entry["details"].as_str().unwrap_or_default();
+                        if details.contains("HTTP 401") || details.contains("HTTP 403") {
+                            ("permission-denied", Some("permission-denied"))
+                        } else {
+                            ("unavailable", Some("http-unavailable"))
+                        }
+                    }
+                    Some(entry) if entry["details"].as_str().unwrap_or_default().contains("exceeded the") =>
+                        ("failed", Some("limit-exceeded")),
+                    Some(_) => ("failed", Some("invalid-response")),
+                    None => ("failed", Some("missing-outcome")),
+                };
+                let mut plugin_outcome = json!({
+                    "id": format!("controller:{}:plugin-inventory", controller.id),
+                    "kind": "plugin-inventory",
+                    "name": controller.id,
+                    "surface": "plugin-inventory",
+                    "status": plugin_status
+                });
+                if let Some(code) = plugin_error {
+                    plugin_outcome["errorCode"] = json!(code);
+                }
+                collection_outcomes.push(plugin_outcome);
+                if plugin_status == "succeeded" {
+                    for source in catalog["sources"].as_array().into_iter().flatten()
+                        .filter(|source| source["kind"] == "plugin")
+                    {
+                        collection_outcomes.push(json!({
+                            "id": format!("plugin:{}", source["id"].as_str().unwrap_or_default()),
+                            "kind": "plugin",
+                            "name": source["name"],
+                            "surface": "plugin-metadata",
+                            "sourceId": source["id"],
+                            "revision": source["revision"],
+                            "status": "succeeded"
+                        }));
+                    }
+                }
+            } else {
+                collection_outcomes.push(json!({
+                    "id": format!("controller:{}:plugin-inventory", controller.id),
+                    "kind": "plugin-inventory",
+                    "name": controller.id,
+                    "surface": "plugin-inventory",
+                    "status": "skipped-by-profile"
+                }));
+            }
+
+            // Full GDSL extraction is part of standard/deep; quick only performs
+            // the bounded one-byte availability probe in discover().
+            if !controller_metadata_available {
+                collection_outcomes.push(json!({
+                    "id": format!("controller:{}:pipeline-gdsl", controller.id),
+                    "kind": "pipeline-gdsl",
+                    "name": controller.id,
+                    "surface": "pipeline-gdsl",
+                    "sourceId": controller_source_id,
+                    "revision": catalog["sources"][0]["revision"],
+                    "status": "succeeded"
+                }));
+            } else if profile.collection_profile == "quick" {
+                collection_outcomes.push(json!({
+                    "id": format!("controller:{}:pipeline-gdsl", controller.id),
+                    "kind": "pipeline-gdsl",
+                    "name": controller.id,
+                    "surface": "pipeline-gdsl",
+                    "sourceId": controller_source_id,
+                    "status": "skipped-by-profile"
+                }));
+            } else {
+                match jenkins_gdsl_collector::collect(
+                    &controller.url,
+                    username.as_deref(),
+                    api_token.as_deref(),
+                ) {
+                    Ok(gdsl_catalog) => {
+                        let gdsl_source_id = gdsl_catalog["sources"][0]["id"].as_str().unwrap_or_default();
+                        if gdsl_source_id != controller_source_id {
+                            return Err(BuildError::Source(format!(
+                                "Jenkins controller '{}': GDSL source identity differs from controller snapshot",
+                                controller.id
+                            )));
+                        }
+                        if let Some(revision) = gdsl_catalog["sources"][0].get("revision") {
+                            catalog["sources"][0]["revision"] = revision.clone();
+                        }
+                        if let (Some(target), Some(additional)) = (
+                            catalog["symbols"].as_array_mut(),
+                            gdsl_catalog["symbols"].as_array(),
+                        ) {
+                            target.extend(additional.iter().cloned());
+                        }
+                        if let Some(coverage) = catalog["coverage"].as_array_mut() {
+                            if let Some(entry) = coverage.iter_mut().find(|entry| entry["surface"] == "pipeline-gdsl") {
+                                entry["status"] = json!("inspected");
+                                entry["details"] = json!("full GDSL document was downloaded and parsed");
+                            }
+                        }
+                        collection_outcomes.push(json!({
+                            "id": format!("controller:{}:pipeline-gdsl", controller.id),
+                            "kind": "pipeline-gdsl",
+                            "name": controller.id,
+                            "surface": "pipeline-gdsl",
+                            "sourceId": controller_source_id,
+                            "revision": gdsl_catalog["sources"][0]["revision"],
+                            "status": "succeeded"
+                        }));
+                    }
+                    Err(error) => {
+                        let (status, code) = collector_outcome(&error);
+                        collection_outcomes.push(json!({
+                            "id": format!("controller:{}:pipeline-gdsl", controller.id),
+                            "kind": "pipeline-gdsl",
+                            "name": controller.id,
+                            "surface": "pipeline-gdsl",
+                            "sourceId": controller_source_id,
+                            "status": status,
+                            "errorCode": code
+                        }));
+                    }
+                }
+            }
+            if profile.collection_profile == "deep" && controller_metadata_available {
+                let mut runtime_record = jenkins_gdsl_collector::collect_script_console(
+                    &controller.url,
+                    username.as_deref(),
+                    api_token.as_deref(),
+                );
+                redact_sensitive_fields(&mut runtime_record);
+                let runtime_status = runtime_record["status"].as_str().unwrap_or("unavailable");
+                let runtime_error = runtime_record["errors"].as_array()
+                    .and_then(|errors| errors.first())
+                    .and_then(|error| error["code"].as_str())
+                    .map(str::to_owned);
+                let (status, error_code) = match runtime_status {
+                    "collected" => ("succeeded", None),
+                    "partial" => ("partial", runtime_error.clone()),
+                    _ if runtime_error.as_deref() == Some("permission-denied") => ("permission-denied", runtime_error.clone()),
+                    _ => ("unavailable", runtime_error.clone().or_else(|| Some("probe-failed".into()))),
+                };
+                catalog["controller"]["runtime"] = runtime_record;
+                let mut outcome = json!({
+                    "id": format!("controller:{}:script-console", controller.id),
+                    "kind": "script-console",
+                    "name": controller.id,
+                    "surface": "script-console",
+                    "sourceId": controller_source_id,
+                    "status": status
+                });
+                if let Some(code) = error_code {
+                    outcome["errorCode"] = json!(code);
+                }
+                collection_outcomes.push(outcome);
+            } else {
+                collection_outcomes.push(json!({
+                    "id": format!("controller:{}:script-console", controller.id),
+                    "kind": "script-console",
+                    "name": controller.id,
+                    "surface": "script-console",
+                    "status": "skipped-by-profile"
+                }));
+            }
+            if controller_metadata_available {
+                catalog["controller"]["collection"]["profile"] = json!(profile.collection_profile);
+                catalog["controller"]["collection"]["requestCount"] = json!(match profile.collection_profile.as_str() {
+                    "quick" => 3,
+                    "standard" => 4,
+                    "deep" => 5,
+                    _ => 4
+                });
+            }
             catalogs.push((format!("Jenkins controller '{}'", controller.id), catalog));
+
+            if controller_metadata_available {
             let core_source_id = format!("jenkins-core-{}", controller.id);
             let core_catalog = json!({
                 "schemaVersion": "1.0.0",
@@ -315,20 +584,18 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 }],
                 "symbols": []
             });
+            collection_outcomes.push(json!({
+                "id": format!("controller:{}:jenkins-core", controller.id),
+                "kind": "jenkins-core",
+                "name": controller.id,
+                "surface": "core-version",
+                "sourceId": core_source_id,
+                "revision": core_version,
+                "status": "succeeded"
+            }));
             catalogs.push((format!("Jenkins Core for '{}'", controller.id), core_catalog));
-        }
-        for library in &profile.libraries {
-            let config = shared_library_scanner::LibraryConfig { name: library.name.clone(), repository: library.url.clone(), reference: library.revision.clone() };
-            let result = if let Some(commit) = &library.commit {
-                shared_library_scanner::scan_library_at(&config, commit)
-                    .map_err(|e| BuildError::Source(format!("Shared Library '{}': {e}", library.name)))?
-            } else {
-                shared_library_scanner::scan_library(&config)
-                    .map_err(|e| BuildError::Source(format!("Shared Library '{}': {e}", library.name)))?
-            };
-            catalogs.push((format!("Shared Library '{}'", library.name), result.catalog));
-        }
-        for controller in &profile.jenkins.controllers {
+            }
+
             let source_id = format!("declarative-model-{}", controller.id);
             let fragment = declarative_model::catalog_fragment(&source_id);
             let mut model_symbols = fragment["symbols"].as_array().cloned().unwrap_or_default();
@@ -336,15 +603,89 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                 let local_id = symbol["id"].as_str().unwrap_or("unknown").to_owned();
                 symbol["id"] = json!(format!("{source_id}:{local_id}"));
             }
-            let catalog = json!({
+            let model_catalog = json!({
                 "schemaVersion":"1.0.0","catalogId":source_id,"generatedAt":build_timestamp(),
                 "sources":[{"id":source_id,"kind":"jenkins-controller","name":format!("Declarative Pipeline model ({})", controller.id),"revision":"model-v1"}],
                 "symbols":model_symbols
             });
-            catalogs.push((format!("Declarative model for '{}'", controller.id), catalog));
+            collection_outcomes.push(json!({
+                "id": format!("controller:{}:declarative-model", controller.id),
+                "kind": "declarative-model",
+                "name": controller.id,
+                "surface": "declarative-model",
+                "sourceId": source_id,
+                "revision": "model-v1",
+                "status": "succeeded"
+            }));
+            catalogs.push((format!("Declarative model for '{}'", controller.id), model_catalog));
+        }
+        for library in &profile.libraries {
+            if profile.collection_profile == "quick" {
+                collection_outcomes.push(json!({
+                    "id": format!("shared-library:{}", library.name),
+                    "kind": "shared-library",
+                    "name": library.name,
+                    "surface": "library-source",
+                    "revision": library.revision,
+                    "status": "skipped-by-profile"
+                }));
+                continue;
+            }
+            let config = shared_library_scanner::LibraryConfig {
+                name: library.name.clone(),
+                repository: library.url.clone(),
+                reference: library.revision.clone(),
+            };
+            let result = if let Some(commit) = &library.commit {
+                shared_library_scanner::scan_library_at(&config, commit)
+            } else {
+                shared_library_scanner::scan_library(&config)
+            };
+            match result {
+                Ok(result) => {
+                    let source = result.catalog["sources"].as_array()
+                        .and_then(|sources| sources.first())
+                        .ok_or_else(|| BuildError::Source(format!(
+                            "Shared Library '{}' scanner returned no source",
+                            library.name
+                        )))?;
+                    collection_outcomes.push(json!({
+                        "id": format!("shared-library:{}", library.name),
+                        "kind": "shared-library",
+                        "name": library.name,
+                        "surface": "library-source",
+                        "sourceId": source["id"],
+                        "revision": source["revision"],
+                        "status": "succeeded"
+                    }));
+                    catalogs.push((format!("Shared Library '{}'", library.name), result.catalog));
+                }
+                Err(_) => {
+                    collection_outcomes.push(json!({
+                        "id": format!("shared-library:{}", library.name),
+                        "kind": "shared-library",
+                        "name": library.name,
+                        "surface": "library-source",
+                        "revision": library.revision,
+                        "status": "failed",
+                        "errorCode": "collection-failed"
+                    }));
+                }
+            }
+        }
+        if profile.libraries.is_empty() {
+            collection_outcomes.push(json!({
+                "id": "shared-libraries",
+                "kind": "shared-library",
+                "name": "Shared Libraries",
+                "surface": "library-source",
+                "status": "not-configured"
+            }));
         }
     }
-    if catalogs.is_empty() { return Err(BuildError::Profile("configure at least one controller, library, or fixture catalog".into())); }
+    if catalogs.is_empty() && collection_outcomes.is_empty() {
+        return Err(BuildError::Profile("configure at least one controller, library, or fixture catalog".into()));
+    }
 
     let mut sources = Vec::new();
     let mut symbols = Vec::new();
@@ -468,6 +809,26 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             }
         }
     }
+    for outcome in &mut collection_outcomes {
+        let kind = outcome["kind"].as_str().unwrap_or_default();
+        let section = match kind {
+            "controller" | "pipeline-gdsl" | "declarative-model" | "script-console" | "plugin-inventory" => Some(PackageSection::Controller),
+            "jenkins-core" => Some(PackageSection::JenkinsCore),
+            "shared-library" => Some(PackageSection::SharedLibraries),
+            _ => None,
+        };
+        let excluded = section.is_some_and(|section| !selection.includes(section))
+            || (kind == "plugin-inventory" && !selection.includes(PackageSection::Plugins));
+        if excluded {
+            outcome["status"] = json!("skipped-by-profile");
+            if let Some(fields) = outcome.as_object_mut() {
+                fields.remove("sourceId");
+                fields.remove("revision");
+                fields.remove("errorCode");
+            }
+        }
+    }
+
     sources.sort_by_key(|v| v["id"].as_str().unwrap_or("").to_owned());
     symbols.sort_by_key(|v| v["id"].as_str().unwrap_or("").to_owned());
     coverage.sort_by_key(|v| {
@@ -541,7 +902,19 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
         "sourceRevisions":source_revisions,
         "provenance":provenance,
         "checksums":{"catalog.json":hex(&Sha256::digest(catalog_bytes.as_bytes()))},
-        "toolVersions":{"knowledge-builder":env!("CARGO_PKG_VERSION")}
+        "toolVersions":{"knowledge-builder":env!("CARGO_PKG_VERSION")},
+        "collection": {
+            "status": if collection_outcomes.iter().any(|outcome|
+                !matches!(outcome["status"].as_str(), Some("succeeded" | "skipped-by-profile" | "not-configured"))) {
+                "partial"
+            } else {
+                "complete"
+            },
+            "profile": profile.collection_profile,
+            "startedAt": collection_started_at,
+            "completedAt": build_timestamp(),
+            "sources": collection_outcomes
+        }
     });
     redact_sensitive_fields(&mut manifest);
     validate_package_metadata(&catalog, &manifest)
@@ -561,6 +934,40 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     fs::rename(staging.path(), output)
         .map_err(|error| BuildError::Io(format!("cannot publish package {}: {error}", output.display())))?;
     Ok(())
+}
+
+fn discovery_outcome(error: &DiscoveryError) -> (&'static str, &'static str) {
+    match error {
+        DiscoveryError::AuthenticationFailed { .. } | DiscoveryError::Unavailable { status: 401 | 403, .. } =>
+            ("permission-denied", "permission-denied"),
+        DiscoveryError::Unavailable { .. } => ("unavailable", "http-unavailable"),
+        DiscoveryError::RequestTimeout { .. } => ("failed", "request-timeout"),
+        DiscoveryError::ResponseTooLarge { .. } => ("failed", "response-too-large"),
+        DiscoveryError::MalformedJson { .. } | DiscoveryError::InvalidPluginInventory =>
+            ("failed", "invalid-response"),
+        DiscoveryError::TooManyPlugins { .. } | DiscoveryError::TooManyDependencies { .. } =>
+            ("failed", "limit-exceeded"),
+        DiscoveryError::InvalidCatalog(_) => ("failed", "invalid-catalog"),
+        DiscoveryError::InvalidControllerUrl => ("failed", "invalid-controller-url"),
+        DiscoveryError::CredentialsMustBePaired => ("failed", "credentials-must-be-paired"),
+        DiscoveryError::RequestFailed { .. } => ("failed", "request-failed"),
+    }
+}
+
+fn collector_outcome(error: &CollectorError) -> (&'static str, &'static str) {
+    match error {
+        CollectorError::AuthenticationFailed => ("permission-denied", "permission-denied"),
+        CollectorError::Unavailable(_) => ("unavailable", "http-unavailable"),
+        CollectorError::RequestTimeout => ("failed", "request-timeout"),
+        CollectorError::ResponseTooLarge { .. } => ("failed", "response-too-large"),
+        CollectorError::InvalidEncoding => ("failed", "invalid-encoding"),
+        CollectorError::TooManySymbols { .. } | CollectorError::TooManyParameters { .. } => ("failed", "limit-exceeded"),
+        CollectorError::EmptyResponse => ("failed", "empty-response"),
+        CollectorError::MalformedGdsl(_) => ("failed", "malformed-response"),
+        CollectorError::InvalidCatalog(_) => ("failed", "invalid-catalog"),
+        CollectorError::InvalidControllerUrl => ("failed", "invalid-controller-url"),
+        CollectorError::RequestFailed => ("failed", "request-failed"),
+    }
 }
 
 fn build_timestamp() -> String {
@@ -837,6 +1244,144 @@ fixtures:
         .unwrap_err();
         assert!(error.to_string().contains("controller snapshot differs"));
         assert!(!directory.path().join("package").exists());
+    }
+
+
+    #[test]
+    fn preserves_legacy_gdsl_only_controller_profiles_without_core_api() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            thread,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for index in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 1024];
+                loop {
+                    let count = stream.read(&mut buffer).unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..count]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                if index == 0 {
+                    write!(
+                        stream,
+                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    ).unwrap();
+                } else {
+                    let body = "method(name: 'sh', type: 'String')";
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    ).unwrap();
+                }
+            }
+        });
+
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            format!(
+                "profile: gdsl-only\ncollectionProfile: standard\njenkins:\n  controllers:\n    - id: ci\n      url: http://{address}/\npackage:\n  include:\n    - controller\n"
+            ),
+        ).unwrap();
+        let output = directory.path().join("package");
+        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        server.join().unwrap();
+
+        let catalog: Value = serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
+        let manifest: Value = serde_json::from_slice(&fs::read(output.join("manifest.json")).unwrap()).unwrap();
+        assert!(catalog["controller"].is_null());
+        assert!(catalog["symbols"].as_array().unwrap().iter().any(|symbol| symbol["name"] == "sh"));
+        assert_eq!(manifest["collection"]["status"], "partial");
+        assert!(manifest["collection"]["sources"].as_array().unwrap().iter().any(|outcome|
+            outcome["surface"] == "controller-metadata" && outcome["status"] == "unavailable"));
+        assert!(manifest["collection"]["sources"].as_array().unwrap().iter().any(|outcome|
+            outcome["surface"] == "pipeline-gdsl" && outcome["status"] == "succeeded"));
+    }
+
+    #[test]
+    fn preserves_controller_snapshot_when_optional_plugin_and_gdsl_surfaces_fail() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            thread,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for _ in 0..4 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 1024];
+                loop {
+                    let count = stream.read(&mut buffer).unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..count]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let request = String::from_utf8_lossy(&request);
+                if request.starts_with("GET /api/json") {
+                    let body = r#"{"_class":"hudson.model.Hudson","nodeName":"ci","jenkinsVersion":"2.479.1"}"#;
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nX-Jenkins: 2.479.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    ).unwrap();
+                } else {
+                    let status = if request.starts_with("GET /pluginManager/api/json") {
+                        "403 Forbidden"
+                    } else {
+                        "404 Not Found"
+                    };
+                    write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    ).unwrap();
+                }
+            }
+        });
+
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("profile.yml"),
+            format!(
+                "profile: partial-controller\ncollectionProfile: standard\njenkins:\n  controllers:\n    - id: ci\n      url: http://{address}/\n"
+            ),
+        ).unwrap();
+        let output = directory.path().join("package");
+        build_package(&directory.path().join("profile.yml"), &output).unwrap();
+        server.join().unwrap();
+
+        let catalog: Value = serde_json::from_slice(&fs::read(output.join("catalog.json")).unwrap()).unwrap();
+        let manifest: Value = serde_json::from_slice(&fs::read(output.join("manifest.json")).unwrap()).unwrap();
+        assert_eq!(manifest["collection"]["status"], "partial");
+        assert_eq!(manifest["collection"]["profile"], "standard");
+        assert!(catalog["sources"].as_array().unwrap().iter().any(|source| source["kind"] == "jenkins-controller"));
+        assert!(catalog["sources"].as_array().unwrap().iter().any(|source| source["kind"] == "jenkins-core"));
+        assert!(catalog["symbols"].as_array().unwrap().iter().any(|symbol| symbol["kind"] == "declarative-directive"));
+        assert!(manifest["collection"]["sources"].as_array().unwrap().iter().any(|outcome|
+            outcome["surface"] == "plugin-inventory" && outcome["status"] == "permission-denied"));
+        assert!(manifest["collection"]["sources"].as_array().unwrap().iter().any(|outcome|
+            outcome["surface"] == "pipeline-gdsl" && outcome["status"] == "unavailable"));
+        assert!(!manifest.to_string().contains("authorization"));
     }
 
 
