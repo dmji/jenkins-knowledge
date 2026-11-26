@@ -534,7 +534,7 @@ mod tests {
 
     #[test]
     fn nested_closures_do_not_close_their_declarative_parent_context() {
-        let source = "pipeline {\\n stages {\\n stage('build') {\\n steps {\\n script {\\n sh 'inside'\\n }\\n sh";
+        let source = "pipeline {\n stages {\n stage('build') {\n steps {\n script {\n sh 'inside'\n }\n sh";
         let (_, contexts, kinds) = context_at_end(source);
         assert!(contexts.iter().any(|context| context == "pipeline"));
         assert!(contexts.iter().any(|context| context == "stages"));
@@ -570,8 +570,8 @@ mod tests {
     #[test]
     fn escaped_quotes_do_not_end_strings_early() {
         let source = r#"pipeline {
-    def double = "steps { \\\" stage { }"
-    def single = 'script { \\' post { }'
+    def double = "steps { \" stage { }"
+    def single = 'script { \' post { }'
     steps {
         sh
 "#;
@@ -584,7 +584,7 @@ mod tests {
 
     #[test]
     fn incomplete_blocks_and_unbalanced_closers_are_handled_safely() {
-        let source = "pipeline {\\n stages {\\n stage('unfinished') {\\n steps {\\n sh";
+        let source = "pipeline {\n stages {\n stage('unfinished') {\n steps {\n sh";
         let (_, contexts, kinds) = context_at_end(source);
         assert!(contexts.iter().any(|context| context == "steps"));
         assert_eq!(kinds, vec!["step"]);
@@ -602,7 +602,7 @@ mod tests {
     #[test]
     fn nested_completion_keeps_step_symbols_and_excludes_declarative_directives() {
         let runtime = fixture_runtime("fixture");
-        let source = "pipeline {\\n stages {\\n stage('build') {\\n steps {\\n script {\\n sh 'inside'\\n }\\n sh";
+        let source = "pipeline {\n stages {\n stage('build') {\n steps {\n script {\n sh 'inside'\n }\n sh";
         let result = completion(Some(&runtime), source, 7, 2);
         let labels: Vec<_> = result["items"].as_array().unwrap().iter()
             .filter_map(|item| item["label"].as_str()).collect();
