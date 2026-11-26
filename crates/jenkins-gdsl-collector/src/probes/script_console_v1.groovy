@@ -111,7 +111,8 @@ registrySpecs.each { spec ->
             ]
             if (spec.name == 'pipeline-steps') {
                 try {
-                    item.displayName = safeText(extension.getDisplayName())
+                    def displayName = safeText(extension.getDisplayName())
+                    if (displayName != null) item.displayName = displayName
                 } catch (Throwable ignored) {
                     // Display metadata is optional across Jenkins/plugin versions.
                 }
@@ -143,7 +144,8 @@ registrySpecs.each { spec ->
                             parameterRecord.required = parameter.isRequired() == true
                         } catch (Throwable ignored) {}
                         try {
-                            parameterRecord.description = safeText(parameter.getDescription())
+                            def description = safeText(parameter.getDescription())
+                            if (description != null) parameterRecord.description = description
                         } catch (Throwable ignored) {}
                         try {
                             def defaultValue = parameter.getDefaultParameterValue()
