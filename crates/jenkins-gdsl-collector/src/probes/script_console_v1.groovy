@@ -1,11 +1,21 @@
 import groovy.json.JsonOutput
 import jenkins.model.Jenkins
+import java.lang.reflect.Modifier
+import java.lang.reflect.ParameterizedType
+import java.lang.reflect.GenericArrayType
+import java.lang.reflect.TypeVariable
+import java.lang.reflect.WildcardType
 
 final int MAX_ITEMS_PER_REGISTRY = 100
 final int MAX_PARAMETERS_PER_STEP = 20
 final int MAX_DECLARATIVE_ITEMS = 100
 final int MAX_TEXT_LENGTH = 256
 final int MAX_OUTPUT_BYTES = 262144
+final int MAX_API_TYPES = 40
+final int MAX_API_DEPTH = 2
+final int MAX_API_MEMBERS_PER_TYPE = 12
+final int MAX_CONFIGURED_API_ROOTS = 20
+final List<String> CONFIGURED_API_ROOTS = __JENKINS_KNOWLEDGE_API_ROOTS__
 
 def errors = []
 def safeText = { value ->
@@ -29,6 +39,9 @@ def result = [
     javaVendor: null,
     jenkinsCoreVersion: null,
     extensionRegistries: [],
+    apiTypeInventoryStatus: 'unavailable',
+    configuredApiRoots: CONFIGURED_API_ROOTS,
+    apiTypes: [],
     errors: errors
 ]
 
@@ -404,6 +417,292 @@ registrySpecs.each { spec ->
     result.extensionRegistries << registry
 }
 
+def genericTypeName
+genericTypeName = { type, depth ->
+    if (type == null || depth > 3) return null
+    try {
+        if (type instanceof Class) return safeText(type.getName())
+        if (type instanceof ParameterizedType) {
+            def raw = genericTypeName(type.getRawType(), depth + 1)
+            def args = type.getActualTypeArguments().take(6).collect {
+                genericTypeName(it, depth + 1) ?: '?'
+            }
+            return raw == null ? null : safeText(raw + '<' + args.join(', ') + '>')
+        }
+        if (type instanceof GenericArrayType) {
+            def component = genericTypeName(type.getGenericComponentType(), depth + 1)
+            return component == null ? null : safeText(component + '[]')
+        }
+        if (type instanceof TypeVariable) return safeText(type.getName())
+        if (type instanceof WildcardType) {
+            def upper = type.getUpperBounds().take(2).collect { genericTypeName(it, depth + 1) ?: '?' }
+            def lower = type.getLowerBounds().take(2).collect { genericTypeName(it, depth + 1) ?: '?' }
+            if (!lower.isEmpty()) return safeText('? super ' + lower.join(' & '))
+            if (upper.isEmpty() || upper == ['java.lang.Object']) return '?'
+            return safeText('? extends ' + upper.join(' & '))
+        }
+    } catch (Throwable ignored) {
+        return null
+    }
+    return null
+}
+
+def isJenkinsApiClass = { Class type ->
+    try {
+        if (jenkins.getPluginManager().whichPlugin(type) != null) return true
+        String name = type.getName()
+        return name.startsWith('hudson.') ||
+            name.startsWith('jenkins.') ||
+            name.startsWith('org.jenkinsci.') ||
+            name.startsWith('org.kohsuke.') ||
+            name.startsWith('com.cloudbees.')
+    } catch (Throwable ignored) {
+        return false
+    }
+}
+
+def collectApiTypes = {
+    def roots = new TreeMap()
+    result.extensionRegistries.each { registry ->
+        registry.items.each { item ->
+            String className = item.className
+            if (className != null) {
+                def categories = roots[className] ?: new TreeSet()
+                categories << registry.name + (item.category == null ? '' : ':' + item.category)
+                roots[className] = categories
+            }
+        }
+    }
+    CONFIGURED_API_ROOTS.each { className ->
+        def categories = roots[className] ?: new TreeSet()
+        categories << 'configured'
+        roots[className] = categories
+    }
+
+    def pending = []
+    roots.each { className, categories ->
+        pending << [className: className, depth: 0, rootCategories: categories.toList()]
+    }
+    def visited = new HashSet()
+    int inspectedMembers = 0
+    int unresolvedRoots = 0
+    while (!pending.isEmpty() && result.apiTypes.size() < MAX_API_TYPES) {
+        pending.sort { left, right ->
+            left.depth <=> right.depth ?: left.className <=> right.className
+        }
+        def entry = pending.remove(0)
+        String className = entry.className
+        if (!visited.add(className)) continue
+        Class type = null
+        try {
+            type = Class.forName(className, false, jenkins.getPluginManager().getUberClassLoader())
+        } catch (Throwable ignored) {
+            result.apiTypes << [
+                name: className,
+                className: className,
+                depth: entry.depth,
+                rootCategories: entry.rootCategories,
+                status: 'unresolved',
+                methods: [],
+                properties: []
+            ]
+            unresolvedRoots++
+            errors << [probe: 'api-types', code: 'class-unavailable']
+            continue
+        }
+
+        def typeItem = [
+            name: safeText(type.getName()),
+            className: safeText(type.getName()),
+            depth: entry.depth,
+            rootCategories: entry.rootCategories,
+            status: 'available',
+            synthetic: type.isSynthetic(),
+            interfaces: [],
+            methods: [],
+            properties: [],
+            methodsTruncated: false,
+            propertiesTruncated: false
+        ]
+        try {
+            Class parent = type.getSuperclass()
+            if (parent != null) typeItem.superClass = safeText(parent.getName())
+        } catch (Throwable ignored) {
+            typeItem.status = 'partial'
+        }
+        try {
+            typeItem.interfaces = type.getInterfaces().collect { safeText(it.getName()) }.findAll { it != null }.sort()
+        } catch (Throwable ignored) {
+            typeItem.status = 'partial'
+        }
+        try {
+            def plugin = jenkins.getPluginManager().whichPlugin(type)
+            if (plugin != null) typeItem.plugin = safeText(plugin.getShortName())
+        } catch (Throwable ignored) {}
+        try {
+            def location = type.getProtectionDomain()?.getCodeSource()?.getLocation()
+            if (location != null) {
+                def path = location.getPath()
+                if (path != null && !path.isEmpty()) {
+                    typeItem.origin = safeText(path.tokenize('/').last())
+                }
+            }
+        } catch (Throwable ignored) {}
+        try {
+            def loader = type.getClassLoader()
+            if (loader != null) typeItem.classLoader = safeText(loader.getClass().getName())
+        } catch (Throwable ignored) {}
+
+        def methodMap = new TreeMap()
+        try {
+            (type.getMethods() as List).each { method ->
+                methodMap[method.getName() + '(' + method.getParameterTypes().collect { it.getName() }.join(',') + ')'] = method
+            }
+            (type.getDeclaredMethods() as List).each { method ->
+                int modifiers = method.getModifiers()
+                if (Modifier.isPublic(modifiers) || Modifier.isProtected(modifiers)) {
+                    methodMap[method.getName() + '(' + method.getParameterTypes().collect { it.getName() }.join(',') + ')'] = method
+                }
+            }
+        } catch (Throwable ignored) {
+            typeItem.status = 'partial'
+            typeItem.membersStatus = 'inaccessible'
+        }
+        def propertyMap = new TreeMap()
+        methodMap.each { methodKey, method ->
+            if (typeItem.methods.size() >= MAX_API_MEMBERS_PER_TYPE || inspectedMembers >= 300) {
+                typeItem.methodsTruncated = true
+                return
+            }
+            def parameterRecords = []
+            def parameterTypes = method.getParameterTypes()
+            def genericParameterTypes = []
+            try {
+                genericParameterTypes = method.getGenericParameterTypes().toList()
+            } catch (Throwable ignored) {}
+            def reflectedParameters = []
+            try {
+                reflectedParameters = method.getParameters().toList()
+            } catch (Throwable ignored) {}
+            parameterTypes.eachWithIndex { parameterType, parameterIndex ->
+                def parameterRecord = [
+                    name: 'arg' + parameterIndex,
+                    namePresent: false,
+                    type: safeText(parameterType.getName())
+                ]
+                if (parameterIndex < reflectedParameters.size()) {
+                    try {
+                        if (reflectedParameters[parameterIndex].isNamePresent()) {
+                            parameterRecord.name = safeText(reflectedParameters[parameterIndex].getName())
+                            parameterRecord.namePresent = true
+                        }
+                    } catch (Throwable ignored) {}
+                }
+                if (parameterIndex < genericParameterTypes.size()) {
+                    def genericName = genericTypeName(genericParameterTypes[parameterIndex], 0)
+                    if (genericName != null) parameterRecord.genericType = genericName
+                }
+                parameterRecords << parameterRecord
+            }
+            String returnType = safeText(method.getReturnType().getName())
+            String signature = method.getName() + '(' + parameterTypes.collect { it.getName() }.join(', ') + ') -> ' + returnType
+            def methodRecord = [
+                name: safeText(method.getName()),
+                declaringClass: safeText(method.getDeclaringClass().getName()),
+                signature: safeText(signature),
+                returnType: returnType,
+                modifiers: safeText(Modifier.toString(method.getModifiers())),
+                synthetic: method.isSynthetic(),
+                bridge: method.isBridge(),
+                varargs: method.isVarArgs(),
+                parameters: parameterRecords
+            ]
+            try {
+                def genericReturn = genericTypeName(method.getGenericReturnType(), 0)
+                if (genericReturn != null) methodRecord.genericReturnType = genericReturn
+            } catch (Throwable ignored) {}
+            typeItem.methods << methodRecord
+            inspectedMembers++
+
+            String propertyName = null
+            String access = null
+            String propertyType = null
+            if (parameterTypes.length == 0 && method.getName().startsWith('get') && method.getName().length() > 3 && method.getReturnType() != Void.TYPE) {
+                propertyName = java.beans.Introspector.decapitalize(method.getName().substring(3))
+                access = 'read'
+                propertyType = returnType
+            } else if (parameterTypes.length == 0 && method.getName().startsWith('is') && method.getName().length() > 2 && (method.getReturnType() == Boolean.TYPE || method.getReturnType() == Boolean)) {
+                propertyName = java.beans.Introspector.decapitalize(method.getName().substring(2))
+                access = 'read'
+                propertyType = returnType
+            } else if (parameterTypes.length == 1 && method.getName().startsWith('set') && method.getName().length() > 3 && method.getReturnType() == Void.TYPE) {
+                propertyName = java.beans.Introspector.decapitalize(method.getName().substring(3))
+                access = 'write'
+                propertyType = safeText(parameterTypes[0].getName())
+            }
+            if (propertyName != null && !propertyName.isEmpty()) {
+                def property = propertyMap[propertyName] ?: [name: safeText(propertyName), accessors: [], confidence: 'inferred']
+                if (access == 'read') property.readType = propertyType
+                if (access == 'write') property.writeType = propertyType
+                property.accessors << method.getName()
+                propertyMap[propertyName] = property
+            }
+
+            if (entry.depth < MAX_API_DEPTH) {
+                (parameterTypes.toList() + [method.getReturnType()]).each { referenced ->
+                    if (!referenced.isPrimitive() && isJenkinsApiClass(referenced)) {
+                        String referencedName = referenced.getName()
+                        if (!visited.contains(referencedName) && pending.size() < MAX_API_TYPES * 4) {
+                            pending << [className: referencedName, depth: entry.depth + 1, rootCategories: ['referenced-from:' + className]]
+                        }
+                    }
+                }
+            }
+        }
+        typeItem.properties = propertyMap.values().take(20).toList()
+        if (propertyMap.size() > 20) typeItem.propertiesTruncated = true
+        if (typeItem.methodsTruncated) {
+            errors << [probe: 'api-types', code: 'type-traversal-truncated']
+        }
+        result.apiTypes << typeItem
+
+        if (entry.depth < MAX_API_DEPTH) {
+            def referencedClasses = []
+            try {
+                if (type.getSuperclass() != null) referencedClasses << type.getSuperclass()
+                referencedClasses.addAll(type.getInterfaces().toList())
+            } catch (Throwable ignored) {}
+            referencedClasses.each { referenced ->
+                if (isJenkinsApiClass(referenced)) {
+                    String referencedName = referenced.getName()
+                    if (!visited.contains(referencedName) && pending.size() < MAX_API_TYPES * 4) {
+                        pending << [className: referencedName, depth: entry.depth + 1, rootCategories: ['supertype-of:' + className]]
+                    }
+                }
+            }
+        }
+    }
+    if (!pending.isEmpty() || unresolvedRoots > 0) {
+        result.apiTypeInventoryStatus = 'partial'
+        errors << [probe: 'api-types', code: 'type-traversal-truncated']
+    } else if (!result.apiTypes.isEmpty()) {
+        result.apiTypeInventoryStatus = 'available'
+    } else {
+        result.apiTypeInventoryStatus = 'unavailable'
+    }
+}
+
+try {
+    if (jenkins != null) {
+        collectApiTypes()
+    } else {
+        errors << [probe: 'api-types', code: 'jenkins-unavailable']
+    }
+} catch (Throwable ignored) {
+    result.apiTypeInventoryStatus = 'partial'
+    errors << [probe: 'api-types', code: 'probe-failed']
+}
+
 def output = JsonOutput.toJson(result)
 if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
     result.extensionRegistries.each { registry ->
@@ -411,6 +710,13 @@ if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
             registry.items = registry.items.take(10)
             registry.truncated = true
         }
+    }
+    result.apiTypes = result.apiTypes.take(10)
+    result.apiTypes.each { type ->
+        type.methods = type.methods.take(5)
+        type.methodsTruncated = true
+        type.properties = type.properties.take(10)
+        type.propertiesTruncated = true
     }
     errors << [probe: 'output', code: 'output-truncated']
     output = JsonOutput.toJson(result)
