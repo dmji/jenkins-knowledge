@@ -275,18 +275,35 @@ fn checkout_size(root: &Path, limit: u64) -> std::io::Result<u64> {
     let mut total = 0u64;
     let mut entries = 0usize;
     while let Some(directory) = pending.pop() {
-        for entry in fs::read_dir(directory)? {
+        let directory_entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        for entry in directory_entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
             entries += 1;
             if entries > MAX_CHECKOUT_ENTRIES {
                 return Ok(limit.saturating_add(1));
             }
-            let entry = entry?;
-            let metadata = fs::symlink_metadata(entry.path())?;
+            let path = entry.path();
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                // Git creates and atomically renames pack/index files while the
+                // watchdog walks the directory. A vanished entry is not a quota
+                // accounting failure; the next poll observes the stable state.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
             if metadata.file_type().is_symlink() {
                 continue;
             }
             if metadata.is_dir() {
-                pending.push(entry.path());
+                pending.push(path);
             } else if metadata.is_file() {
                 total = total.saturating_add(metadata.len());
                 if total > limit {
@@ -1278,7 +1295,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
 
     #[test]
     fn temporary_checkout_is_unprivileged_unique_and_cleans_up() {
-        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap();
+        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let first = GitCheckout::new(1024 * 1024).unwrap();
         let second = GitCheckout::new(1024 * 1024).unwrap();
         assert_ne!(first.path(), second.path());
@@ -1328,7 +1345,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
 
     #[test]
     fn fetches_local_bare_repository_without_mount_privileges() {
-        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap();
+        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let root = tempfile::tempdir().unwrap();
         let remote = local_bare_remote(root.path(), 1024);
         let (checkout, commit) =
@@ -1339,7 +1356,7 @@ class Service<T> extends BaseService implements Runnable, Closeable {
 
     #[test]
     fn aborts_when_server_ignores_blob_filter_and_checkout_budget_is_exceeded() {
-        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap();
+        let _guard = GIT_CHECKOUT_TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let root = tempfile::tempdir().unwrap();
         let remote = local_bare_remote(root.path(), 8 * 1024 * 1024);
         let temp_root = std::env::temp_dir();
