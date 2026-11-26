@@ -9,6 +9,9 @@ This is a historical compatibility test, not a production deployment recommendat
 | Jenkins | Official `jenkins/jenkins:2.356-jdk17` image, pinned to linux/amd64 digest `sha256:211419c659bd04b2d065ead531aad35ea47471489dcf714ab2c8a30cb9870850` |
 | Java | JDK 17 from the pinned Jenkins image |
 | Authorization | Matrix Authorization Strategy `2.6.11`; SHA-256 `f70d8ba943478fb4966375e7c4ab213e7a0665bd88e9558d9c12492f1dee7dbd`; minimum Jenkins core `2.222.1` |
+| Pipeline aggregator | `590.v6a_d052e5a_a_b_5`; minimum Jenkins core `2.303.3` |
+| Declarative Pipeline | `2.2114.v2654ca_721309`; minimum Jenkins core `2.332.1` |
+| Pipeline Groovy | `2759.2761.vd6e8d2a_15980`; minimum Jenkins core `2.346.1` |
 | Shared Library success fixture | `GSA/jenkins-shared-library-examples` at commit `7dfe2ab4bf7123b6aea29b0ec92caa2277cea5de` |
 | Shared Library failure fixture | Same repository with an intentionally nonexistent, format-valid commit SHA |
 | Rust | `1.100.0`, matching the repository validation toolchain |
