@@ -102,7 +102,12 @@ fn default_collection_profile() -> String {
 }
 
 fn valid_api_class_name(value: &str) -> bool {
-    if value.is_empty() || value.len() > 256 || value.trim() != value {
+    if value.is_empty()
+        || value.len() > 256
+        || value.trim() != value
+        || value.starts_with("groovy.")
+        || value.starts_with("org.codehaus.groovy.")
+    {
         return false;
     }
     value.split('.').all(|part| {
