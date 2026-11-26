@@ -132,12 +132,12 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
             "configure at least one Jenkins controller, Shared Library, or fixture catalog".into(),
         ));
     }
-    if profile.collection_profile == "quick" && profile.jenkins.controllers.is_empty() {
+    if !fixtures_mode && profile.collection_profile == "quick" && profile.jenkins.controllers.is_empty() {
         return Err(BuildError::Profile(
             "collectionProfile: quick requires a Jenkins controller".into(),
         ));
     }
-    if profile.collection_profile == "deep" && profile.jenkins.controllers.is_empty() {
+    if !fixtures_mode && profile.collection_profile == "deep" && profile.jenkins.controllers.is_empty() {
         return Err(BuildError::Profile(
             "collectionProfile: deep requires a Jenkins controller".into(),
         ));
