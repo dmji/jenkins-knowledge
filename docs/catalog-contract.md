@@ -10,6 +10,8 @@ The catalog is the canonical API representation shared by Builder, Runtime, IDE 
 - `sources`: source snapshots from which symbols were extracted.
 - `symbols`: API symbols associated with exactly one source.
 - `coverage` (optional): per-source collection status for an inspected API surface.
+- `snapshotId` (optional): stable SHA-256 identity of the logical catalog content, excluding only documented volatile timestamps.
+- `completeness` (optional): `complete`, `partial`, or `unknown`, with stable reason codes when partial.
 
 ## Sources
 
@@ -33,7 +35,7 @@ The optional `evidence` array attaches source identity, evidence class (`control
 
 ## Package collection outcomes
 
-The manifest's optional `collection` object is the package-level execution record; catalog `coverage` remains the per-source/API-surface observation record. These are related but not interchangeable. The manifest records the selected collection profile, start/completion timestamps, package status (`complete` or `partial`), and one outcome per configured collection surface.
+The manifest's optional `collection` object is the package-level execution record; catalog `coverage` remains the per-source/API-surface observation record. These are related but not interchangeable. The manifest records the selected collection profile, start/completion timestamps, package status (`complete`, `partial`, or `unknown`), and one outcome per configured collection surface.
 
 Collection outcome statuses are:
 
@@ -45,6 +47,8 @@ Collection outcome statuses are:
 - `failed`: the source was configured but its response, parsing, or collection failed.
 - `skipped-by-profile`: the selected quick/standard/deep profile or package section intentionally omitted the surface.
 - `not-configured`: the surface is not configured for this package.
+
+`manifest.collection.status: unknown` is a package-level state used when at least one catalog source has no explicit collection outcome; `unknown` is not a per-surface outcome status and must never be treated as success.
 
 The package is `partial` if any outcome is truncated, partial, unavailable, permission-denied, or failed. A skipped or not-configured surface does not make the selected package incomplete. Controller metadata is mandatory in all live Jenkins profiles; failure aborts the build because no safe controller identity/version anchor exists. Plugin inventory is optional in all profiles. Quick probes GDSL availability only; standard and deep attempt full GDSL collection. Standard and deep scan configured Shared Libraries independently. Deep additionally executes the fixed repository-owned read-only Script Console probe; Script Console permission failure does not discard REST/GDSL results.
 
@@ -89,15 +93,23 @@ Three independent dimensions must not be conflated:
 
 - **Confidence** describes the overall strength of the symbol claim (`verified`, `inferred`, or `unknown`).
 - **Provenance** describes where the symbol evidence came from. The source ID and revision identify the source snapshot; the optional `provenance` strings record evidence locations or extraction notes.
-- **Coverage** describes what collection actually inspected. The optional top-level `coverage` array records a `sourceId`, a `surface`, and one status: `inspected`, `unavailable`, `unsupported`, or `not-collected`. Coverage entries must reference an existing source. Absence of a coverage entry is not evidence that a surface was inspected.
+- **Coverage** describes what collection actually inspected. The optional top-level `coverage` array records a `sourceId`, a `surface`, and one status: `inspected`, `succeeded`, `succeeded-with-truncation`, `partial`, `unavailable`, `permission-denied`, `failed`, `skipped-by-profile`, `not-configured`, `unsupported`, or `not-collected`. Coverage entries must reference an existing source. Absence of a coverage entry is not evidence that a surface was inspected.
 
 The optional symbol `fieldEvidence` object records evidence quality independently for individual fields, using the same `verified`, `inferred`, and `unknown` values. A missing field-evidence entry means unknown; symbol-level `confidence: verified` must not be interpreted as proof that every optional attribute is verified. Producers should only mark a field verified when its value was directly observed or declared by the referenced source.
+
+## Package format, build identity, and checksums
+
+`manifest.packageVersion` identifies the Knowledge Package/manifest format; the currently supported value is `1.0.0`. `manifest.catalogSchemaVersion` must equal `catalog.schemaVersion` and currently supports `1.0.0`. Runtime rejects unsupported versions instead of attempting best-effort interpretation. Additive optional fields may be absent from older 1.0.0 packages; consumers treat absent collection/completeness/runtime observations as unknown. Required source identity, `sourceRevisions`, and `provenance` reconciliation remain part of the current package contract. Breaking field, enum, or semantic changes require an explicit package/catalog version decision and migration notes.
+
+`manifest.createdAt` records package creation time; `manifest.collection.startedAt/completedAt` bound the collection run. `catalogId` identifies the logical catalog namespace and `snapshotId` identifies its logical content. Together these provide build time and content identity without adding a second, redundant build identifier. `manifest.toolVersions` records the producing tool versions.
+
+`manifest.checksums` contains SHA-256 digests of the exact serialized bytes of package payload files (currently `catalog.json`). The manifest is not self-checksummed. `snapshotId` is different: it hashes canonical logical catalog content and excludes only documented volatile timestamps. Therefore a new retrieval time can change the file checksum while preserving the same logical snapshot ID. JSON object keys and identity-bearing arrays are canonicalized before snapshot hashing; Builder serialization and package checksums use deterministic JSON serialization. `sourceRevisions` is retained as a v1 compatibility index; `provenance` carries the corresponding source identity record. Both must match the authoritative catalog source and are validated rather than treated as independent facts.
 
 ## Validation and compatibility
 
 Validation applies JSON Schema constraints and semantic rules: unique source IDs and symbol IDs, valid symbol and coverage source references, one coverage record per source/surface pair, unique parameter names within a symbol, and rejection of credential-bearing source URLs or secret-named fields. Duplicate source identities are rejected during package merge rather than overwritten. Same-name symbols from distinct sources remain distinct when their IDs and source references are distinct. Conflicts are reported with both contributing input labels and revisions.
 
-Unknown properties are rejected. The optional `coverage` and `fieldEvidence` fields are additive and do not invalidate existing 1.0.0 catalogs. Changes to required fields, enum values, or field meaning require an explicit schema version decision and migration notes. The current schema rejects unsupported schema versions rather than guessing.
+Unknown top-level catalog/manifest properties and unknown fields in closed schema objects are rejected. Manifest provenance records intentionally allow additional fields for forward-compatible metadata. The optional `coverage`, `fieldEvidence`, `snapshotId`, and `completeness` fields are additive and do not invalidate existing 1.0.0 catalogs. Changes to required fields, enum values, or field meaning require an explicit schema version decision and migration notes. The current schema rejects unsupported schema versions rather than guessing.
 
 ## Stable snapshot identity and source collection outcomes
 

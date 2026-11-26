@@ -1867,6 +1867,11 @@ fixtures:
         build_package(&directory.path().join("profile.yml"), &output).unwrap();
         let catalog = fs::read_to_string(output.join("catalog.json")).unwrap();
         let manifest = fs::read_to_string(output.join("manifest.json")).unwrap();
+        let manifest_value: Value = serde_json::from_str(&manifest).unwrap();
+        assert_eq!(manifest_value["packageVersion"], "1.0.0");
+        assert_eq!(manifest_value["catalogSchemaVersion"], "1.0.0");
+        assert!(manifest_value["checksums"]["catalog.json"].is_string());
+        assert!(manifest_value["checksums"].get("manifest.json").is_none());
         let package = format!("{catalog}{manifest}");
         assert!(!package.contains("?ref=release"));
         assert!(package.contains("https://github.example.test/team/library.git"));

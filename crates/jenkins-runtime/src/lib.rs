@@ -1001,6 +1001,32 @@ mod tests {
     }
 
     #[test]
+    fn accepts_legacy_package_without_additive_completeness_fields() {
+        let directory = tempfile::tempdir().unwrap();
+        write_package(directory.path());
+        let loaded = Runtime::open(directory.path()).unwrap();
+
+        assert!(loaded.catalog().get("coverage").is_none());
+        assert!(loaded.catalog().get("snapshotId").is_none());
+        assert!(loaded.catalog().get("completeness").is_none());
+        assert!(loaded.collection().is_none());
+    }
+
+    #[test]
+    fn rejects_unsupported_package_format_version() {
+        let directory = tempfile::tempdir().unwrap();
+        write_package(directory.path());
+        let manifest_path = directory.path().join("manifest.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["packageVersion"] = Value::String("2.0.0".into());
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        let error = Runtime::open(directory.path()).unwrap_err().to_string();
+        assert!(error.contains("/packageVersion"));
+    }
+
+    #[test]
     fn verifies_every_declared_package_file() {
         let directory = tempfile::tempdir().unwrap();
         write_package(directory.path());
