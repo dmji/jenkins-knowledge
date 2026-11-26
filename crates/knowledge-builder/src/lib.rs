@@ -1,4 +1,4 @@
-use catalog_validator::{redact_sensitive_fields, validate_catalog, validate_package_metadata};
+use catalog_validator::{redact_sensitive_fields, stamp_catalog_identity, validate_catalog, validate_package_metadata};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -486,6 +486,25 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
     });
     if let Some(controller) = controller_metadata {
         catalog["controller"] = controller;
+    }
+    let has_collection_outcomes = catalog["sources"].as_array().is_some_and(|sources| sources.iter().any(|source| source.get("collection").is_some()));
+    let all_sources_succeeded = catalog["sources"].as_array().is_some_and(|sources| !sources.is_empty() && sources.iter().all(|source| {
+        source["collection"]["status"].as_str() == Some("succeeded")
+            && source["collection"]["truncated"].as_bool() == Some(false)
+    }));
+    let has_failed_source = catalog["sources"].as_array().is_some_and(|sources| sources.iter().any(|source| {
+        source.get("collection").is_some_and(|collection| collection["status"].as_str() != Some("succeeded"))
+    }));
+    catalog["completeness"] = json!({
+        "status": if has_failed_source { "partial" } else if has_collection_outcomes && all_sources_succeeded { "complete" } else { "unknown" }
+    });
+    stamp_catalog_identity(&mut catalog).map_err(BuildError::InvalidCatalog)?;
+    for source in catalog["sources"].as_array().into_iter().flatten() {
+        if let (Some(id), Some(fingerprint)) = (source["id"].as_str(), source["fingerprint"].as_str()) {
+            if let Some(record) = provenance.get_mut(id) {
+                record["fingerprint"] = json!(fingerprint);
+            }
+        }
     }
     let schema: Value = serde_json::from_str(include_str!("../../../schemas/catalog.schema.json")).expect("bundled catalog schema");
     validate_catalog(&catalog, &schema).map_err(|e| BuildError::InvalidCatalog(e.to_string()))?;
