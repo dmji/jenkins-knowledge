@@ -235,6 +235,7 @@ fn render_script(api_roots: &[String], api_limits: &ApiTypeLimits) -> String {
         .replace("__API_MAX_TOTAL_MEMBERS__", &api_limits.max_total_members.to_string())
 }
 
+#[cfg(test)]
 fn collect_with_client(
     endpoint: &Url,
     username: Option<&str>,
@@ -930,7 +931,7 @@ mod tests {
         assert!(!request.contains("must-not-escape"));
         assert_eq!(form.len(), 1);
         assert_eq!(form[0].0, "script");
-        assert_eq!(form[0].1, render_script(&[]));
+        assert_eq!(form[0].1, render_script(&[], &ApiTypeLimits::default()));
         assert_eq!(result["status"], "collected");
         assert_eq!(result["jenkinsCoreVersion"], "2.479.1");
     }
