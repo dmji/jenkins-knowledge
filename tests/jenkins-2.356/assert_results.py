@@ -67,6 +67,7 @@ assert deep["controller"]["collection"]["javaVersionStatus"] == "available"
 assert deep["controller"]["collection"]["javaVendorStatus"] == "available"
 assert runtime["javaVersion"] == "17.0.3", runtime.get("javaVersion")
 assert runtime["javaVendor"] == "Eclipse Adoptium", runtime.get("javaVendor")
+assert runtime["configuredApiRoots"] == ["hudson.model.Run"]
 assert runtime["apiTypeInventoryStatus"] in {"available", "partial"}
 assert_optional_success(deep_manifest, "script-console")
 assert_optional_success(deep_manifest, "pipeline-gdsl")
