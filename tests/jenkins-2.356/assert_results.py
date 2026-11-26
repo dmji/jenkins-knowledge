@@ -88,6 +88,14 @@ plugin_by_name = {plugin["shortName"]: plugin for plugin in plugins}
 missing = sorted(required_plugins - plugin_by_name.keys())
 assert not missing, f"missing required Jenkins plugins: {missing}"
 assert plugin_by_name["matrix-auth"]["version"] == "2.6.11"
+api_inventory = json.loads((ROOT / "plugin-inventory.json").read_text(encoding="utf-8"))
+api_plugin_versions = {
+    plugin["shortName"]: plugin["version"] for plugin in api_inventory["plugins"]
+}
+builder_plugin_versions = {
+    plugin["shortName"]: plugin["version"] for plugin in plugins
+}
+assert builder_plugin_versions == api_plugin_versions
 (ROOT / "plugin-inventory.json").write_text(
     json.dumps(plugins, indent=2, sort_keys=True) + "\n", encoding="utf-8"
 )
