@@ -1,0 +1,12 @@
+[package]
+name = "jenkins-contract-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+knowledge-builder = { path = "../knowledge-builder" }
+jenkins-runtime = { path = "../jenkins-runtime" }
+lsp-server = "0.10"
+serde_json = "1"
+tempfile = "3"

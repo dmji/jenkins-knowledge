@@ -4,6 +4,7 @@ members = [
     "crates/declarative-model",
     "crates/jenkins-gdsl-collector",
     "crates/jenkins-lsp",
+    "crates/jenkins-contract-tests",
     "crates/jenkins-runtime",
     "crates/knowledge-builder",
     "crates/shared-library-scanner",

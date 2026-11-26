@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0.0",
+  "catalogId": "contract-alternate",
+  "generatedAt": "2026-01-02T00:00:00Z",
+  "sources": [
+    {
+      "id": "alternate-library",
+      "kind": "shared-library",
+      "name": "Alternate Shared Library",
+      "revision": "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
+      "url": "https://example.test/alternate-library.git"
+    }
+  ],
+  "symbols": [
+    {
+      "id": "alternate-library:global:alternateOnly",
+      "name": "alternateOnly",
+      "kind": "global-variable",
+      "sourceId": "alternate-library",
+      "description": "Exists only in the alternate package.",
+      "contexts": ["pipeline"],
+      "confidence": "verified",
+      "provenance": ["vars/alternateOnly.groovy:1"]
+    }
+  ]
+}
