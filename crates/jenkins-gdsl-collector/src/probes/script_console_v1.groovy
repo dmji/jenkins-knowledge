@@ -186,6 +186,10 @@ def collectDeclarativeExtensions = { registry ->
     ]
     int discoveredTypes = 0
     descriptorSpecs.each { descriptorSpec ->
+        if (registry.items.size() >= MAX_DECLARATIVE_ITEMS) {
+            registry.truncated = true
+            return
+        }
         try {
             Class extensionType = Class.forName(
                 descriptorSpec.className,
@@ -210,6 +214,10 @@ def collectDeclarativeExtensions = { registry ->
                 }
             } else {
                 for (def extension : extensions) {
+                    if (registry.items.size() >= MAX_DECLARATIVE_ITEMS) {
+                        registry.truncated = true
+                        break
+                    }
                     String itemName
                     String nameKind = 'dsl-token'
                     try {
@@ -247,7 +255,9 @@ def collectDeclarativeExtensions = { registry ->
         registry.errorCode = 'extension-type-unavailable'
     } else if (errors.any { it.probe == 'declarative-extensions' }) {
         registry.status = 'unknown'
-        registry.errorCode = 'enumeration-failed'
+        registry.errorCode = errors.any {
+            it.probe == 'declarative-extensions' && it.code == 'enumeration-failed'
+        } ? 'enumeration-failed' : 'extension-type-unavailable'
     }
 }
 
