@@ -351,6 +351,8 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                         ("unavailable", Some("http-unavailable"))
                     }
                 }
+                Some(entry) if entry["details"].as_str().unwrap_or_default().contains("exceeded the") =>
+                    ("failed", Some("limit-exceeded")),
                 Some(_) => ("failed", Some("invalid-response")),
                 None => ("failed", Some("missing-outcome")),
             };
@@ -367,61 +369,116 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             }
             collection_outcomes.push(plugin_outcome);
 
-            // GDSL is optional relative to the mandatory controller snapshot.
-            // On success its symbols are merged into the same controller source.
-            match jenkins_gdsl_collector::collect(
-                &controller.url,
-                username.as_deref(),
-                api_token.as_deref(),
-            ) {
-                Ok(gdsl_catalog) => {
-                    let gdsl_source_id = gdsl_catalog["sources"][0]["id"].as_str().unwrap_or_default();
-                    if gdsl_source_id != controller_source_id {
-                        return Err(BuildError::Source(format!(
-                            "Jenkins controller '{}': GDSL source identity differs from controller snapshot",
-                            controller.id
-                        )));
-                    }
-                    if let Some(revision) = gdsl_catalog["sources"][0].get("revision") {
-                        catalog["sources"][0]["revision"] = revision.clone();
-                    }
-                    if let (Some(target), Some(additional)) = (
-                        catalog["symbols"].as_array_mut(),
-                        gdsl_catalog["symbols"].as_array(),
-                    ) {
-                        target.extend(additional.iter().cloned());
-                    }
-                    if let Some(coverage) = catalog["coverage"].as_array_mut() {
-                        if let Some(entry) = coverage.iter_mut().find(|entry| entry["surface"] == "pipeline-gdsl") {
-                            entry["status"] = json!("inspected");
-                            entry["details"] = json!("full GDSL document was downloaded and parsed");
+            // Full GDSL extraction is part of standard/deep; quick only performs
+            // the bounded one-byte availability probe in discover().
+            if profile.collection_profile == "quick" {
+                collection_outcomes.push(json!({
+                    "id": format!("controller:{}:pipeline-gdsl", controller.id),
+                    "kind": "pipeline-gdsl",
+                    "name": controller.id,
+                    "surface": "pipeline-gdsl",
+                    "sourceId": controller_source_id,
+                    "status": "skipped-by-profile"
+                }));
+            } else {
+                match jenkins_gdsl_collector::collect(
+                    &controller.url,
+                    username.as_deref(),
+                    api_token.as_deref(),
+                ) {
+                    Ok(gdsl_catalog) => {
+                        let gdsl_source_id = gdsl_catalog["sources"][0]["id"].as_str().unwrap_or_default();
+                        if gdsl_source_id != controller_source_id {
+                            return Err(BuildError::Source(format!(
+                                "Jenkins controller '{}': GDSL source identity differs from controller snapshot",
+                                controller.id
+                            )));
                         }
+                        if let Some(revision) = gdsl_catalog["sources"][0].get("revision") {
+                            catalog["sources"][0]["revision"] = revision.clone();
+                        }
+                        if let (Some(target), Some(additional)) = (
+                            catalog["symbols"].as_array_mut(),
+                            gdsl_catalog["symbols"].as_array(),
+                        ) {
+                            target.extend(additional.iter().cloned());
+                        }
+                        if let Some(coverage) = catalog["coverage"].as_array_mut() {
+                            if let Some(entry) = coverage.iter_mut().find(|entry| entry["surface"] == "pipeline-gdsl") {
+                                entry["status"] = json!("inspected");
+                                entry["details"] = json!("full GDSL document was downloaded and parsed");
+                            }
+                        }
+                        collection_outcomes.push(json!({
+                            "id": format!("controller:{}:pipeline-gdsl", controller.id),
+                            "kind": "pipeline-gdsl",
+                            "name": controller.id,
+                            "surface": "pipeline-gdsl",
+                            "sourceId": controller_source_id,
+                            "revision": gdsl_catalog["sources"][0]["revision"],
+                            "status": "succeeded"
+                        }));
                     }
-                    collection_outcomes.push(json!({
-                        "id": format!("controller:{}:pipeline-gdsl", controller.id),
-                        "kind": "pipeline-gdsl",
-                        "name": controller.id,
-                        "surface": "pipeline-gdsl",
-                        "sourceId": controller_source_id,
-                        "revision": gdsl_catalog["sources"][0]["revision"],
-                        "status": "succeeded"
-                    }));
-                }
-                Err(error) => {
-                    let (status, code) = collector_outcome(&error);
-                    collection_outcomes.push(json!({
-                        "id": format!("controller:{}:pipeline-gdsl", controller.id),
-                        "kind": "pipeline-gdsl",
-                        "name": controller.id,
-                        "surface": "pipeline-gdsl",
-                        "sourceId": controller_source_id,
-                        "status": status,
-                        "errorCode": code
-                    }));
+                    Err(error) => {
+                        let (status, code) = collector_outcome(&error);
+                        collection_outcomes.push(json!({
+                            "id": format!("controller:{}:pipeline-gdsl", controller.id),
+                            "kind": "pipeline-gdsl",
+                            "name": controller.id,
+                            "surface": "pipeline-gdsl",
+                            "sourceId": controller_source_id,
+                            "status": status,
+                            "errorCode": code
+                        }));
+                    }
                 }
             }
-            catalog["controller"]["collection"]["profile"] = json!("custom");
-            catalog["controller"]["collection"]["requestCount"] = json!(4);
+            if profile.collection_profile == "deep" {
+                let mut runtime_record = jenkins_gdsl_collector::collect_script_console(
+                    &controller.url,
+                    username.as_deref(),
+                    api_token.as_deref(),
+                );
+                redact_sensitive_fields(&mut runtime_record);
+                let runtime_status = runtime_record["status"].as_str().unwrap_or("unavailable");
+                let runtime_error = runtime_record["errors"].as_array()
+                    .and_then(|errors| errors.first())
+                    .and_then(|error| error["code"].as_str());
+                let (status, error_code) = match runtime_status {
+                    "collected" => ("succeeded", None),
+                    "partial" => ("partial", runtime_error),
+                    _ if runtime_error == Some("permission-denied") => ("permission-denied", runtime_error),
+                    _ => ("unavailable", runtime_error.or(Some("probe-failed"))),
+                };
+                catalog["controller"]["runtime"] = runtime_record;
+                let mut outcome = json!({
+                    "id": format!("controller:{}:script-console", controller.id),
+                    "kind": "script-console",
+                    "name": controller.id,
+                    "surface": "script-console",
+                    "sourceId": controller_source_id,
+                    "status": status
+                });
+                if let Some(code) = error_code {
+                    outcome["errorCode"] = json!(code);
+                }
+                collection_outcomes.push(outcome);
+            } else {
+                collection_outcomes.push(json!({
+                    "id": format!("controller:{}:script-console", controller.id),
+                    "kind": "script-console",
+                    "name": controller.id,
+                    "surface": "script-console",
+                    "status": "skipped-by-profile"
+                }));
+            }
+            catalog["controller"]["collection"]["profile"] = json!(profile.collection_profile);
+            catalog["controller"]["collection"]["requestCount"] = json!(match profile.collection_profile.as_str() {
+                "quick" => 3,
+                "standard" => 4,
+                "deep" => 5,
+                _ => 4
+            });
             catalogs.push((format!("Jenkins controller '{}'", controller.id), catalog));
 
             let core_source_id = format!("jenkins-core-{}", controller.id);
@@ -484,6 +541,17 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             }));
         }
         for library in &profile.libraries {
+            if profile.collection_profile == "quick" {
+                collection_outcomes.push(json!({
+                    "id": format!("shared-library:{}", library.name),
+                    "kind": "shared-library",
+                    "name": library.name,
+                    "surface": "library-source",
+                    "revision": library.revision,
+                    "status": "skipped-by-profile"
+                }));
+                continue;
+            }
             let config = shared_library_scanner::LibraryConfig {
                 name: library.name.clone(),
                 repository: library.url.clone(),
@@ -509,12 +577,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                         "surface": "library-source",
                         "sourceId": source["id"],
                         "revision": source["revision"],
-                        "status": if result.catalog["coverage"].as_array().is_some_and(|coverage|
-                            coverage.iter().any(|entry| entry["status"] == "truncated")) {
-                            "succeeded-with-truncation"
-                        } else {
-                            "succeeded"
-                        }
+                        "status": "succeeded"
                     }));
                     catalogs.push((format!("Shared Library '{}'", library.name), result.catalog));
                 }
@@ -735,7 +798,7 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
             } else {
                 "complete"
             },
-            "profile": "custom",
+            "profile": profile.collection_profile,
             "startedAt": collection_started_at,
             "completedAt": build_timestamp(),
             "sources": collection_outcomes
