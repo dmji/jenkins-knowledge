@@ -1078,6 +1078,45 @@ mod tests {
         Runtime::from_validated_parts(manifest, catalog)
     }
 
+    fn compatibility_runtime(completeness: &str, java_status: &str, plugin_status: &str) -> Runtime {
+        let mut catalog: Value =
+            serde_json::from_str(include_str!("../../../tests/fixtures/catalog-valid.json"))
+                .unwrap();
+        catalog["controller"]["runtime"] = json!({
+            "javaVersion": if java_status == "available" { json!("17.0.12") } else { Value::Null },
+            "javaVendor": if java_status == "available" { json!("Eclipse Adoptium") } else { Value::Null }
+        });
+        catalog["controller"]["collection"]["javaVersionStatus"] = json!(java_status);
+        catalog["controller"]["collection"]["javaVendorStatus"] = json!(java_status);
+        catalog["controller"]["capabilities"].as_array_mut().unwrap().push(json!({
+            "name":"plugin-inventory",
+            "status":plugin_status
+        }));
+        catalog["completeness"] = json!({
+            "status":completeness,
+            "reasonCodes":if completeness == "partial" { json!(["permission-denied"]) } else { json!([]) }
+        });
+        let outcome_status = if completeness == "partial" { "permission-denied" } else { "succeeded" };
+        let manifest = json!({
+            "profile":"deep",
+            "createdAt":"2026-11-27T00:00:00Z",
+            "collection":{
+                "status":completeness,
+                "profile":"deep",
+                "startedAt":"2026-11-27T00:00:00Z",
+                "completedAt":"2026-11-27T00:01:00Z",
+                "sources":[{
+                    "id":"plugin-inventory",
+                    "name":"Plugin inventory",
+                    "surface":"plugin-inventory",
+                    "status":outcome_status,
+                    "errorCode":if completeness == "partial" { json!("permission-denied") } else { Value::Null }
+                }]
+            }
+        });
+        Runtime::from_validated_parts(manifest, catalog)
+    }
+
     fn write_package(directory: &Path) {
         let catalog: Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/catalog-valid.json"
@@ -1224,6 +1263,71 @@ mod tests {
         write_package(directory.path());
         let loaded = Runtime::open(directory.path()).unwrap();
         assert_eq!(loaded.profile(), "test");
+    }
+
+    #[test]
+    fn compatibility_report_does_not_claim_compatibility_from_matching_environment_metadata() {
+        let runtime = compatibility_runtime("complete", "available", "available");
+        let target = json!({
+            "coreVersion":"2.479.1",
+            "javaVersion":"17.0.12",
+            "javaVendor":"Eclipse Adoptium",
+            "plugins":[{"shortName":"workflow-basic-steps","version":"2.27"}]
+        });
+
+        let report = runtime.compatibility_report(Some(&target));
+        assert_eq!(report["environmentComparisonStatus"], "matched");
+        assert_eq!(report["status"], "not-proven");
+        assert_eq!(report["package"]["completeness"], "complete");
+        assert!(report["warnings"].as_array().unwrap().iter()
+            .any(|warning| warning["code"] == "environment-match-does-not-prove-compatibility"));
+    }
+
+    #[test]
+    fn compatibility_report_explains_partial_and_missing_environment_metadata() {
+        let runtime = compatibility_runtime("partial", "not-collected-by-profile", "unavailable");
+        let target = json!({
+            "coreVersion":"2.479.1",
+            "javaVersion":"17.0.12",
+            "javaVendor":"Eclipse Adoptium",
+            "plugins":[{"shortName":"workflow-basic-steps","version":"2.27"}]
+        });
+
+        let report = runtime.compatibility_report(Some(&target));
+        assert_eq!(report["status"], "unknown");
+        assert_eq!(report["environmentComparisonStatus"], "unknown");
+        assert_eq!(report["package"]["completeness"], "partial");
+        let codes: Vec<_> = report["warnings"].as_array().unwrap().iter()
+            .filter_map(|warning| warning["code"].as_str())
+            .collect();
+        assert!(codes.contains(&"package-incomplete"));
+        assert!(codes.contains(&"package-java-version-unavailable"));
+        assert!(codes.contains(&"package-plugin-inventory-unavailable"));
+    }
+
+    #[test]
+    fn compatibility_report_marks_known_target_environment_differences() {
+        let runtime = compatibility_runtime("complete", "available", "available");
+        let target = json!({
+            "coreVersion":"2.480.0",
+            "javaVersion":"17.0.12",
+            "javaVendor":"Eclipse Adoptium",
+            "plugins":[{"shortName":"workflow-basic-steps","version":"2.27"}]
+        });
+
+        let report = runtime.compatibility_report(Some(&target));
+        assert_eq!(report["environmentComparisonStatus"], "different");
+        assert_eq!(report["status"], "environment-different");
+    }
+
+    #[test]
+    fn compatibility_report_keeps_comparison_unknown_without_target_metadata() {
+        let report = runtime().compatibility_report(None);
+        assert_eq!(report["status"], "unknown");
+        assert_eq!(report["environmentComparisonStatus"], "not-compared");
+        assert_eq!(report["targetEnvironment"]["status"], "not-provided");
+        assert!(report["warnings"].as_array().unwrap().iter()
+            .any(|warning| warning["code"] == "target-environment-not-provided"));
     }
 
     #[test]
