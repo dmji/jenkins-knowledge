@@ -2057,6 +2057,14 @@ fixtures:
         let manifest: Value = serde_json::from_slice(&fs::read(output.join("manifest.json")).unwrap()).unwrap();
         assert_eq!(manifest["collection"]["status"], "partial");
         assert_eq!(manifest["collection"]["profile"], "standard");
+        assert_eq!(
+            catalog["controller"]["collection"]["javaVersionStatus"],
+            "not-collected-by-profile"
+        );
+        assert_eq!(
+            catalog["controller"]["collection"]["javaVendorStatus"],
+            "not-collected-by-profile"
+        );
         assert!(catalog["sources"].as_array().unwrap().iter().any(|source| source["kind"] == "jenkins-controller"));
         assert!(catalog["sources"].as_array().unwrap().iter().any(|source| source["kind"] == "jenkins-core"));
         assert!(catalog["symbols"].as_array().unwrap().iter().any(|symbol| symbol["kind"] == "declarative-directive"));
