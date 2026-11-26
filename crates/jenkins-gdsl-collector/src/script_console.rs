@@ -622,7 +622,7 @@ mod tests {
     fn valid_probe_output() -> Value {
         json!({
             "schemaVersion": "1.0.0",
-            "templateVersion": "1",
+            "templateVersion": "2",
             "groovyVersion": "4.0.24",
             "javaVersion": "17.0.12",
             "javaVendor": "Eclipse Adoptium",
@@ -633,8 +633,24 @@ mod tests {
                     "status": "available",
                     "items": [{
                         "name": "sh",
-                        "className": "org.jenkinsci.plugins.workflow.steps.durable_task.ShellStep",
-                        "plugin": "workflow-durable-task-step"
+                        "className": "org.jenkinsci.plugins.workflow.steps.durable_task.DurableTaskStep$DescriptorImpl",
+                        "implementationClass": "org.jenkinsci.plugins.workflow.steps.durable_task.ShellStep",
+                        "displayName": "Shell Script",
+                        "description": "Runs a shell script.",
+                        "plugin": "workflow-durable-task-step",
+                        "parametersStatus": "available",
+                        "parameters": [{
+                            "name": "script",
+                            "type": "java.lang.String",
+                            "required": true,
+                            "deprecated": false,
+                            "defaultValueStatus": "not-exposed",
+                            "description": "The shell script to run."
+                        }],
+                        "requiredContext": ["hudson.FilePath", "hudson.Launcher"],
+                        "takesImplicitBlockArgument": false,
+                        "isAdvanced": false,
+                        "isMetaStep": false
                     }],
                     "truncated": false
                 },
@@ -644,7 +660,9 @@ mod tests {
                     "items": [{
                         "name": "env",
                         "className": "org.jenkinsci.plugins.workflow.cps.EnvActionImpl",
-                        "plugin": "workflow-cps"
+                        "implementationClass": "org.jenkinsci.plugins.workflow.cps.EnvActionImpl",
+                        "plugin": "workflow-cps",
+                        "typeStatus": "not-exposed"
                     }],
                     "truncated": false
                 }
@@ -674,6 +692,15 @@ mod tests {
         assert_eq!(form[0].1, SCRIPT_TEMPLATE);
         assert_eq!(result["status"], "collected");
         assert_eq!(result["jenkinsCoreVersion"], "2.479.1");
+        assert_eq!(result["extensionRegistries"][0]["items"][0]["parameters"][0]["required"], true);
+        assert_eq!(
+            result["extensionRegistries"][0]["items"][0]["parameters"][0]["defaultValueStatus"],
+            "not-exposed"
+        );
+        assert_eq!(
+            result["extensionRegistries"][0]["items"][0]["implementationClass"],
+            "org.jenkinsci.plugins.workflow.steps.durable_task.ShellStep"
+        );
     }
 
     #[test]
@@ -812,6 +839,11 @@ mod tests {
     fn fixed_probe_source_does_not_accept_or_evaluate_caller_groovy() {
         assert!(SCRIPT_TEMPLATE.contains("StepDescriptor"));
         assert!(SCRIPT_TEMPLATE.contains("GlobalVariable"));
+        assert!(SCRIPT_TEMPLATE.contains("DescribableModel"));
+        assert!(SCRIPT_TEMPLATE.contains("getParameters"));
+        assert!(SCRIPT_TEMPLATE.contains("isRequired"));
+        assert!(SCRIPT_TEMPLATE.contains("getRequiredContext"));
+        assert!(!SCRIPT_TEMPLATE.contains("getValue("));
         assert!(!SCRIPT_TEMPLATE.contains("GroovyShell"));
         assert!(!SCRIPT_TEMPLATE.contains("evaluate("));
         assert!(!SCRIPT_TEMPLATE.contains(".toString("));
@@ -833,6 +865,12 @@ mod tests {
         assert_eq!(plan["networkRequests"][3]["path"], "/scriptText");
         assert_eq!(plan["networkRequests"][3]["responseCapBytes"], MAX_SCRIPT_RESPONSE_BYTES);
         assert_eq!(plan["scriptConsole"]["registries"][0], "pipeline-steps");
+        assert_eq!(plan["scriptConsole"]["maxParametersPerStep"], MAX_PARAMETERS_PER_STEP);
+        assert_eq!(
+            plan["scriptConsole"]["maxRequiredContextItems"],
+            MAX_REQUIRED_CONTEXT_ITEMS
+        );
+        assert_eq!(plan["scriptConsole"]["templateVersion"], TEMPLATE_VERSION);
         assert_eq!(plan["scriptConsole"]["serverSideTerminationGuaranteed"], false);
         assert!(plan["scriptConsole"]["timeoutBehavior"].as_str().unwrap().contains("may continue"));
     }
