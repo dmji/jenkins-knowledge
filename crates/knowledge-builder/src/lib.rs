@@ -318,7 +318,7 @@ fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
                 "provenance": ["jenkins-script-console", registry_name],
                 "fieldEvidence": {
                     "name": "verified",
-                    "implementationClass": "verified",
+                    "signature": "verified",
                     "parameters": "unknown"
                 },
                 "evidence": [{
