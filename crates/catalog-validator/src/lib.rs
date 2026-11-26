@@ -573,7 +573,7 @@ fn reject_secret_fields(value: &Value, path: &str, errors: &mut Vec<String>) {
                         || normalized.ends_with("uri");
                     if is_url && child.as_str().is_some_and(url_has_credentials) {
                         errors.push(format!(
-                            "{child_path}: URL contains embedded credentials or secret query parameters"
+                            "{child_path}: URL contains embedded credentials or secret query parameters or fragments"
                         ));
                     }
                     reject_secret_fields(child, &child_path, errors);
