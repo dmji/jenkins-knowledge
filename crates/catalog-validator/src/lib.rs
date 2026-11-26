@@ -713,6 +713,7 @@ mod tests {
         catalog["symbols"].as_array_mut().unwrap().push(symbol);
         assert!(validate_catalog(&catalog, &schema()).is_ok());
     }
+
     fn manifest_for(catalog: &Value) -> Value {
         let mut source_revisions = serde_json::Map::new();
         let mut provenance = serde_json::Map::new();
@@ -821,7 +822,9 @@ mod tests {
     fn rejects_field_evidence_for_attributes_absent_from_the_symbol() {
         let mut invalid = valid_catalog();
         invalid["symbols"][0]["fieldEvidence"] = json!({"examples":"verified"});
-        let error = validate_catalog(&invalid, &schema()).unwrap_err().to_string();
+        let error = validate_catalog(&invalid, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("/symbols/0/fieldEvidence/examples"));
         assert!(error.contains("field is absent"));
     }
@@ -873,7 +876,9 @@ mod tests {
             "surface":"shared-library-vars",
             "status":"inspected"
         }]);
-        let error = validate_catalog(&catalog, &schema()).unwrap_err().to_string();
+        let error = validate_catalog(&catalog, &schema())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains(
             "surface 'shared-library-vars' is incompatible with source 'controller' of kind 'jenkins-controller'"
         ));
