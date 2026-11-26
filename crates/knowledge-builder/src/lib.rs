@@ -121,12 +121,6 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
         ));
     }
 
-    if profile.jenkins.controllers.len() > 1 {
-        return Err(BuildError::Profile(
-            "jenkins.controllers: one controller per package is supported by the current catalog snapshot schema; build separate profiles for separate controllers".into(),
-        ));
-    }
-
     let mut controller_ids = HashSet::new();
     for (index, controller) in profile.jenkins.controllers.iter().enumerate() {
         if controller.id.trim().is_empty()
@@ -145,6 +139,12 @@ fn validate_profile(profile: &Profile) -> Result<PackageSelection, BuildError> {
         source_security::validate_controller_url(&controller.url).map_err(|error| {
             BuildError::Profile(format!("jenkins.controllers[{index}].url: {error}"))
         })?;
+    }
+
+    if profile.jenkins.controllers.len() > 1 {
+        return Err(BuildError::Profile(
+            "jenkins.controllers: one controller per package is supported by the current catalog snapshot schema; build separate profiles for separate controllers".into(),
+        ));
     }
 
     let mut library_names = HashSet::new();
