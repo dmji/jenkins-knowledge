@@ -106,7 +106,7 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
             "id":1,
             "method":"initialize",
             "params":{"initializationOptions":{
-                "packagePath":primary,
+                "packagePath":primary.to_string_lossy(),
                 "profile":"contract-primary"
             }}
         }),
@@ -198,7 +198,7 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
             "jsonrpc":"2.0",
             "method":"workspace/didChangeConfiguration",
             "params":{"settings":{"jenkinsKnowledge":{
-                "packagePath":alternate,
+                "packagePath":alternate.to_string_lossy(),
                 "profile":"contract-alternate"
             }}}
         }),
