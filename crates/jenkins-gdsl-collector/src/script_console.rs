@@ -343,14 +343,15 @@ fn normalize_probe_output(value: &Value) -> Value {
         "errors": []
     });
 
-    let metadata_fields = [
+    // Java properties are optional: the probe may run successfully even when
+    // the JVM does not expose one of these values. Keep required probe metadata
+    // separate so missing Java properties do not downgrade the whole snapshot.
+    let required_metadata_fields = [
         ("groovyVersion", "groovy-version"),
-        ("javaVersion", "java-version"),
-        ("javaVendor", "java-vendor"),
         ("jenkinsCoreVersion", "jenkins-core-version"),
     ];
     let mut metadata_count = 0;
-    for (field, probe) in metadata_fields {
+    for (field, probe) in required_metadata_fields {
         if let Some(value) = value
             .get(field)
             .and_then(Value::as_str)
@@ -360,6 +361,15 @@ fn normalize_probe_output(value: &Value) -> Value {
             metadata_count += 1;
         } else {
             errors.push(json!({ "probe": probe, "code": "probe-failed" }));
+        }
+    }
+    for field in ["javaVersion", "javaVendor"] {
+        if let Some(value) = value
+            .get(field)
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+        {
+            runtime[field] = json!(truncate(value));
         }
     }
 
@@ -420,10 +430,16 @@ fn normalize_probe_output(value: &Value) -> Value {
         }
     }
 
-    let status = if metadata_count == metadata_fields.len()
+    let only_optional_java_errors = errors.iter().all(|error| {
+        matches!(
+            error["probe"].as_str(),
+            Some("java-version" | "java-vendor")
+        )
+    });
+    let status = if metadata_count == required_metadata_fields.len()
         && available_registries == 3
         && runtime["apiTypeInventoryStatus"] == "available"
-        && errors.is_empty()
+        && only_optional_java_errors
     {
         "collected"
     } else if metadata_count > 0 || available_registries > 0 {
