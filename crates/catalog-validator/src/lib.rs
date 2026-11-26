@@ -40,6 +40,104 @@ pub fn validate_catalog(catalog: &Value, schema: &Value) -> Result<(), Validatio
     }
 }
 
+
+/// Return a lowercase SHA-256 digest with an explicit algorithm prefix.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(bytes);
+    format!("sha256:{}", digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
+}
+
+/// Add deterministic source fingerprints and a catalog snapshot ID.
+/// Collection timestamps remain available for diagnostics but do not participate in identity.
+pub fn stamp_catalog_identity(catalog: &mut Value) -> Result<(), String> {
+    canonicalize_arrays(catalog);
+    let source_ids = catalog["sources"].as_array()
+        .ok_or_else(|| "catalog sources must be an array".to_owned())?
+        .iter().filter_map(|source| source["id"].as_str().map(str::to_owned)).collect::<Vec<_>>();
+    for source_id in source_ids {
+        let fingerprint = source_fingerprint(catalog, &source_id)?;
+        if let Some(source) = catalog["sources"].as_array_mut().and_then(|sources| {
+            sources.iter_mut().find(|source| source["id"].as_str() == Some(&source_id))
+        }) {
+            source["fingerprint"] = Value::String(fingerprint);
+        }
+    }
+    catalog["snapshotId"] = Value::String(catalog_snapshot_id(catalog)?);
+    Ok(())
+}
+
+pub fn source_fingerprint(catalog: &Value, source_id: &str) -> Result<String, String> {
+    let source = catalog["sources"].as_array()
+        .and_then(|sources| sources.iter().find(|source| source["id"].as_str() == Some(source_id)))
+        .ok_or_else(|| format!("unknown source id '{source_id}'"))?;
+    let mut source = source.clone();
+    if let Some(object) = source.as_object_mut() { object.remove("fingerprint"); }
+    let mut symbols = catalog["symbols"].as_array().cloned().unwrap_or_default().into_iter()
+        .filter(|symbol| symbol["sourceId"].as_str() == Some(source_id)).collect::<Vec<_>>();
+    symbols.sort_by_key(|symbol| symbol["id"].as_str().unwrap_or_default().to_owned());
+    let mut coverage = catalog["coverage"].as_array().cloned().unwrap_or_default().into_iter()
+        .filter(|entry| entry["sourceId"].as_str() == Some(source_id)).collect::<Vec<_>>();
+    coverage.sort_by_key(|entry| (entry["surface"].as_str().unwrap_or_default().to_owned(), entry["status"].as_str().unwrap_or_default().to_owned()));
+    let mut controller_observation = Value::Null;
+    if let Some(controller) = catalog.get("controller") {
+        if controller["identity"]["id"].as_str() == Some(source_id) {
+            controller_observation = controller.clone();
+        } else if let Some(plugins) = controller["plugins"].as_array() {
+            let related = plugins.iter().filter(|plugin| plugin["sourceId"].as_str() == Some(source_id)).cloned().collect::<Vec<_>>();
+            if !related.is_empty() { controller_observation = serde_json::json!({"plugins": related}); }
+        }
+    }
+    let mut canonical = serde_json::json!({"source":source,"symbols":symbols,"coverage":coverage,"controllerObservation":controller_observation});
+    strip_volatile_timestamps(&mut canonical);
+    canonicalize_arrays(&mut canonical);
+    let bytes = serde_json::to_vec(&canonical).map_err(|_| "cannot serialize source fingerprint input".to_owned())?;
+    Ok(sha256_hex(&bytes))
+}
+
+pub fn catalog_snapshot_id(catalog: &Value) -> Result<String, String> {
+    let mut canonical = catalog.clone();
+    if let Some(object) = canonical.as_object_mut() { object.remove("snapshotId"); }
+    strip_volatile_timestamps(&mut canonical);
+    canonicalize_arrays(&mut canonical);
+    let bytes = serde_json::to_vec(&canonical).map_err(|_| "cannot serialize catalog snapshot input".to_owned())?;
+    Ok(sha256_hex(&bytes))
+}
+
+fn strip_volatile_timestamps(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        for key in ["generatedAt","startedAt","completedAt","retrievedAt","collectedAt","createdAt"] { object.remove(key); }
+        for child in object.values_mut() { strip_volatile_timestamps(child); }
+    } else if let Some(array) = value.as_array_mut() {
+        for child in array { strip_volatile_timestamps(child); }
+    }
+}
+
+fn canonicalize_arrays(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        for (key, child) in object.iter_mut() {
+            canonicalize_arrays(child);
+            if let Some(array) = child.as_array_mut() {
+                match key.as_str() {
+                    "sources" => array.sort_by_key(|item| item["id"].as_str().unwrap_or_default().to_owned()),
+                    "symbols" => array.sort_by_key(|item| item["id"].as_str().unwrap_or_default().to_owned()),
+                    "coverage" => array.sort_by_key(|item| (item["sourceId"].as_str().unwrap_or_default().to_owned(), item["surface"].as_str().unwrap_or_default().to_owned())),
+                    "plugins" => array.sort_by_key(|item| item["shortName"].as_str().unwrap_or_default().to_owned()),
+                    "capabilities" => array.sort_by_key(|item| item["name"].as_str().unwrap_or_default().to_owned()),
+                    "dependencies" => array.sort_by_key(|item| item["shortName"].as_str().unwrap_or_default().to_owned()),
+                    "evidence" => array.sort_by_key(|item| (item["sourceId"].as_str().unwrap_or_default().to_owned(), item["kind"].as_str().unwrap_or_default().to_owned(), item["provenance"].as_str().unwrap_or_default().to_owned())),
+                    "extensionRegistries" => array.sort_by_key(|item| item["name"].as_str().unwrap_or_default().to_owned()),
+                    "items" => array.sort_by_key(|item| (item["name"].as_str().unwrap_or_default().to_owned(), item["className"].as_str().unwrap_or_default().to_owned())),
+                    _ => {}
+                }
+            }
+        }
+    } else if let Some(array) = value.as_array_mut() {
+        for child in array { canonicalize_arrays(child); }
+    }
+}
+
+
 fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>) {
     let sources = catalog["sources"]
         .as_array()
@@ -212,7 +310,34 @@ fn validate_semantics(catalog: &Value, schema: &Value, errors: &mut Vec<String>)
         }
     }
 
+    for (index, source) in sources.iter().enumerate() {
+        if let Some(actual) = source.get("fingerprint").and_then(Value::as_str) {
+            let source_id = source["id"].as_str().unwrap_or_default();
+            if source_fingerprint(catalog, source_id).as_deref() != Ok(actual) {
+                errors.push(format!("/sources/{index}/fingerprint: does not match the canonical source snapshot"));
+            }
+        }
+    }
+    if let Some(actual) = catalog.get("snapshotId").and_then(Value::as_str) {
+        if catalog_snapshot_id(catalog).as_deref() != Ok(actual) {
+            errors.push("/snapshotId: does not match the canonical catalog snapshot".into());
+        }
+    }
+    for (symbol_index, symbol) in symbols.iter().enumerate() {
+        if let Some(evidence) = symbol["evidence"].as_array() {
+            for (evidence_index, item) in evidence.iter().enumerate() {
+                if let Some(revision) = item.get("revision").and_then(Value::as_str) {
+                    let source_id = item["sourceId"].as_str().unwrap_or_default();
+                    let expected = sources.iter().find(|source| source["id"].as_str() == Some(source_id)).and_then(|source| source["revision"].as_str());
+                    if expected != Some(revision) {
+                        errors.push(format!("/symbols/{symbol_index}/evidence/{evidence_index}/revision: does not match referenced source revision"));
+                    }
+                }
+            }
+        }
+    }
     validate_coverage_consistency(catalog, &source_kinds, errors);
+    validate_completeness(catalog, sources, errors);
     reject_secret_fields(catalog, "", errors);
 }
 
@@ -311,6 +436,28 @@ pub fn validate_package_metadata(
         Ok(())
     } else {
         Err(ValidationErrors(errors))
+    }
+}
+
+fn validate_completeness(catalog: &Value, sources: &[Value], errors: &mut Vec<String>) {
+    let Some(completeness) = catalog.get("completeness") else { return; };
+    let status = completeness["status"].as_str().unwrap_or_default();
+    let mut has_partial_source = false;
+    for (index, source) in sources.iter().enumerate() {
+        if let Some(collection) = source.get("collection") {
+            let state = collection["status"].as_str().unwrap_or_default();
+            let truncated = collection["truncated"].as_bool().unwrap_or(false);
+            if (state == "succeeded-with-truncation") != truncated {
+                errors.push(format!("/sources/{index}/collection: truncation flag must agree with collection status"));
+            }
+            if state != "succeeded" { has_partial_source = true; }
+        }
+    }
+    if status == "complete" && has_partial_source {
+        errors.push("/completeness/status: complete contradicts one or more non-succeeded source outcomes".into());
+    }
+    if status == "partial" && !has_partial_source {
+        errors.push("/completeness/status: partial requires at least one explicit non-succeeded source outcome".into());
     }
 }
 
