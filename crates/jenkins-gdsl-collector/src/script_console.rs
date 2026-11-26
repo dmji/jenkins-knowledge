@@ -390,7 +390,7 @@ fn normalize_probe_output(value: &Value) -> Value {
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
-        .filter(|root| valid_api_roots(&[root.to_owned()]))
+        .filter(|root| valid_api_roots(&[root.to_string()]))
         .take(20)
         .collect();
     runtime["configuredApiRoots"] = json!(configured_roots);
