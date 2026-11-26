@@ -349,6 +349,11 @@
         "origin": {
           "type": "string"
         },
+        "documentationPaths": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"type": "string", "maxLength": 256}
+        },
         "classLoader": {
           "type": "string"
         },
@@ -834,6 +839,11 @@
         },
         "plugin": {"type": "string", "minLength": 1, "maxLength": 256},
         "origin": {"type": "string", "minLength": 1, "maxLength": 256},
+        "documentationPaths": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        },
         "classLoader": {"type": "string", "minLength": 1, "maxLength": 256},
         "synthetic": {"type": "boolean"},
         "dynamic": {"type": "boolean"},
@@ -1055,6 +1065,11 @@
                 "maxLength": 256
               },
               "displayName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "documentationPath": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 256
