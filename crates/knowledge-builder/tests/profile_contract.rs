@@ -61,7 +61,8 @@ fn rejects_unknown_fields_at_every_profile_nesting_level() {
 
 #[test]
 fn rejects_unknown_and_duplicate_package_sections() {
-    let unknown = "profile: strict\nfixtures: [fixture.json]\npackage:\n  include: [plugins, made-up]\n";
+    let unknown =
+        "profile: strict\nfixtures: [fixture.json]\npackage:\n  include: [plugins, made-up]\n";
     assert!(serde_yaml::from_str::<Profile>(unknown).is_err());
 
     let directory = tempfile::tempdir().unwrap();
@@ -133,9 +134,11 @@ fn controller_selection_keeps_snapshot_but_excludes_unselected_plugin_inventory(
     assert_eq!(source_ids, vec!["controller"]);
     assert_eq!(catalog["controller"]["identity"]["id"], "jenkins-ci");
     assert_eq!(catalog["controller"]["plugins"], json!([]));
-    assert!(catalog["symbols"].as_array().unwrap().iter().all(|symbol| {
-        symbol["sourceId"] == "controller"
-    }));
+    assert!(catalog["symbols"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|symbol| { symbol["sourceId"] == "controller" }));
 }
 
 #[test]
@@ -166,7 +169,10 @@ fn omitted_include_selects_all_available_sections() {
             "workflow-basic-steps"
         ]
     );
-    assert_eq!(catalog["controller"]["plugins"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        catalog["controller"]["plugins"].as_array().unwrap().len(),
+        1
+    );
 }
 
 #[test]
@@ -228,7 +234,9 @@ fn unmatched_explicit_selector_is_an_error() {
         "profile: unmatched\nfixtures: [fixture.json]\npackage:\n  include: [plugins]\n",
     );
     let error = build_package(&profile, &directory.path().join("package")).unwrap_err();
-    assert!(error.to_string().contains("selector 'plugins' matched no sources"));
+    assert!(error
+        .to_string()
+        .contains("selector 'plugins' matched no sources"));
 }
 
 #[test]
@@ -306,17 +314,19 @@ fn rejects_invalid_and_conflicting_library_commit_pins_before_network() {
         directory.path(),
         "profile: invalid-commit\\nlibraries:\\n  - name: lib\\n    url: https://git.example.test/lib.git\\n    revision: main\\n    commit: not-a-sha\\n",
     );
-    let error = build_package(&invalid, &directory.path().join("invalid-commit-package"))
-        .unwrap_err();
+    let error =
+        build_package(&invalid, &directory.path().join("invalid-commit-package")).unwrap_err();
     assert!(error.to_string().contains("libraries[0].commit"));
 
     let conflict = write_profile(
         directory.path(),
         "profile: conflicting-pin\\nlibraries:\\n  - name: lib\\n    url: https://git.example.test/lib.git\\n    revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n    commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n",
     );
-    let error = build_package(&conflict, &directory.path().join("conflicting-pin-package"))
-        .unwrap_err();
-    assert!(error.to_string().contains("conflicts with the full-SHA revision"));
+    let error =
+        build_package(&conflict, &directory.path().join("conflicting-pin-package")).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("conflicts with the full-SHA revision"));
 }
 
 #[test]
@@ -326,9 +336,11 @@ fn validates_selector_requirements_before_live_collection() {
         directory.path(),
         "profile: wrong-section\\nlibraries:\\n  - name: lib\\n    url: https://git.example.test/lib.git\\n    revision: main\\npackage:\\n  include: [plugins]\\n",
     );
-    let error = build_package(&profile, &directory.path().join("wrong-section-package"))
-        .unwrap_err();
-    assert!(error.to_string().contains("requires at least one Jenkins controller"));
+    let error =
+        build_package(&profile, &directory.path().join("wrong-section-package")).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("requires at least one Jenkins controller"));
 }
 
 #[test]
