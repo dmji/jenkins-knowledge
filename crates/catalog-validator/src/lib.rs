@@ -574,7 +574,10 @@ fn validate_completeness(catalog: &Value, sources: &[Value], errors: &mut Vec<St
             if (state == "succeeded-with-truncation") != truncated {
                 errors.push(format!("/sources/{index}/collection: truncation flag must agree with collection status"));
             }
-            if state != "succeeded" {
+            if matches!(
+                state,
+                "succeeded-with-truncation" | "unavailable" | "permission-denied" | "failed"
+            ) {
                 has_partial_source = true;
             }
         }
@@ -591,7 +594,12 @@ fn validate_completeness(catalog: &Value, sources: &[Value], errors: &mut Vec<St
         );
     }
     if status == "partial" && !has_partial_source {
-        errors.push("/completeness/status: partial requires at least one explicit non-succeeded source outcome".into());
+        errors.push(
+            "/completeness/status: partial requires at least one failed, unavailable, permission-denied, or truncated source".into(),
+        );
+    }
+    if status == "unknown" && sources.iter().all(|source| source.get("collection").is_some()) {
+        errors.push("/completeness/status: unknown is invalid when every source has an explicit collection outcome".into());
     }
 }
 
