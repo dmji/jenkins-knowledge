@@ -180,16 +180,22 @@ def load_locked_plugins(lock_file: Path, output_dir: Path) -> dict:
     for plugin in lock["plugins"]:
         name = plugin["name"]
         archive_path = output_dir / f"{name}.jpi"
-        subprocess.run(
-            [
-                "curl", "--fail", "--location", "--silent", "--show-error",
-                "--retry", "5", "--retry-connrefused", "--connect-timeout", "20",
-                "--max-time", "180", "--proto", "=https", "--tlsv1.2",
-                plugin["url"], "--output", str(archive_path),
-            ],
-            check=True,
+        digest = (
+            hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            if archive_path.exists()
+            else ""
         )
-        digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+        if digest != plugin["sha256"]:
+            subprocess.run(
+                [
+                    "curl", "--fail", "--location", "--silent", "--show-error",
+                    "--retry", "5", "--retry-connrefused", "--connect-timeout", "20",
+                    "--max-time", "180", "--proto", "=https", "--tlsv1.2",
+                    plugin["url"], "--output", str(archive_path),
+                ],
+                check=True,
+            )
+            digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
         if digest != plugin["sha256"]:
             raise RuntimeError(f"SHA-256 mismatch for locked plugin {name}:{plugin['version']}")
         manifest = parse_manifest(archive_path)
