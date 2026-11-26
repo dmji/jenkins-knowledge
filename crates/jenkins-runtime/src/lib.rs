@@ -1342,6 +1342,21 @@ mod tests {
     }
 
     #[test]
+    fn compatibility_report_treats_unknown_target_values_as_missing() {
+        let runtime = compatibility_runtime("complete", "available", "available");
+        let target = json!({
+            "coreVersion":"unknown",
+            "javaVersion":"",
+            "javaVendor":"unknown",
+            "plugins":[]
+        });
+
+        let report = runtime.compatibility_report(Some(&target));
+        assert_eq!(report["environmentComparisonStatus"], "unknown");
+        assert_eq!(report["status"], "unknown");
+    }
+
+    #[test]
     fn compatibility_report_marks_known_target_environment_differences() {
         let runtime = compatibility_runtime("complete", "available", "available");
         let target = json!({
