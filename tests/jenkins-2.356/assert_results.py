@@ -58,6 +58,7 @@ assert standard["controller"]["collection"]["javaVendorStatus"] == "not-collecte
 assert outcome(standard_manifest, "script-console")["status"] == "skipped-by-profile"
 assert_optional_success(standard_manifest, "pipeline-gdsl")
 assert outcome(standard_manifest, "library-source", "gsa-examples")["status"] == "succeeded"
+assert outcome(standard_manifest, "library-source", "gsa-examples")["revision"] == "7dfe2ab4bf7123b6aea29b0ec92caa2277cea5de"
 assert outcome(standard_manifest, "library-source", "missing-commit")["status"] == "failed"
 
 deep, deep_manifest = assert_controller("deep", "deep")
@@ -69,6 +70,7 @@ assert runtime["javaVendor"].strip(), runtime.get("javaVendor")
 assert_optional_success(deep_manifest, "script-console")
 assert_optional_success(deep_manifest, "pipeline-gdsl")
 assert outcome(deep_manifest, "library-source", "gsa-examples")["status"] == "succeeded"
+assert outcome(deep_manifest, "library-source", "gsa-examples")["revision"] == "7dfe2ab4bf7123b6aea29b0ec92caa2277cea5de"
 assert outcome(deep_manifest, "library-source", "missing-commit")["status"] == "failed"
 
 required_plugins = {
