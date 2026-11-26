@@ -66,7 +66,6 @@ After each Git operation completes, the scanner performs one bounded directory-s
 | Git operation timeout | 120 seconds | fixed |
 
 The source traversal limits are independent safeguards against accidental repository growth and expensive local parsing. They are applied before parsing and catalog serialization:
-The source traversal limits are independent defense in depth. They are applied before parsing and catalog serialization:
 
 | Limit | Default | Environment override |
 |---|---:|---|
