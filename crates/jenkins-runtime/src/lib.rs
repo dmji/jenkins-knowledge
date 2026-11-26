@@ -315,7 +315,9 @@ impl Runtime {
 
     pub fn plugin_inventory_status(&self) -> &'static str {
         if let Some(capability) = self.controller().and_then(|controller| controller["capabilities"].as_array())
-            .and_then(|capabilities| capabilities.iter().find(|item| item["name"] == "plugin-manager-api"))
+            .and_then(|capabilities| capabilities.iter().find(|item| {
+                item["name"] == "plugin-manager-api" || item["name"] == "plugin-inventory"
+            }))
         {
             return match capability["status"].as_str() {
                 Some("available") => "available",
@@ -1385,6 +1387,15 @@ mod tests {
             json!({"name":"plugin-manager-api","status":"unavailable"})
         );
         assert_eq!(runtime.plugin_inventory_status(), "unavailable");
+    }
+
+    #[test]
+    fn plugin_inventory_status_preserves_unknown_inventory_evidence() {
+        let mut runtime = runtime();
+        runtime.catalog["controller"]["capabilities"].as_array_mut().unwrap().push(
+            json!({"name":"plugin-inventory","status":"unknown"})
+        );
+        assert_eq!(runtime.plugin_inventory_status(), "unknown");
     }
 
     #[test]
