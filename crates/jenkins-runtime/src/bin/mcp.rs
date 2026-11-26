@@ -1,4 +1,4 @@
-use jenkins_runtime::{Runtime, SearchOptions, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_RESULTS};
+use jenkins_runtime::{Runtime, SearchOptions, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_OFFSET, MAX_SEARCH_RESULTS};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 
@@ -32,6 +32,9 @@ fn query_options(args: &Value, include_query: bool) -> Result<SearchOptions, Str
         owner: optional(args,"owner").map(str::to_owned),
         type_name: optional(args,"type").map(str::to_owned),
         confidence: optional(args,"confidence").map(str::to_owned),
+        prefix: None,
+        contexts: None,
+        kinds: None,
         limit,
     })
 }
@@ -51,12 +54,62 @@ fn call_tool(rt: &Runtime, name: &str, args: &Value) -> Result<Value,String> {
         _ => Err(format!("unknown tool '{name}'")),
     }
 }
+
+fn pipeline_page(uri: &str) -> Result<(usize, usize), String> {
+    let (_, query) = uri.split_once('?').unwrap_or((uri, ""));
+    let mut offset = 0usize;
+    let mut limit = DEFAULT_SEARCH_LIMIT;
+    let mut seen_offset = false;
+    let mut seen_limit = false;
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=').ok_or_else(|| "pagination parameters must use key=value".to_owned())?;
+        match key {
+            "offset" if !seen_offset => {
+                offset = value.parse().map_err(|_| "offset must be a non-negative integer".to_owned())?;
+                seen_offset = true;
+            }
+            "limit" if !seen_limit => {
+                limit = value.parse().map_err(|_| "limit must be an integer".to_owned())?;
+                seen_limit = true;
+            }
+            "offset" | "limit" => return Err(format!("duplicate pagination parameter '{key}'")),
+            _ => return Err(format!("unsupported pagination parameter '{key}'")),
+        }
+    }
+    if offset > MAX_SEARCH_OFFSET {
+        return Err(format!("offset must not exceed {MAX_SEARCH_OFFSET}"));
+    }
+    if !(1..=MAX_SEARCH_RESULTS).contains(&limit) {
+        return Err(format!("limit must be between 1 and {MAX_SEARCH_RESULTS}"));
+    }
+    Ok((offset, limit))
+}
+
 fn read_resource(rt: &Runtime, uri: &str) -> Result<Value,String> {
     match uri {
         "jenkins://catalog/manifest" => Ok(rt.manifest().clone()),
         "jenkins://catalog/coverage" => Ok(json!({"profile":rt.profile(),"coverage":rt.coverage()})),
         "jenkins://catalog/libraries" => Ok(json!({"profile":rt.profile(),"sources":rt.sources().iter().filter(|s|s["kind"]=="shared-library").collect::<Vec<_>>()})),
-        "jenkins://catalog/pipeline-steps" => Ok(json!({"profile":rt.profile(),"steps":rt.search("",Some("step"),None)})),
+        _ if uri == "jenkins://catalog/pipeline-steps" || uri.starts_with("jenkins://catalog/pipeline-steps?") => {
+            let (offset, limit) = pipeline_page(uri)?;
+            let options = SearchOptions {
+                kind: Some("step".into()),
+                limit,
+                ..SearchOptions::default()
+            };
+            let page = rt.search_page(&options, offset).map_err(|error| error.to_string())?;
+            let returned = page.results.len();
+            Ok(json!({
+                "profile": rt.profile(),
+                "steps": page.results,
+                "offset": page.offset,
+                "limit": page.limit,
+                "total": page.total,
+                "returned": returned,
+                "hasMore": page.has_more,
+                "nextOffset": if page.has_more { Some(page.offset + returned) } else { None }
+            }))
+        },
         _ if uri.starts_with("jenkins://catalog/profiles/") => {
             let profile=uri.trim_start_matches("jenkins://catalog/profiles/");
             if profile!=rt.profile() { return Err(format!("profile '{profile}' is not loaded; launch the server with that profile's package")); }
@@ -83,7 +136,7 @@ fn handle(rt: &Runtime, req: Value) -> Option<Value> {
             {"uri":"jenkins://catalog/manifest","name":"Knowledge package manifest","mimeType":"application/json"},
             {"uri":"jenkins://catalog/coverage","name":"Catalog collection coverage","mimeType":"application/json"},
             {"uri":"jenkins://catalog/libraries","name":"Shared Library sources","mimeType":"application/json"},
-            {"uri":"jenkins://catalog/pipeline-steps","name":"Jenkins Pipeline steps","mimeType":"application/json"},
+            {"uri":"jenkins://catalog/pipeline-steps","name":"Jenkins Pipeline steps","description":"Paginated with ?offset=0&limit=50; responses include total, returned, and hasMore.","mimeType":"application/json"},
             {"uri":format!("jenkins://catalog/profiles/{}",rt.profile()),"name":"Selected profile","mimeType":"application/json"}
         ]})),
         "resources/read" => {
