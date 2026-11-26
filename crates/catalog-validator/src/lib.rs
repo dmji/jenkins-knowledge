@@ -326,15 +326,23 @@ pub fn validate_package_metadata(
                 }
                 if matches!(
                     outcome.get("status").and_then(Value::as_str),
-                    Some("succeeded-with-truncation" | "partial" | "unavailable" | "permission-denied" | "failed")
+                    Some(
+                        "succeeded-with-truncation"
+                            | "partial"
+                            | "unavailable"
+                            | "permission-denied"
+                            | "failed"
+                    )
                 ) {
                     expected_partial = true;
                 }
             }
-            let declared_partial = collection.get("status").and_then(Value::as_str) == Some("partial");
+            let declared_partial =
+                collection.get("status").and_then(Value::as_str) == Some("partial");
             if declared_partial != expected_partial {
                 errors.push(
-                    "/collection/status: package completeness does not match per-source outcomes".into()
+                    "/collection/status: package completeness does not match per-source outcomes"
+                        .into(),
                 );
             }
         }
