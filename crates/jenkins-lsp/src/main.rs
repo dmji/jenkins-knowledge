@@ -639,11 +639,35 @@ mod tests {
             "sourceRevisions": source_revisions,
             "provenance": provenance,
             "checksums": {"catalog.json": checksum},
-            "toolVersions": {}
+            "toolVersions": {},
+            "collection": {
+                "status": "partial",
+                "profile": "standard",
+                "startedAt": "2026-01-01T00:00:00Z",
+                "completedAt": "2026-01-01T00:00:01Z",
+                "sources": [{
+                    "id": "controller:ci:pipeline-gdsl",
+                    "kind": "pipeline-gdsl",
+                    "name": "ci",
+                    "surface": "pipeline-gdsl",
+                    "status": "unavailable",
+                    "errorCode": "http-unavailable"
+                }]
+            }
         }).to_string()).unwrap();
         let runtime = Runtime::open(&package).unwrap();
         fs::remove_dir_all(package).unwrap();
         runtime
+    }
+
+    #[test]
+    fn exposes_collection_completeness_without_changing_symbol_confidence() {
+        let runtime = fixture_runtime("fixture");
+        let collection = collection_outcome(Some(&runtime));
+        assert_eq!(collection["status"], "partial");
+        assert_eq!(collection["sources"][0]["status"], "unavailable");
+        assert_eq!(runtime.get("sh").unwrap()["confidence"], "verified");
+        assert_eq!(collection_outcome(None)["status"], "unknown");
     }
 
     #[test]
