@@ -1346,7 +1346,6 @@ name = "shared-library-scanner"
 version = "0.1.0"
 dependencies = [
  "catalog-validator",
- "libc",
  "serde",
  "serde_json",
  "tempfile",
