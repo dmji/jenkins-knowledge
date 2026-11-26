@@ -241,7 +241,7 @@
       ],
       "fieldEvidence": {
         "name": "verified",
-        "implementationClass": "verified"
+        "signature": "verified"
       },
       "extensionCategory": "agent",
       "nameKind": "dsl-token",
@@ -276,7 +276,7 @@
       ],
       "fieldEvidence": {
         "name": "unknown",
-        "implementationClass": "verified"
+        "signature": "verified"
       },
       "extensionCategory": "parameter",
       "nameKind": "implementation-class",
