@@ -724,6 +724,113 @@
         }
       }
     },
+    "controllerApiType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "className",
+        "depth",
+        "rootCategories",
+        "status",
+        "interfaces",
+        "methods",
+        "properties",
+        "methodsTruncated",
+        "propertiesTruncated"
+      ],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "className": {"type": "string", "minLength": 1, "maxLength": 256},
+        "depth": {"type": "integer", "minimum": 0, "maximum": 2},
+        "rootCategories": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        },
+        "status": {"enum": ["available", "partial", "unresolved", "inaccessible"]},
+        "superClass": {"type": "string", "minLength": 1, "maxLength": 256},
+        "interfaces": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        },
+        "plugin": {"type": "string", "minLength": 1, "maxLength": 256},
+        "origin": {"type": "string", "minLength": 1, "maxLength": 256},
+        "classLoader": {"type": "string", "minLength": 1, "maxLength": 256},
+        "synthetic": {"type": "boolean"},
+        "membersStatus": {"enum": ["inaccessible"]},
+        "methods": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {"$ref": "#/$defs/controllerApiMethod"}
+        },
+        "properties": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"$ref": "#/$defs/controllerApiProperty"}
+        },
+        "methodsTruncated": {"type": "boolean"},
+        "propertiesTruncated": {"type": "boolean"}
+      }
+    },
+    "controllerApiMethod": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "declaringClass",
+        "signature",
+        "returnType",
+        "parameters",
+        "synthetic",
+        "bridge",
+        "varargs"
+      ],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "declaringClass": {"type": "string", "minLength": 1, "maxLength": 256},
+        "signature": {"type": "string", "minLength": 1, "maxLength": 256},
+        "returnType": {"type": "string", "minLength": 1, "maxLength": 256},
+        "genericReturnType": {"type": "string", "minLength": 1, "maxLength": 256},
+        "modifiers": {"type": "string", "maxLength": 128},
+        "synthetic": {"type": "boolean"},
+        "bridge": {"type": "boolean"},
+        "varargs": {"type": "boolean"},
+        "parameters": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {"$ref": "#/$defs/controllerApiParameter"}
+        }
+      }
+    },
+    "controllerApiParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "namePresent"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "type": {"type": "string", "minLength": 1, "maxLength": 256},
+        "genericType": {"type": "string", "minLength": 1, "maxLength": 256},
+        "namePresent": {"type": "boolean"}
+      }
+    },
+    "controllerApiProperty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "accessors", "confidence"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "readType": {"type": "string", "minLength": 1, "maxLength": 256},
+        "writeType": {"type": "string", "minLength": 1, "maxLength": 256},
+        "accessors": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        },
+        "confidence": {"enum": ["inferred"]}
+      }
+    },
     "controllerRuntime": {
       "type": "object",
       "additionalProperties": false,
@@ -734,6 +841,9 @@
         "status",
         "collectedAt",
         "extensionRegistries",
+        "apiTypeInventoryStatus",
+        "configuredApiRoots",
+        "apiTypes",
         "errors"
       ],
       "properties": {
@@ -741,7 +851,7 @@
           "const": "1.0.0"
         },
         "templateVersion": {
-          "const": "2"
+          "const": "3"
         },
         "source": {
           "const": "script-console"
@@ -782,6 +892,25 @@
           "maxItems": 3,
           "items": {
             "$ref": "#/$defs/controllerExtensionRegistry"
+          }
+        },
+        "apiTypeInventoryStatus": {
+          "enum": ["available", "partial", "unavailable"]
+        },
+        "configuredApiRoots": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "apiTypes": {
+          "type": "array",
+          "maxItems": 40,
+          "items": {
+            "$ref": "#/$defs/controllerApiType"
           }
         },
         "errors": {
@@ -927,12 +1056,17 @@
             "pipeline-steps",
             "pipeline-globals",
             "declarative-extensions",
+            "api-types",
             "output"
           ]
         },
         "code": {
           "enum": [
             "credentials-must-be-paired",
+            "invalid-api-roots",
+            "class-unavailable",
+            "type-traversal-truncated",
+            "member-inspection-failed",
             "invalid-controller-url",
             "request-timeout",
             "request-failed",
