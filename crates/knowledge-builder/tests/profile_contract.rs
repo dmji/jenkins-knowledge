@@ -263,6 +263,64 @@ fn validates_duplicate_fixture_paths_and_package_identity() {
 }
 
 #[test]
+fn rejects_duplicate_controller_ids_and_library_names() {
+    let directory = tempfile::tempdir().unwrap();
+    let duplicate_controllers = write_profile(
+        directory.path(),
+        "profile: duplicate-controllers\\njenkins:\\n  controllers:\\n    - id: ci\\n      url: https://jenkins.example.test\\n    - id: ci\\n      url: https://jenkins-two.example.test\\n",
+    );
+    let error = build_package(
+        &duplicate_controllers,
+        &directory.path().join("duplicate-controllers-package"),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("duplicate controller id"));
+
+    let duplicate_libraries = write_profile(
+        directory.path(),
+        "profile: duplicate-libraries\\nlibraries:\\n  - name: shared\\n    url: https://git.example.test/one.git\\n    revision: main\\n  - name: shared\\n    url: https://git.example.test/two.git\\n    revision: main\\n",
+    );
+    let error = build_package(
+        &duplicate_libraries,
+        &directory.path().join("duplicate-libraries-package"),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("duplicate Shared Library name"));
+}
+
+#[test]
+fn rejects_invalid_and_conflicting_library_commit_pins_before_network() {
+    let directory = tempfile::tempdir().unwrap();
+    let invalid = write_profile(
+        directory.path(),
+        "profile: invalid-commit\\nlibraries:\\n  - name: lib\\n    url: https://git.example.test/lib.git\\n    revision: main\\n    commit: not-a-sha\\n",
+    );
+    let error = build_package(&invalid, &directory.path().join("invalid-commit-package"))
+        .unwrap_err();
+    assert!(error.to_string().contains("libraries[0].commit"));
+
+    let conflict = write_profile(
+        directory.path(),
+        "profile: conflicting-pin\\nlibraries:\\n  - name: lib\\n    url: https://git.example.test/lib.git\\n    revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n    commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n",
+    );
+    let error = build_package(&conflict, &directory.path().join("conflicting-pin-package"))
+        .unwrap_err();
+    assert!(error.to_string().contains("conflicts with the full-SHA revision"));
+}
+
+#[test]
+fn validates_selector_requirements_before_live_collection() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = write_profile(
+        directory.path(),
+        "profile: wrong-section\\nlibraries:\\n  - name: lib\\n    url: https://git.example.test/lib.git\\n    revision: main\\npackage:\\n  include: [plugins]\\n",
+    );
+    let error = build_package(&profile, &directory.path().join("wrong-section-package"))
+        .unwrap_err();
+    assert!(error.to_string().contains("requires at least one Jenkins controller"));
+}
+
+#[test]
 fn cli_returns_actionable_nonzero_error_for_unknown_profile_field() {
     let directory = tempfile::tempdir().unwrap();
     let profile = write_profile(directory.path(), "profile: cli-test\npackge:\n  id: typo\n");
