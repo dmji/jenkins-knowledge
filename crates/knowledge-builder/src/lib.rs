@@ -630,7 +630,9 @@ pub fn collection_plan(profile_path: &Path) -> Result<Value, BuildError> {
                 "formFields": ["script"],
                 "probeTemplate": "src/probes/script_console_v1.groovy",
                 "templateVersion": "3",
-                "purpose": "explicitly confirmed fixed read-only runtime/extension/API metadata probe",
+                "purpose": "fixed read-only runtime/extension/API metadata probe",
+                "explicitOptIn": "collectionProfile: deep",
+                "callerScriptAccepted": false,
                 "responseCapBytes": 524_288,
                 "apiRoots": controller.api_roots,
                 "apiLimits": {
@@ -655,9 +657,13 @@ pub fn collection_plan(profile_path: &Path) -> Result<Value, BuildError> {
     } else {
         Vec::new()
     };
-    let script_console = (profile.collection_profile == "deep"
+    let mut script_console = (profile.collection_profile == "deep"
         && !profile.jenkins.controllers.is_empty())
         .then(|| jenkins_gdsl_collector::script_console_plan()["scriptConsole"].clone());
+    if let Some(plan) = script_console.as_mut() {
+        plan["confirmationMethod"] = json!("explicit collectionProfile: deep selection");
+        plan["callerScriptAccepted"] = json!(false);
+    }
 
     Ok(json!({
         "schemaVersion": "1.0.0",
@@ -2024,7 +2030,9 @@ fixtures:
             assert_eq!(plan["scriptConsole"].is_object(), profile == "deep");
             if profile == "deep" {
                 assert_eq!(plan["networkRequests"][4]["method"], "POST");
-                assert_eq!(plan["networkRequests"][4]["confirmationRequired"], true);
+                assert_eq!(plan["networkRequests"][4]["explicitOptIn"], "collectionProfile: deep");
+                assert_eq!(plan["networkRequests"][4]["callerScriptAccepted"], false);
+                assert_eq!(plan["scriptConsole"]["confirmationMethod"], "explicit collectionProfile: deep selection");
                 assert_eq!(plan["networkRequests"][4]["apiLimits"]["maxTypes"], 40);
             } else {
                 assert!(!plan.to_string().contains("/scriptText"));

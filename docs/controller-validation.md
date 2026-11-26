@@ -44,7 +44,7 @@ This also reports `callsMade: false`. Builder's plan is authoritative for the co
    cargo run --locked -p knowledge-builder -- build ./target/controller-smoke.yml ./target/controller-quick
    ```
 5. If approved, change to `standard`, inspect a fresh plan, and build to a different output directory. This downloads GDSL and scans configured Shared Libraries; it does not execute Script Console.
-6. Use `deep` only after separate security approval. Inspect the plan, review the checked-in `crates/jenkins-gdsl-collector/src/probes/script_console_v1.groovy`, grant a dedicated trusted account the required administrator permission for the duration of the run, and explicitly approve the single fixed probe. Do not schedule deep collection or treat its client timeout as server-side cancellation.
+6. Use `deep` only after separate security approval. Inspect the plan, review the checked-in `crates/jenkins-gdsl-collector/src/probes/script_console_v1.groovy`, grant a dedicated trusted account the required administrator permission for the duration of the run, and explicitly opt in by setting `collectionProfile: deep`; that profile selection is the Builder confirmation, and arbitrary caller-provided Groovy is never accepted. Do not schedule deep collection or treat its client timeout as server-side cancellation.
 7. Inspect `manifest.json` collection outcomes and `catalog.json` source revisions, snapshot identity, coverage, confidence, and provenance. Keep the package local and access-controlled. Open the package read-only in Runtime/LSP/MCP; consumer startup and queries must not contact Jenkins or Git.
 
 ## Offline fixture report
