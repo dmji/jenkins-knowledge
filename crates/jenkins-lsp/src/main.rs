@@ -72,11 +72,139 @@ fn prefix_at(text: &str, line_number: usize, utf16_column: usize) -> String {
     line[start..byte_column].to_owned()
 }
 
-fn block_is_open(before: &str, block: &str) -> bool {
-    let needle = format!("{block} {{");
-    before.rfind(&needle).is_some_and(|open| {
-        before.rfind('}').is_none_or(|close| open > close)
-    })
+const MAX_CONTEXT_SCAN_BYTES: usize = 1024 * 1024;
+
+fn relevant_block(name: &str) -> Option<&'static str> {
+    match name {
+        "pipeline" | "stages" | "stage" | "steps" | "post" | "script" | "agent"
+        | "environment" | "options" | "parameters" | "triggers" | "tools" | "when"
+        | "parallel" | "matrix" | "axes" | "excludes" | "input" => {
+            // The matched token is one of the static literals above.
+            Some(match name {
+                "pipeline" => "pipeline",
+                "stages" => "stages",
+                "stage" => "stage",
+                "steps" => "steps",
+                "post" => "post",
+                "script" => "script",
+                "agent" => "agent",
+                "environment" => "environment",
+                "options" => "options",
+                "parameters" => "parameters",
+                "triggers" => "triggers",
+                "tools" => "tools",
+                "when" => "when",
+                "parallel" => "parallel",
+                "matrix" => "matrix",
+                "axes" => "axes",
+                "excludes" => "excludes",
+                "input" => "input",
+                _ => unreachable!(),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn skip_quoted_string(bytes: &[u8], start: usize) -> usize {
+    let quote = bytes[start];
+    let triple = bytes.get(start..start + 3) == Some(&[quote, quote, quote]);
+    let delimiter = if triple { 3 } else { 1 };
+    let mut index = start + delimiter;
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(bytes.len());
+        } else if triple
+            && bytes.get(index..index + 3) == Some(&[quote, quote, quote])
+        {
+            return index + 3;
+        } else if !triple && bytes[index] == quote {
+            return index + 1;
+        } else {
+            index += 1;
+        }
+    }
+    bytes.len()
+}
+
+/// Return the relevant open block stack before the cursor. Comments and the
+/// supported quoted-string forms are skipped; every brace still participates
+/// in nesting so closing an inner block cannot close its parent.
+fn scan_block_contexts(source: &str) -> Option<Vec<&'static str>> {
+    if source.len() > MAX_CONTEXT_SCAN_BYTES {
+        return None;
+    }
+    let bytes = source.as_bytes();
+    let mut stack: Vec<Option<&'static str>> = Vec::new();
+    let mut candidate = None;
+    let mut parentheses = 0usize;
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'/' if bytes.get(index + 1) == Some(&b'/') => {
+                index += 2;
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                index += 2;
+                while index + 1 < bytes.len()
+                    && !(bytes[index] == b'*' && bytes[index + 1] == b'/')
+                {
+                    index += 1;
+                }
+                index = (index + 2).min(bytes.len());
+            }
+            b'\'' | b'"' => {
+                index = skip_quoted_string(bytes, index);
+            }
+            b'{' => {
+                stack.push(candidate.take());
+                parentheses = 0;
+                index += 1;
+            }
+            b'}' => {
+                stack.pop();
+                candidate = None;
+                parentheses = 0;
+                index += 1;
+            }
+            b'(' => {
+                parentheses = parentheses.saturating_add(1);
+                index += 1;
+            }
+            b')' => {
+                parentheses = parentheses.saturating_sub(1);
+                index += 1;
+            }
+            b';' => {
+                candidate = None;
+                index += 1;
+            }
+            b'.' | b'=' if parentheses == 0 => {
+                candidate = None;
+                index += 1;
+            }
+            byte if byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'$') => {
+                let start = index;
+                index += 1;
+                while index < bytes.len()
+                    && (bytes[index].is_ascii_alphanumeric()
+                        || matches!(bytes[index], b'_' | b'$'))
+                {
+                    index += 1;
+                }
+                if parentheses == 0 {
+                    candidate = relevant_block(&source[start..index]);
+                }
+            }
+            _ => index += 1,
+        }
+    }
+
+    Some(stack.into_iter().flatten().collect())
 }
 
 fn completion_context(text: &str, line: usize, character: usize) -> (String, Vec<String>, Vec<String>) {
@@ -97,13 +225,16 @@ fn completion_context(text: &str, line: usize, character: usize) -> (String, Vec
         before.push_str(&current[..byte_column]);
     }
 
-    let in_script = block_is_open(&before, "script");
-    let in_steps = block_is_open(&before, "steps");
-    let in_stage = block_is_open(&before, "stage");
-    let declarative = before.contains("pipeline {") && !in_script;
+    let blocks = scan_block_contexts(&before).unwrap_or_default();
+    let in_script = blocks.contains(&"script");
+    let in_steps = blocks.contains(&"steps");
+    let declarative = blocks.contains(&"pipeline") && !in_script;
     let mut contexts = vec!["pipeline".to_owned()];
-    if in_steps { contexts.push("steps".into()); }
-    if in_stage { contexts.push("stage".into()); }
+    for block in blocks {
+        if block != "pipeline" && !contexts.iter().any(|context| context == block) {
+            contexts.push(block.to_owned());
+        }
+    }
     let kinds = if declarative && !in_steps {
         vec!["step".into(), "declarative-directive".into()]
     } else {
@@ -393,6 +524,90 @@ mod tests {
         assert_eq!(word_at("sh 'hello world'", 0, 2).as_deref(), Some("sh"));
         assert_eq!(word_at("sh 'hello world'", 0, 3), None);
         assert_eq!(word_at("first\nsecond", 1, 3).as_deref(), Some("second"));
+    }
+
+    fn context_at_end(text: &str) -> (String, Vec<String>, Vec<String>) {
+        let line = text.lines().count().saturating_sub(1);
+        let character = text.lines().last().unwrap_or_default().encode_utf16().count();
+        completion_context(text, line, character)
+    }
+
+    #[test]
+    fn nested_closures_do_not_close_their_declarative_parent_context() {
+        let source = "pipeline {\n stages {\n stage('build') {\n steps {\n script {\n sh 'inside'\n }\n sh";
+        let (_, contexts, kinds) = context_at_end(source);
+        assert!(contexts.iter().any(|context| context == "pipeline"));
+        assert!(contexts.iter().any(|context| context == "stages"));
+        assert!(contexts.iter().any(|context| context == "stage"));
+        assert!(contexts.iter().any(|context| context == "steps"));
+        assert!(!contexts.iter().any(|context| context == "script"));
+        assert_eq!(kinds, vec!["step"]);
+    }
+
+    #[test]
+    fn ignores_block_like_text_in_comments_and_quoted_strings() {
+        let source = r#"pipeline {
+    // script { steps {
+    /* post { stage('fake') { } } */
+    stages {
+        stage('real') {
+            steps {
+                def single = 'script { }'
+                def double = "post { }"
+                def tripleSingle = '''agent { }'''
+                def tripleDouble = """environment { }"""
+                sh
+"#;
+        let (_, contexts, _) = context_at_end(source);
+        for expected in ["pipeline", "stages", "stage", "steps"] {
+            assert!(contexts.iter().any(|context| context == expected), "{contexts:?}");
+        }
+        for ignored in ["script", "post", "agent", "environment"] {
+            assert!(!contexts.iter().any(|context| context == ignored), "{contexts:?}");
+        }
+    }
+
+    #[test]
+    fn escaped_quotes_do_not_end_strings_early() {
+        let source = r#"pipeline {
+    def double = "steps { \" stage { }"
+    def single = 'script { \' post { }'
+    steps {
+        sh
+"#;
+        let (_, contexts, _) = context_at_end(source);
+        assert!(contexts.iter().any(|context| context == "steps"));
+        assert!(!contexts.iter().any(|context| context == "stage"));
+        assert!(!contexts.iter().any(|context| context == "script"));
+        assert!(!contexts.iter().any(|context| context == "post"));
+    }
+
+    #[test]
+    fn incomplete_blocks_and_unbalanced_closers_are_handled_safely() {
+        let source = "pipeline {\n stages {\n stage('unfinished') {\n steps {\n sh";
+        let (_, contexts, kinds) = context_at_end(source);
+        assert!(contexts.iter().any(|context| context == "steps"));
+        assert_eq!(kinds, vec!["step"]);
+
+        let (_, contexts, _) = context_at_end("}}}} pipeline {");
+        assert!(contexts.iter().any(|context| context == "pipeline"));
+    }
+
+    #[test]
+    fn context_scan_is_bounded_for_very_large_documents() {
+        let source = format!("{}pipeline {{", " ".repeat(MAX_CONTEXT_SCAN_BYTES));
+        assert!(scan_block_contexts(&source).is_none());
+    }
+
+    #[test]
+    fn nested_completion_keeps_step_symbols_and_excludes_declarative_directives() {
+        let runtime = fixture_runtime("fixture");
+        let source = "pipeline {\n stages {\n stage('build') {\n steps {\n script {\n sh 'inside'\n }\n sh";
+        let result = completion(Some(&runtime), source, 7, 2);
+        let labels: Vec<_> = result["items"].as_array().unwrap().iter()
+            .filter_map(|item| item["label"].as_str()).collect();
+        assert!(labels.contains(&"sh"));
+        assert!(!labels.contains(&"agent"));
     }
 
     #[test]
