@@ -2,6 +2,7 @@ import groovy.json.JsonOutput
 import jenkins.model.Jenkins
 
 final int MAX_ITEMS_PER_REGISTRY = 100
+final int MAX_PARAMETERS_PER_STEP = 20
 final int MAX_TEXT_LENGTH = 256
 final int MAX_OUTPUT_BYTES = 262144
 
@@ -109,6 +110,57 @@ registrySpecs.each { spec ->
                 name: safeText(itemName),
                 className: safeText(extension.getClass().getName())
             ]
+            if (spec.name == 'pipeline-steps') {
+                try {
+                    def displayName = safeText(extension.getDisplayName())
+                    if (displayName != null) item.displayName = displayName
+                } catch (Throwable ignored) {
+                    // Display metadata is optional across Jenkins/plugin versions.
+                }
+                try {
+                    Class modelType = Class.forName(
+                        'org.jenkinsci.plugins.structs.describable.DescribableModel',
+                        false,
+                        jenkins.getPluginManager().getUberClassLoader()
+                    )
+                    def model = modelType.getMethod('of', Class).invoke(null, extension.getClazz())
+                    def parameters = []
+                    for (def parameter : model.getParameters()) {
+                        if (parameters.size() >= MAX_PARAMETERS_PER_STEP) {
+                            item.parametersTruncated = true
+                            break
+                        }
+                        def parameterName = safeText(parameter.getName())
+                        if (parameterName == null || parameterName.trim().isEmpty()) {
+                            continue
+                        }
+                        def parameterRecord = [name: parameterName]
+                        try {
+                            Class parameterType = parameter.getType()
+                            if (parameterType != null) {
+                                parameterRecord.type = safeText(parameterType.getName())
+                            }
+                        } catch (Throwable ignored) {}
+                        try {
+                            parameterRecord.required = parameter.isRequired() == true
+                        } catch (Throwable ignored) {}
+                        try {
+                            def description = safeText(parameter.getDescription())
+                            if (description != null) parameterRecord.description = description
+                        } catch (Throwable ignored) {}
+                        try {
+                            def defaultValue = parameter.getDefaultParameterValue()
+                            if (defaultValue instanceof String || defaultValue instanceof Number || defaultValue instanceof Boolean) {
+                                parameterRecord.default = defaultValue
+                            }
+                        } catch (Throwable ignored) {}
+                        parameters << parameterRecord
+                    }
+                    item.parameters = parameters
+                } catch (Throwable ignored) {
+                    // structs-plugin metadata is optional; preserve the descriptor itself.
+                }
+            }
             try {
                 def plugin = jenkins.getPluginManager().whichPlugin(extension.getClass())
                 if (plugin != null) {
@@ -137,8 +189,8 @@ registrySpecs.each { spec ->
 def output = JsonOutput.toJson(result)
 if (output.getBytes('UTF-8').length > MAX_OUTPUT_BYTES) {
     result.extensionRegistries.each { registry ->
-        if (registry.items.size() > 25) {
-            registry.items = registry.items.take(25)
+        if (registry.items.size() > 10) {
+            registry.items = registry.items.take(10)
             registry.truncated = true
         }
     }

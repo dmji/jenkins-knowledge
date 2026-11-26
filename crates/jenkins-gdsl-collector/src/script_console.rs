@@ -325,6 +325,36 @@ fn normalize_registry(
             {
                 normalized["plugin"] = json!(truncate(plugin));
             }
+            if let Some(value) = item
+                .get("displayName")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                normalized["displayName"] = json!(truncate(value));
+            }
+            if let Some(value) = item.get("parametersTruncated").and_then(Value::as_bool) {
+                normalized["parametersTruncated"] = json!(value);
+            }
+            if let Some(parameters) = item.get("parameters").and_then(Value::as_array) {
+                let normalized_parameters: Vec<Value> = parameters.iter().take(20).filter_map(|parameter| {
+                    let name = parameter.get("name").and_then(Value::as_str).filter(|value| !value.trim().is_empty())?;
+                    let mut result = json!({ "name": truncate(name) });
+                    if let Some(value) = parameter.get("type").and_then(Value::as_str).filter(|value| !value.trim().is_empty()) {
+                        result["type"] = json!(truncate(value));
+                    }
+                    if let Some(value) = parameter.get("required").and_then(Value::as_bool) {
+                        result["required"] = json!(value);
+                    }
+                    if let Some(value) = parameter.get("description").and_then(Value::as_str).filter(|value| !value.trim().is_empty()) {
+                        result["description"] = json!(truncate(value));
+                    }
+                    if let Some(value) = parameter.get("default").filter(|value| value.is_string() || value.is_number() || value.is_boolean()) {
+                        result["default"] = value.clone();
+                    }
+                    Some(result)
+                }).collect();
+                normalized["parameters"] = json!(normalized_parameters);
+            }
             items.push(normalized);
         }
     }
@@ -565,6 +595,31 @@ mod tests {
         assert_eq!(form[0].1, SCRIPT_TEMPLATE);
         assert_eq!(result["status"], "collected");
         assert_eq!(result["jenkinsCoreVersion"], "2.479.1");
+    }
+
+    #[test]
+    fn normalizes_bounded_step_parameters_and_ignores_non_scalar_defaults() {
+        let mut output = valid_probe_output();
+        output["extensionRegistries"][0]["items"][0]["displayName"] = json!("Shell");
+        output["extensionRegistries"][0]["items"][0]["parameters"] = json!([{
+            "name": "script",
+            "type": "java.lang.String",
+            "required": true,
+            "description": "Command to execute",
+            "default": "echo ok",
+            "unsafe": "must be ignored"
+        },{
+            "name": "credentials",
+            "default": {"secret": "must not leak"}
+        }]);
+        let result = normalize_probe_output(&output);
+        let step = &result["extensionRegistries"][0]["items"][0];
+        assert_eq!(step["displayName"], "Shell");
+        assert_eq!(step["parameters"][0]["type"], "java.lang.String");
+        assert_eq!(step["parameters"][0]["required"], true);
+        assert_eq!(step["parameters"][0]["default"], "echo ok");
+        assert!(step["parameters"][0].get("unsafe").is_none());
+        assert!(step["parameters"][1].get("default").is_none());
     }
 
     #[test]

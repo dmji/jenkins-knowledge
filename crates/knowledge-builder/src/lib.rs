@@ -291,6 +291,62 @@ impl std::fmt::Display for BuildError {
 }
 impl std::error::Error for BuildError {}
 
+fn runtime_symbols(runtime: &Value, source_id: &str) -> Vec<Value> {
+    let mut symbols = Vec::new();
+    for registry in runtime["extensionRegistries"].as_array().into_iter().flatten() {
+        let registry_name = registry["name"].as_str().unwrap_or_default();
+        let kind = match registry_name {
+            "pipeline-steps" => "step",
+            "pipeline-globals" => "global-variable",
+            _ => continue,
+        };
+        for (index, item) in registry["items"].as_array().into_iter().flatten().enumerate() {
+            let (Some(name), Some(class_name)) = (
+                item["name"].as_str(),
+                item["className"].as_str(),
+            ) else {
+                continue;
+            };
+            let id = format!("{}:runtime:{}:{}:{}:{}", source_id, registry_name, name, class_name, index);
+            let mut symbol = json!({
+                "id": id,
+                "name": name,
+                "kind": kind,
+                "sourceId": source_id,
+                "signature": class_name,
+                "confidence": "verified",
+                "provenance": ["jenkins-script-console", registry_name],
+                "fieldEvidence": {
+                    "name": "verified",
+                    "implementationClass": "verified",
+                    "parameters": "unknown"
+                },
+                "evidence": [{
+                    "sourceId": source_id,
+                    "kind": "controller-observed",
+                    "confidence": "verified",
+                    "provenance": "Registered Jenkins extension descriptor",
+                    "retrievedAt": runtime["collectedAt"],
+                    "location": format!("script-console/{}", registry_name),
+                    "sourceKind": "jenkins-controller"
+                }]
+            });
+            if let Some(plugin) = item["plugin"].as_str() {
+                symbol["namespace"] = json!(plugin);
+            }
+            if let Some(display_name) = item["displayName"].as_str() {
+                symbol["displayName"] = json!(display_name);
+            }
+            if let Some(parameters) = item["parameters"].as_array() {
+                symbol["parameters"] = json!(parameters);
+                symbol["fieldEvidence"]["parameters"] = json!("verified");
+            }
+            symbols.push(symbol);
+        }
+    }
+    symbols
+}
+
 pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildError> {
     if output.exists() { return Err(BuildError::OutputExists(output.display().to_string())); }
     let input = fs::read_to_string(profile_path).map_err(|e| BuildError::Io(format!("cannot read {}: {e}", profile_path.display())))?;
@@ -567,6 +623,10 @@ pub fn build_package(profile_path: &Path, output: &Path) -> Result<(), BuildErro
                     _ if runtime_error.as_deref() == Some("permission-denied") => ("permission-denied", runtime_error.clone()),
                     _ => ("unavailable", runtime_error.clone().or_else(|| Some("probe-failed".into()))),
                 };
+                let observed_symbols = runtime_symbols(&runtime_record, &controller_source_id);
+                if let Some(symbols) = catalog["symbols"].as_array_mut() {
+                    symbols.extend(observed_symbols);
+                }
                 catalog["controller"]["runtime"] = runtime_record;
                 let mut outcome = json!({
                     "id": format!("controller:{}:script-console", controller.id),
@@ -1024,9 +1084,34 @@ fn hex(bytes: &[u8]) -> String { bytes.iter().map(|b| format!("{b:02x}")).collec
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, validate_profile, Profile};
+    use super::{build_package, runtime_symbols, validate_profile, Profile};
     use serde_json::{json, Value};
     use std::fs;
+
+    #[test]
+    fn emits_distinct_controller_observed_symbols_for_duplicate_runtime_steps() {
+        let runtime = json!({
+            "collectedAt": "2026-11-26T00:00:00Z",
+            "extensionRegistries": [{
+                "name": "pipeline-steps",
+                "items": [
+                    {"name":"deploy","className":"plugin.OneStep","plugin":"one","parameters":[{"name":"target","type":"java.lang.String","required":true}]},
+                    {"name":"deploy","className":"plugin.TwoStep","plugin":"two"}
+                ]
+            },{
+                "name":"pipeline-globals",
+                "items":[{"name":"env","className":"workflow.Env"}]
+            }]
+        });
+        let symbols = runtime_symbols(&runtime, "controller:test");
+        assert_eq!(symbols.len(), 3);
+        assert_ne!(symbols[0]["id"], symbols[1]["id"]);
+        assert_eq!(symbols[0]["kind"], "step");
+        assert_eq!(symbols[0]["parameters"][0]["name"], "target");
+        assert_eq!(symbols[1]["namespace"], "two");
+        assert_eq!(symbols[2]["kind"], "global-variable");
+        assert_eq!(symbols[0]["evidence"][0]["kind"], "controller-observed");
+    }
 
     #[test]
     fn preserves_collection_coverage_in_merged_catalog() {
