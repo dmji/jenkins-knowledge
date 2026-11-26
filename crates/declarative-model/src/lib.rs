@@ -221,6 +221,36 @@ mod tests {
                         "parameters": [{"name": "label", "type": "java.lang.String"}]
                     },
                     {
+                        "category": "option",
+                        "name": "timeout",
+                        "nameKind": "dsl-token",
+                        "className": "org.jenkinsci.plugins.pipeline.modeldefinition.options.impl.Timeout",
+                        "contexts": ["pipeline", "stage"],
+                        "canUseInStage": true
+                    },
+                    {
+                        "category": "when",
+                        "name": "branch",
+                        "nameKind": "dsl-token",
+                        "className": "org.jenkinsci.plugins.pipeline.modeldefinition.when.impl.BranchConditional",
+                        "contexts": ["stage"],
+                        "allowedChildrenCount": 0
+                    },
+                    {
+                        "category": "post-condition",
+                        "name": "always",
+                        "nameKind": "dsl-token",
+                        "className": "org.jenkinsci.plugins.pipeline.modeldefinition.model.conditions.Always",
+                        "contexts": ["pipeline", "stage"]
+                    },
+                    {
+                        "category": "trigger",
+                        "name": "TimerTrigger",
+                        "nameKind": "implementation-class",
+                        "className": "hudson.triggers.TimerTrigger",
+                        "contexts": ["pipeline"]
+                    },
+                    {
                         "category": "parameter",
                         "name": "StringParameterDefinition",
                         "nameKind": "implementation-class",
@@ -231,13 +261,18 @@ mod tests {
             }]
         });
         let symbols = runtime_symbols(&runtime, "declarative-model-controller");
-        assert_eq!(symbols.len(), 3);
+        assert_eq!(symbols.len(), 7);
         assert_eq!(symbols[0]["name"], "any");
         assert_eq!(symbols[0]["confidence"], "verified");
         assert_eq!(symbols[1]["namespace"], "kubernetes");
         assert_eq!(symbols[1]["parameters"][0]["name"], "label");
-        assert_eq!(symbols[2]["confidence"], "unknown");
-        assert_eq!(symbols[2]["fieldEvidence"]["name"], "unknown");
+        assert_eq!(symbols[2]["extensionCategory"], "option");
+        assert_eq!(symbols[3]["extensionCategory"], "when");
+        assert_eq!(symbols[3]["allowedChildrenCount"], 0);
+        assert_eq!(symbols[4]["extensionCategory"], "post-condition");
+        assert_eq!(symbols[5]["confidence"], "unknown");
+        assert_eq!(symbols[5]["fieldEvidence"]["name"], "unknown");
+        assert_eq!(symbols[6]["extensionCategory"], "parameter");
         assert_eq!(symbols[0]["evidence"][0]["kind"], "controller-observed");
         let catalog = json!({
             "schemaVersion": "1.0.0",
