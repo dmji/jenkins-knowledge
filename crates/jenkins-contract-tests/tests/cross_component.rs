@@ -188,6 +188,31 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
         .collect();
     assert!(labels.contains(&"sh"));
 
+    let ordinary_uri = "file:///workspace/Ordinary.groovy";
+    lsp_write(
+        &mut writer,
+        &json!({
+            "jsonrpc":"2.0",
+            "method":"textDocument/didOpen",
+            "params":{"textDocument":{
+                "uri":ordinary_uri,
+                "languageId":"groovy",
+                "version":1,
+                "text":"node {\\n  deployApp()\\n}\\n"
+            }}
+        }),
+    );
+    lsp_write(
+        &mut writer,
+        &json!({
+            "jsonrpc":"2.0",
+            "id":12,
+            "method":"textDocument/completion",
+            "params":{"textDocument":{"uri":ordinary_uri},"position":{"line":1,"character":8}}
+        }),
+    );
+    assert!(lsp_response(&mut reader, 12)["result"].is_null());
+
     lsp_write(
         &mut writer,
         &json!({
