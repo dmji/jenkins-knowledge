@@ -21,8 +21,8 @@ async function main() {
         'jenkinsKnowledge.profile': 'deep'
     }, null, 2));
     fs.writeFileSync(path.join(workspace, 'Jenkinsfile'),
-        "node {\\n  sh 'echo ok'\\n  unavailableStep()\\n  deployApp()\\n}\\n");
-    fs.writeFileSync(path.join(workspace, 'ordinary.groovy'), "node { sh 'echo ok' }\\n");
+        "node {\n  sh 'echo ok'\n  unavailableStep()\n  deployApp()\n}\n");
+    fs.writeFileSync(path.join(workspace, 'ordinary.groovy'), "node { sh 'echo ok' }\n");
 
     try {
         await runTests({
