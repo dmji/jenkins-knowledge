@@ -187,7 +187,7 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
         const ordinaryUri = vscode.Uri.file(path.join(workspacePath(), 'Ordinary.groovy'));
         await vscode.workspace.fs.writeFile(
             ordinaryUri,
-            Buffer.from(['def value = 1', '', ''].join('\\n'), 'utf8')
+            Buffer.from(['def value = 1', '', ''].join(String.fromCharCode(10)), 'utf8')
         );
         const ordinary = await vscode.workspace.openTextDocument(ordinaryUri);
         assert.strictEqual(ordinary.languageId, 'groovy');
