@@ -92,6 +92,7 @@ lines = [
     f"- Java: **{runtime['javaVersion']}** ({runtime['javaVendor']})",
     f"- Collection profile: **{manifest['collection']['profile']}**",
     f"- Collection status: **{manifest['collection']['status']}**",
+    f"- Catalog completeness: **{catalog_completeness['status']}**",
     f"- Knowledge Package format: **{manifest['packageVersion']}**",
     f"- Catalog schema: **{manifest['catalogSchemaVersion']}**",
     f"- Built at: {manifest['createdAt']}",
