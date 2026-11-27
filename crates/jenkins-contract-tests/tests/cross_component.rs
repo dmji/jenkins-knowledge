@@ -213,9 +213,9 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
         }),
     );
     let definition = lsp_response(&mut reader, 10);
-    assert_eq!(
-        definition["result"][0]["uri"],
-        "https://example.test/fixture-library/blob/0123456789012345678901234567890123456789/vars/deployApp.groovy#L1"
+    assert!(
+        definition["result"].is_null(),
+        "non-GitHub fixture URLs must not become navigation targets"
     );
 
     lsp_write(
