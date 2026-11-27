@@ -325,5 +325,16 @@
       "url": "https://updates.jenkins.io/download/plugins/workflow-support/820.vd1a_6cc65ef33/workflow-support.hpi",
       "version": "820.vd1a_6cc65ef33"
     }
-  ]
+  ],
+  "environmentId": "jenkins-2356",
+  "platform": "linux/amd64",
+  "javaVersion": "17.0.3",
+  "javaVendor": "Eclipse Adoptium",
+  "javaDistribution": "Eclipse Temurin 17.0.3+7",
+  "sharedLibrary": {
+    "name": "gsa-examples",
+    "url": "https://github.com/GSA/jenkins-shared-library-examples.git",
+    "revision": "main",
+    "commit": "7dfe2ab4bf7123b6aea29b0ec92caa2277cea5de"
+  }
 }
