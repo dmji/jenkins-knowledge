@@ -1,6 +1,6 @@
 # Demo Environment: walkthrough
 
-Run from the repository root after reviewing [installation and safety](installation.md):
+Run from the repository root after reviewing [installation and safety]({{ '/reference-deployment/demo-environment/installation.html' | relative_url }}):
 
 ```sh
 bash demo/up.sh
