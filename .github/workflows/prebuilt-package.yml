@@ -215,7 +215,8 @@ jobs:
           PACKAGE="target/release/jenkins-knowledge-\${GITHUB_REF_NAME}-jenkins-2.356-java17-deep.tar.gz"
           CHECKSUM="$PACKAGE.sha256"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$PACKAGE" "$CHECKSUM" target/release/RELEASE-NOTES.md target/runtime-assets/*.tar.gz target/runtime-assets/*.tar.gz.sha256
+            gh release edit "$GITHUB_REF_NAME" --notes-file target/release/RELEASE-NOTES.md
+            gh release upload "$GITHUB_REF_NAME" "$PACKAGE" "$CHECKSUM" target/runtime-assets/*.tar.gz target/runtime-assets/*.tar.gz.sha256
           else
             gh release create "$GITHUB_REF_NAME" \
               "$PACKAGE" "$CHECKSUM" target/release/RELEASE-NOTES.md \
