@@ -8,7 +8,7 @@ OUT="$ROOT/target/jenkins-2.356-demo"
 DOCKER_CONTEXT="$OUT/docker-context"
 COMPOSE=(docker compose --project-directory "$DEMO_DIR" --env-file "$DEMO_DIR/.env" -f "$DEMO_DIR/compose.yml")
 
-for command in cargo docker git python3 openssl; do
+for command in cargo docker git python3 openssl curl; do
     command -v "$command" >/dev/null 2>&1 || {
         echo "Required command not found: $command" >&2
         exit 1
@@ -73,6 +73,34 @@ python3 "$ROOT/tests/jenkins-2.356/resolve_plugins.py" \
 "${COMPOSE[@]}" build jenkins builder runtime
 "${COMPOSE[@]}" up -d --wait --wait-timeout 600 jenkins
 
-echo "Jenkins is ready at http://127.0.0.1:$(sed -n 's/^DEMO_JENKINS_PORT=//p' "$DEMO_DIR/.env" | tail -n 1)"
+JENKINS_PORT="$(sed -n 's/^DEMO_JENKINS_PORT=//p' "$DEMO_DIR/.env" | tail -n 1)"
+JENKINS_URL="http://127.0.0.1:${JENKINS_PORT}"
+TOKEN_FILE=/var/jenkins_home/jenkins-knowledge-tokens.env
+admin_token=""
+for attempt in $(seq 1 60); do
+    tokens="$("${COMPOSE[@]}" exec -T jenkins cat "$TOKEN_FILE" 2>/dev/null || true)"
+    admin_token="$(printf '%s\n' "$tokens" | sed -n 's/^ADMIN_TOKEN=//p')"
+    [ -n "$admin_token" ] && break
+    sleep 2
+done
+if [ -z "$admin_token" ]; then
+    echo "Timed out waiting for the local Jenkins admin API token." >&2
+    exit 1
+fi
+
+"${COMPOSE[@]}" exec -T jenkins java -version 2> "$OUT/java-version.txt"
+curl --silent --show-error --fail --user "admin:$admin_token" \
+    "$JENKINS_URL/pluginManager/api/json?depth=1" > "$OUT/plugin-inventory-api.json"
+curl --silent --show-error --fail --user "admin:$admin_token" \
+    --dump-header "$OUT/jenkins-headers.txt" "$JENKINS_URL/api/json" >/dev/null
+python3 "$ROOT/tests/jenkins-2.356/assert_reference_environment.py" \
+    --lock-file "$ROOT/tests/jenkins-2.356/plugins.lock.json" \
+    --java-version-file "$OUT/java-version.txt" \
+    --plugin-inventory "$OUT/plugin-inventory-api.json" \
+    --jenkins-headers "$OUT/jenkins-headers.txt" \
+    --image-output "$OUT/image.txt"
+unset admin_token tokens
+
+echo "Jenkins is ready at $JENKINS_URL (reference environment validated)."
 echo "Demo-only credentials are stored in demo/.env (mode 0600)."
 echo "Next: bash demo/build-package.sh"
