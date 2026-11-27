@@ -173,3 +173,8 @@ An optional Docker Compose environment starts an isolated Jenkins 2.356/Java 17 
 The optional VS Code extension adds Jenkins catalog completion and hover information to Groovy documents while leaving ordinary Groovy language features to installed Groovy tooling. The Rust LSP reads one explicitly selected Knowledge Package and supports Pipeline steps and Shared Library APIs.
 
 See [VS Code setup, configuration, limitations, and smoke tests](editors/vscode/README.md). Build the server with `cargo --locked build --release -p jenkins-lsp`.
+
+
+## Published documentation
+
+The [Jenkins Knowledge reference deployment and operations guide](docs/index.md) covers integration with an existing Jenkins controller, collection profiles, package publication, Runtime/MCP/VS Code setup, and the optional isolated demo environment. The Pages source is `docs/`; enable GitHub Pages for the `master` branch and `/docs` folder in repository Settings → Pages to publish it.
