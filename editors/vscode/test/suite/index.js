@@ -100,10 +100,18 @@ async function run() {
     assert.ok(Array.isArray(definitions) && definitions.length > 0, 'Shared Library symbol must have a definition');
     assert.match(definitions[0].uri.toString(), /0123456789012345678901234567890123456789\/vars\/deployApp\.groovy#L1$/);
 
-    await waitFor('unavailable plugin diagnostic', () =>
-        vscode.languages.getDiagnostics(document.uri)
-            .some(diagnostic => diagnostic.code === 'jenkins.plugin.unavailable')
-    );
+    const pluginDiagnostics = await waitFor('unavailable plugin diagnostic', () => {
+        const diagnostics = vscode.languages.getDiagnostics(document.uri);
+        return diagnostics.some(diagnostic => diagnostic.code === 'jenkins.plugin.unavailable')
+            ? diagnostics
+            : undefined;
+    });
+    assert.ok(pluginDiagnostics.some(diagnostic =>
+        diagnostic.code === 'jenkins.plugin.unavailable' && diagnostic.range.start.line === 2
+    ));
+    assert.ok(!pluginDiagnostics.some(diagnostic =>
+        [5, 6, 7].includes(diagnostic.range.start.line)
+    ), 'comments, strings, and unknown names must not produce Jenkins diagnostics');
 
     await configuration.update('packagePath', alternatePackage, vscode.ConfigurationTarget.Workspace);
     await configuration.update('profile', 'contract-alternate', vscode.ConfigurationTarget.Workspace);
