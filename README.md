@@ -177,4 +177,4 @@ See [VS Code setup, configuration, limitations, and smoke tests](editors/vscode/
 
 ## Published documentation
 
-The [Jenkins Knowledge reference deployment and operations guide](docs/index.md) covers integration with an existing Jenkins controller, collection profiles, package publication, Runtime/MCP/VS Code setup, and the optional isolated demo environment. The Pages source is `docs/`; enable GitHub Pages for the `master` branch and `/docs` folder in repository Settings → Pages to publish it.
+The [Jenkins Knowledge reference deployment and operations guide](docs/index.md) covers integration with an existing Jenkins controller, collection profiles, package publication, Runtime/MCP/VS Code setup, and the optional isolated demo environment. Enable GitHub Pages in repository Settings → Pages and select **GitHub Actions** as the build and deployment source.
