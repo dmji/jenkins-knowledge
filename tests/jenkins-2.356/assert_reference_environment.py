@@ -28,9 +28,9 @@ def main() -> None:
         "expected": lock["jenkinsCoreVersion"],
         "observed": core_matches,
     }
-    java_version = re.search(r"^\\s*java.version\\s*=\\s*(\\S+)", java_output, re.MULTILINE)
-    java_vendor = re.search(r"^\\s*java.vendor\\s*=\\s*(.+)$", java_output, re.MULTILINE)
-    java_runtime = re.search(r"^\\s*java.runtime.version\\s*=\\s*(\\S+)", java_output, re.MULTILINE)
+    java_version = re.search(r"^\s*java.version\s*=\s*(\S+)", java_output, re.MULTILINE)
+    java_vendor = re.search(r"^\s*java.vendor\s*=\s*(.+)$", java_output, re.MULTILINE)
+    java_runtime = re.search(r"^\s*java.runtime.version\s*=\s*(\S+)", java_output, re.MULTILINE)
     assert java_version and java_version.group(1) == lock["javaVersion"], java_output
     assert java_vendor and java_vendor.group(1).strip() == lock["javaVendor"], java_output
     assert java_runtime and java_runtime.group(1) == lock["javaDistribution"].split()[-1], java_output
