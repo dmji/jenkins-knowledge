@@ -7,7 +7,7 @@
   "packageManager": "npm@11.20.0",
   "license": "UNLICENSED",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.91.0"
   },
   "categories": [
     "Programming Languages"
@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.91.0",
     "typescript": "^7.0.2",
     "@types/mocha": "10.0.10",
     "@vscode/test-electron": "2.5.2",
