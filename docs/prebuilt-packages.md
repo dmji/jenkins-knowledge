@@ -185,7 +185,17 @@ A compatibility report is evidence for an explicit comparison, not an automatic 
 
 A new Jenkins Core version, Java version, plugin lock, or reference profile is a new reference environment snapshot. Do not overwrite an existing Release or silently replace its assets.
 
-Maintainers update the pinned Jenkins image digest, profile, plugin lock, reference environment identifier, validation expectations, and asset naming together. CI then rebuilds and independently validates the package. After those changes are merged to `master`, publishing a new `vX.Y.Z` tag triggers a new GitHub Release with a new archive and checksum. The release job rejects tags that do not point to a commit reachable from `master` and refuses to overwrite an existing Release.
+Maintainers update the pinned Jenkins image digest, profile, plugin lock, reference environment identifier, validation expectations, and asset naming together. CI then rebuilds and independently validates the package. After those changes are merged to `master`, publishing a new `vX.Y.Z` tag triggers a new GitHub Release with a new archive and checksum. The product release tag is independent from `packageVersion` and `catalogSchemaVersion`; publishing a new reference environment does not by itself require a schema-version change. The release job rejects tags that do not point to a commit reachable from `master` and refuses to overwrite an existing Release.
+
+Maintainers publish from the merged `master` commit:
+
+```sh
+git fetch origin master
+git switch master
+git pull --ff-only
+git tag -a vX.Y.Z -m "Jenkins Knowledge vX.Y.Z"
+git push origin vX.Y.Z
+```
 
 Consumers remain pinned to the package directory they selected. To adopt a newer package, download a new release, verify its checksum, extract it, review its manifest/release notes, and explicitly update the Runtime/MCP/LSP package path. No background update occurs.
 
