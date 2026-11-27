@@ -1,5 +1,7 @@
 title: Jenkins Knowledge
 description: Reference deployment, integration, and operations documentation
+url: https://dmji.github.io
+baseurl: /jenkins-knowledge
 theme: minima
 markdown: kramdown
 header_pages:

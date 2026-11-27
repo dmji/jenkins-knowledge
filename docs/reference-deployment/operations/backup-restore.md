@@ -10,6 +10,6 @@ Back up the complete immutable package directory (`manifest.json`, `catalog.json
 2. Restore it to a new directory without editing files.
 3. Run Runtime against the restored path to validate schemas and internal checksums.
 4. Confirm package/profile and collection outcomes.
-5. Point consumers to the restored path and run the [acceptance checklist](../acceptance-tests.md).
+5. Point consumers to the restored path and run the [acceptance checklist]({{ '/reference-deployment/acceptance-tests.html' | relative_url }}).
 
 Missing files, checksum mismatches, invalid schemas, unsafe paths, or symlinks cause package loading to fail. Restore a known-good release rather than editing generated package files.
