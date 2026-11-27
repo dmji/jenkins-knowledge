@@ -69,6 +69,7 @@ CI launches a real VS Code extension host against a sanitized Jenkins Knowledge 
 mkdir -p target/vscode-acceptance-fixture
 cp crates/jenkins-contract-tests/tests/fixtures/primary/{profile.yml,catalog.json,manifest.json} target/vscode-acceptance-fixture/
 sed -i 's#https://example.test/fixture-library.git#https://github.com/example/fixture-library.git#' target/vscode-acceptance-fixture/catalog.json
+rm -rf target/vscode-acceptance-package
 cargo --locked run -p knowledge-builder -- build target/vscode-acceptance-fixture/profile.yml target/vscode-acceptance-package
 cargo --locked build -p jenkins-lsp
 JENKINS_LSP_PATH="$PWD/target/debug/jenkins-lsp" \
