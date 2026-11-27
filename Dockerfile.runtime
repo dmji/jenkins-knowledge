@@ -8,10 +8,10 @@ RUN groupadd --system --gid 10001 runtime \
     && useradd --system --uid 10001 --gid runtime --home-dir /nonexistent --no-create-home runtime \
     && mkdir -p /package \
     && chown runtime:runtime /package
-COPY --chown=root:root target/release/jenkins-runtime /usr/local/bin/jenkins-runtime
-COPY --chown=root:root target/release/jenkins-mcp /usr/local/bin/jenkins-mcp
-COPY --chown=root:root target/release/groovy-stubs /usr/local/bin/groovy-stubs
-COPY --chown=root:root target/release/jenkins-lsp /usr/local/bin/jenkins-lsp
+COPY --chown=root:root --chmod=0555 target/release/jenkins-runtime /usr/local/bin/jenkins-runtime
+COPY --chown=root:root --chmod=0555 target/release/jenkins-mcp /usr/local/bin/jenkins-mcp
+COPY --chown=root:root --chmod=0555 target/release/groovy-stubs /usr/local/bin/groovy-stubs
+COPY --chown=root:root --chmod=0555 target/release/jenkins-lsp /usr/local/bin/jenkins-lsp
 WORKDIR /package
 USER runtime:runtime
 ENTRYPOINT ["jenkins-runtime"]
