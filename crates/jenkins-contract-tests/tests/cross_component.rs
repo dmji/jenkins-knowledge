@@ -211,7 +211,7 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
             "params":{"textDocument":{"uri":ordinary_uri},"position":{"line":1,"character":8}}
         }),
     );
-    assert!(lsp_response(&mut reader, 12)["result"].is_null());
+    assert!(lsp_response(&mut reader, 12)["result"]["items"].as_array().unwrap().is_empty());
 
     lsp_write(
         &mut writer,

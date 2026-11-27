@@ -27,12 +27,12 @@
     "vscode-languageclient": "^11.0.1"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^26.6.6",
     "@types/vscode": "^1.91.0",
-    "typescript": "^7.0.2",
-    "@types/mocha": "10.0.10",
     "@vscode/test-electron": "2.5.2",
-    "mocha": "10.8.2"
+    "mocha": "10.8.2",
+    "typescript": "^7.0.2"
   },
   "contributes": {
     "commands": [
