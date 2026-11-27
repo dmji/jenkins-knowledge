@@ -219,7 +219,7 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "$PACKAGE" "$CHECKSUM" target/runtime-assets/*.tar.gz target/runtime-assets/*.tar.gz.sha256
           else
             gh release create "$GITHUB_REF_NAME" \
-              "$PACKAGE" "$CHECKSUM" target/release/RELEASE-NOTES.md \
+              "$PACKAGE" "$CHECKSUM" \
               target/runtime-assets/*.tar.gz target/runtime-assets/*.tar.gz.sha256 \
               --verify-tag \
               --title "Jenkins Knowledge $GITHUB_REF_NAME — Jenkins 2.356 / Java 17" \
