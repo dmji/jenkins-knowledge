@@ -22,7 +22,7 @@ The demo needs outbound HTTPS to download the pinned Jenkins plugins and clone t
 - Node.js 26.13.1/npm 11.20.0 for the VS Code extension-host acceptance test.
 - VS Code for the interactive editor walkthrough.
 
-The Jenkins image is pinned to linux/amd64. Docker Desktop on ARM hosts must support amd64 emulation; Builder and Runtime remain native to the host architecture.
+The Jenkins image is pinned to linux/amd64. Docker Desktop on ARM hosts must support amd64 emulation; Builder and Runtime remain native to the host architecture. The shared `tests/jenkins-2.356/plugins.lock.json` also pins the exact Java metadata and Shared Library revision. `demo/up.sh` validates the live Jenkins Core response header, Java distribution/version, and complete plugin inventory against that lock before it reports the controller ready; the same parity test runs in CI.
 
 ## Start and build the package
 
