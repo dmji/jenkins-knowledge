@@ -34,6 +34,7 @@ package = Path(sys.argv[1])
 lock = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
 notes_path = Path(sys.argv[3])
 tag, commit = sys.argv[4:6]
+asset_base = f"jenkins-knowledge-{tag}-jenkins-2.356-java17-deep"
 
 manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
 catalog = json.loads((package / "catalog.json").read_text(encoding="utf-8"))
@@ -120,8 +121,8 @@ lines.extend([
     "",
     "Download both assets from this release, then run:",
     "",
-    f"sha256sum -c {ASSET_BASE}.tar.gz.sha256",
-    f"tar -xzf {ASSET_BASE}.tar.gz",
+    f"sha256sum -c {asset_base}.tar.gz.sha256",
+    f"tar -xzf {asset_base}.tar.gz",
     "jenkins-runtime --package prebuilt-package plugins",
     "",
     "This package is an example for the exact reference environment above. It is not a compatibility guarantee for other Jenkins, Java, or plugin versions. For another environment, collect a custom package from that Jenkins instance.",
