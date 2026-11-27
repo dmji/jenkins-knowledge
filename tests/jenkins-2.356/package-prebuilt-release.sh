@@ -96,9 +96,15 @@ lines = [
     f"- Source profile: {manifest['profile']}",
     f"- Installed plugins: **{len(actual)}**",
     "",
-    "## Plugin inventory",
+    "## Build tools",
     "",
 ]
+for name, version in sorted(manifest["toolVersions"].items()):
+    lines.append(f"- {name}: {version}")
+lines.extend(["", "## Source revisions", ""])
+for name, revision in sorted(manifest["sourceRevisions"].items()):
+    lines.append(f"- {name}: {revision}")
+lines.extend(["", "## Plugin inventory", ""])
 for name, version in sorted(actual.items()):
     lines.append(f"- {name} — {version}")
 lines.extend(["", "## Collection notes", ""])
@@ -128,8 +134,8 @@ PY
 
 tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
     -cf - -C "$(dirname "$PACKAGE_DIR")" "$(basename "$PACKAGE_DIR")" | gzip -n > "$ARCHIVE"
-sha256sum "$ARCHIVE" > "$CHECKSUM"
-sha256sum --check "$CHECKSUM"
+(cd "$OUTPUT_DIR" && sha256sum "$(basename "$ARCHIVE")" > "$(basename "$CHECKSUM")")
+(cd "$OUTPUT_DIR" && sha256sum --check "$(basename "$CHECKSUM")")
 
 mkdir -p "$TEMP/extracted"
 tar -xzf "$ARCHIVE" -C "$TEMP/extracted"
