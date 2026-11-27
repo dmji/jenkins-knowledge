@@ -62,10 +62,91 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  build-runtime-binaries:
+    name: Runtime binaries (\${{ matrix.platform }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-prebuilt-package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-latest
+          - platform: macos-aarch64
+            runner: macos-15-arm64
+          - platform: macos-x86_64
+            runner: macos-15-intel
+          - platform: windows-x86_64
+            runner: windows-latest
+    runs-on: \${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: 1.100.0
+      - name: Download validated reference package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: jenkins-2356-prebuilt-knowledge-package
+          path: target/prebuilt-package
+      - name: Build Runtime CLI and MCP server
+        run: cargo build --locked --release --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime --bin jenkins-mcp
+      - name: Smoke-test packaged executables against the reference package
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            CLI="target/release/jenkins-runtime.exe"
+            MCP="target/release/jenkins-mcp.exe"
+          else
+            CLI="target/release/jenkins-runtime"
+            MCP="target/release/jenkins-mcp"
+          fi
+          "$CLI" --help
+          "$CLI" --package target/prebuilt-package plugins > target/runtime-plugins.json
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"release-smoke-test","version":"1"}}}' |
+            "$MCP" --package target/prebuilt-package > target/mcp-initialize.json
+          grep -q '"protocolVersion":"2025-06-18"' target/mcp-initialize.json
+      - name: Package platform binaries and verify checksum
+        shell: bash
+        env:
+          RELEASE_TAG: \${{ github.ref_name }}
+          PLATFORM: \${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          STAGING="target/runtime-\${PLATFORM}"
+          mkdir -p "$STAGING/bin"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp target/release/jenkins-runtime.exe "$STAGING/bin/"
+            cp target/release/jenkins-mcp.exe "$STAGING/bin/"
+          else
+            cp target/release/jenkins-runtime "$STAGING/bin/"
+            cp target/release/jenkins-mcp "$STAGING/bin/"
+            chmod 755 "$STAGING/bin/jenkins-runtime" "$STAGING/bin/jenkins-mcp"
+          fi
+          printf '%s\n' 'Jenkins Knowledge Runtime: jenkins-runtime CLI and jenkins-mcp stdio server.' 'Download and verify the separate Knowledge Package archive. Both programs are offline and read-only.' > "$STAGING/README.txt"
+          ARCHIVE="jenkins-runtime-\${RELEASE_TAG}-\${PLATFORM}.tar.gz"
+          tar -czf "target/$ARCHIVE" -C "$STAGING" .
+          (cd target && sha256sum "$ARCHIVE" > "$ARCHIVE.sha256")
+          (cd target && sha256sum --check "$ARCHIVE.sha256")
+          tar -tzf "target/$ARCHIVE" | grep -q 'bin/jenkins-runtime'
+          tar -tzf "target/$ARCHIVE" | grep -q 'bin/jenkins-mcp'
+      - name: Upload verified platform archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runtime-\${{ matrix.platform }}
+          path: |
+            target/jenkins-runtime-\${{ github.ref_name }}-\${{ matrix.platform }}.tar.gz
+            target/jenkins-runtime-\${{ github.ref_name }}-\${{ matrix.platform }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
+
   publish-github-release:
     name: Publish versioned GitHub Release assets
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build-prebuilt-package
+    needs: [build-prebuilt-package, build-runtime-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -79,29 +160,67 @@ jobs:
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: 1.100.0
-      - name: Build Runtime for extracted-archive verification
+      - name: Build Runtime for package archive verification
         run: cargo build --locked --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime
-      - name: Download the validated package from this workflow run
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run download "$GITHUB_RUN_ID" --name jenkins-2356-prebuilt-knowledge-package --dir target/prebuilt-package
+      - name: Download validated Knowledge Package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: jenkins-2356-prebuilt-knowledge-package
+          path: target/prebuilt-package
+      - name: Download all verified Runtime platform archives
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: runtime-*
+          path: target/runtime-assets
+          merge-multiple: true
       - name: Require a version tag pointing to master
         run: |
           git fetch origin master
           git merge-base --is-ancestor "$GITHUB_SHA" origin/master
-      - name: Package, checksum, and verify the release archive
+      - name: Package, checksum, and verify Knowledge Package archive
         run: bash tests/jenkins-2.356/package-prebuilt-release.sh "$GITHUB_REF_NAME" target/prebuilt-package target/release "$GITHUB_SHA"
-      - name: Refuse to overwrite an existing release and publish assets
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify complete Runtime asset matrix
         run: |
+          set -euo pipefail
+          for platform in linux-x86_64 macos-aarch64 macos-x86_64 windows-x86_64; do
+            archive="target/runtime-assets/jenkins-runtime-\${GITHUB_REF_NAME}-\${platform}.tar.gz"
+            test -s "$archive"
+            test -s "$archive.sha256"
+            (cd target/runtime-assets && sha256sum --check "$(basename "$archive").sha256")
+            tar -tzf "$archive" | grep -q 'bin/jenkins-runtime'
+            tar -tzf "$archive" | grep -q 'bin/jenkins-mcp'
+          done
+      - name: Add platform support and quick-start notes
+        run: |
+          cat >> target/release/RELEASE-NOTES.md <<'EOF'
+
+          ## Runtime downloads
+
+          Download the Runtime archive matching your host platform and the separate
+          Knowledge Package archive. Verify each checksum before extraction.
+          Each Runtime archive contains the jenkins-runtime CLI and jenkins-mcp server.
+          Supported hosts: Linux x86_64, macOS Apple Silicon (aarch64), macOS Intel
+          (x86_64), and Windows x86_64. No Rust toolchain or source checkout is required.
+
+          Runtime validates the package manifest, embedded manifest/catalog schemas,
+          package metadata, and declared SHA-256 checksums when opening a package.
+          This is a format/schema compatibility check, not a guarantee that a
+          reference package describes a different Jenkins installation.
+          EOF
+      - name: Publish or append verified assets without replacing existing assets
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          set -euo pipefail
+          PACKAGE="target/release/jenkins-knowledge-\${GITHUB_REF_NAME}-jenkins-2.356-java17-deep.tar.gz"
+          CHECKSUM="$PACKAGE.sha256"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME already exists; refusing to replace its assets." >&2
-            exit 1
+            gh release upload "$GITHUB_REF_NAME" "$PACKAGE" "$CHECKSUM" target/release/RELEASE-NOTES.md target/runtime-assets/*.tar.gz target/runtime-assets/*.tar.gz.sha256
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              "$PACKAGE" "$CHECKSUM" target/release/RELEASE-NOTES.md \
+              target/runtime-assets/*.tar.gz target/runtime-assets/*.tar.gz.sha256 \
+              --verify-tag \
+              --title "Jenkins Knowledge $GITHUB_REF_NAME — Jenkins 2.356 / Java 17" \
+              --notes-file target/release/RELEASE-NOTES.md
           fi
-          gh release create "$GITHUB_REF_NAME" \
-            "target/release/jenkins-knowledge-$GITHUB_REF_NAME-jenkins-2.356-java17-deep.tar.gz" \
-            "target/release/jenkins-knowledge-$GITHUB_REF_NAME-jenkins-2.356-java17-deep.tar.gz.sha256" \
-            --verify-tag \
-            --title "Jenkins Knowledge $GITHUB_REF_NAME — Jenkins 2.356 / Java 17" \
-            --notes-file "target/release/RELEASE-NOTES.md"
