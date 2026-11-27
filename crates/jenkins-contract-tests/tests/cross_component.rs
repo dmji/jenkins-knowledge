@@ -207,6 +207,33 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
         &mut writer,
         &json!({
             "jsonrpc":"2.0",
+            "id":10,
+            "method":"textDocument/definition",
+            "params":{"textDocument":{"uri":uri},"position":{"line":3,"character":6}}
+        }),
+    );
+    let definition = lsp_response(&mut reader, 10);
+    assert_eq!(
+        definition["result"][0]["uri"],
+        "https://example.test/fixture-library/blob/0123456789012345678901234567890123456789/vars/deployApp.groovy#L1"
+    );
+
+    lsp_write(
+        &mut writer,
+        &json!({
+            "jsonrpc":"2.0",
+            "id":11,
+            "method":"textDocument/definition",
+            "params":{"textDocument":{"uri":uri},"position":{"line":2,"character":8}}
+        }),
+    );
+    let missing_definition = lsp_response(&mut reader, 11);
+    assert!(missing_definition["result"].is_null());
+
+    lsp_write(
+        &mut writer,
+        &json!({
+            "jsonrpc":"2.0",
             "id":4,
             "method":"jenkinsKnowledge/search",
             "params":{"query":"deployApp","limit":10}
