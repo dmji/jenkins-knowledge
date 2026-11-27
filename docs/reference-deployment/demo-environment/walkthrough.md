@@ -1,5 +1,7 @@
 # Demo Environment: walkthrough
 
+This walkthrough demonstrates the **custom Builder path** using a disposable local Jenkins controller. It is not required to use a prebuilt package. If you do not have a Jenkins controller to collect from, start with the [prebuilt package guide]({{ '/prebuilt-packages.html' | relative_url }}) and the [published Releases page](https://github.com/dmji/jenkins-knowledge/releases) instead.
+
 Run from the repository root after reviewing [installation and safety]({{ '/reference-deployment/demo-environment/installation.html' | relative_url }}):
 
 ```sh
