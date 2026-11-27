@@ -131,8 +131,9 @@ jobs:
           tar -czf "target/$ARCHIVE" -C "$STAGING" .
           (cd target && sha256sum "$ARCHIVE" > "$ARCHIVE.sha256")
           (cd target && sha256sum --check "$ARCHIVE.sha256")
-          tar -tzf "target/$ARCHIVE" | grep -q 'bin/jenkins-runtime'
-          tar -tzf "target/$ARCHIVE" | grep -q 'bin/jenkins-mcp'
+          tar -tzf "target/$ARCHIVE" > "target/$ARCHIVE.contents"
+          grep -q 'bin/jenkins-runtime' "target/$ARCHIVE.contents"
+          grep -q 'bin/jenkins-mcp' "target/$ARCHIVE.contents"
       - name: Upload verified platform archive
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -187,8 +188,9 @@ jobs:
             test -s "$archive"
             test -s "$archive.sha256"
             (cd target/runtime-assets && sha256sum --check "$(basename "$archive").sha256")
-            tar -tzf "$archive" | grep -q 'bin/jenkins-runtime'
-            tar -tzf "$archive" | grep -q 'bin/jenkins-mcp'
+            tar -tzf "$archive" > "$archive.contents"
+            grep -q 'bin/jenkins-runtime' "$archive.contents"
+            grep -q 'bin/jenkins-mcp' "$archive.contents"
           done
       - name: Add platform support and quick-start notes
         run: |
