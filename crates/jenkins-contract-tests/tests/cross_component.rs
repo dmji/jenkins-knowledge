@@ -771,7 +771,6 @@ fn builder_rejects_a_fixture_with_a_dangling_symbol_source() {
     assert!(!output.exists());
 }
 
-
 #[test]
 fn product_crate_graph_preserves_builder_server_boundary() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml");
@@ -841,15 +840,15 @@ fn product_crate_graph_preserves_builder_server_boundary() {
             "Builder must not depend on Server/test package {forbidden}"
         );
     }
-    assert!(binaries(builder).iter().any(|name| name == "knowledge-builder"));
+    assert!(binaries(builder)
+        .iter()
+        .any(|name| name == "knowledge-builder"));
 
     let runtime = package("jenkins-runtime");
     let runtime_dependencies = dependencies(runtime);
-    assert!(
-        runtime_dependencies
-            .iter()
-            .any(|name| name == "catalog-validator")
-    );
+    assert!(runtime_dependencies
+        .iter()
+        .any(|name| name == "catalog-validator"));
     for forbidden in [
         "knowledge-builder",
         "declarative-model",
@@ -873,11 +872,9 @@ fn product_crate_graph_preserves_builder_server_boundary() {
 
     let lsp = package("jenkins-lsp");
     let lsp_dependencies = dependencies(lsp);
-    assert!(
-        lsp_dependencies
-            .iter()
-            .any(|name| name == "jenkins-runtime")
-    );
+    assert!(lsp_dependencies
+        .iter()
+        .any(|name| name == "jenkins-runtime"));
     for forbidden in [
         "knowledge-builder",
         "jenkins-gdsl-collector",
@@ -892,14 +889,10 @@ fn product_crate_graph_preserves_builder_server_boundary() {
 
     let contract_tests = package("jenkins-contract-tests");
     let contract_dependencies = dependencies(contract_tests);
-    assert!(
-        contract_dependencies
-            .iter()
-            .any(|name| name == "knowledge-builder")
-    );
-    assert!(
-        contract_dependencies
-            .iter()
-            .any(|name| name == "jenkins-runtime")
-    );
+    assert!(contract_dependencies
+        .iter()
+        .any(|name| name == "knowledge-builder"));
+    assert!(contract_dependencies
+        .iter()
+        .any(|name| name == "jenkins-runtime"));
 }
