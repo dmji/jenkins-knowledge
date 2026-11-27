@@ -1,6 +1,6 @@
 # Jenkins Knowledge
 
-**Turn an existing Jenkins controller into a versioned, locally consumable knowledge package.**
+**Build or consume a versioned Jenkins Knowledge Package — with or without administering Jenkins.**
 
 Jenkins Knowledge separates administrator-controlled collection from developer queries. Builder reads the configured Jenkins controller and optional Shared Libraries, then produces an immutable Knowledge Package. Runtime, MCP, and VS Code use that package locally — without Jenkins credentials, Git access, or background collection.
 
@@ -10,11 +10,12 @@ Jenkins Knowledge separates administrator-controlled collection from developer q
   <div><strong>For operators</strong><span>Promote immutable releases and roll back without recollecting</span></div>
 </div>
 
-## Start with the end-to-end guide
+## Choose your starting point
 
-The [deployment guide]({{ '/reference-deployment/guide.html' | relative_url }}) walks through the complete workflow in sequence: prepare the controller, configure access, collect and inspect the package, publish it, configure consumers, and operate future releases.
+- **No Jenkins controller to collect from?** Start with a [published prebuilt package]({{ '/prebuilt-packages.html' | relative_url }}), then follow the download, checksum, extraction, and Runtime/MCP/LSP steps. Browse the [GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases); versioned assets appear after the first release tag is published.
+- **Need knowledge from your own Jenkins?** Follow the [custom deployment guide]({{ '/reference-deployment/guide.html' | relative_url }}). An administrator configures Builder for the real controller, Java runtime, plugin inventory, and Shared Libraries; developers consume the resulting package locally.
 
-It assumes you already have a Jenkins controller. Installing or administering Jenkins is not a required part of the product lifecycle.
+Both paths produce the same package contract and use the same offline Runtime. The [optional local demo]({{ '/reference-deployment/demo-environment/walkthrough.html' | relative_url }}) is a disposable Builder example, not a prerequisite for the prebuilt path.
 
 ## Reference material
 
