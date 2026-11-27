@@ -44,8 +44,10 @@ async function run() {
 
     const livePackage = vscode.workspace.getConfiguration('jenkinsKnowledge').get('packagePath');
     const fixturePackage = process.env.JENKINS_KNOWLEDGE_FIXTURE_PACKAGE;
+    const alternatePackage = process.env.JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE;
     assert.ok(livePackage && path.isAbsolute(livePackage), 'live package path must be absolute');
     assert.ok(fixturePackage && path.isAbsolute(fixturePackage), 'fixture package path must be absolute');
+    assert.ok(alternatePackage && path.isAbsolute(alternatePackage), 'alternate package path must be absolute');
 
     const jenkinsfile = path.join(vscode.workspace.workspaceFolders[0].uri.fsPath, 'Jenkinsfile');
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(jenkinsfile));
@@ -103,11 +105,23 @@ async function run() {
             .some(diagnostic => diagnostic.code === 'jenkins.plugin.unavailable')
     );
 
+    await configuration.update('packagePath', alternatePackage, vscode.ConfigurationTarget.Workspace);
+    await configuration.update('profile', 'contract-alternate', vscode.ConfigurationTarget.Workspace);
+    await vscode.commands.executeCommand('jenkinsKnowledge.reload');
+    const alternateCompletion = await waitFor('alternate package completion after reload', async () => {
+        const result = await completions(document, 4, 4);
+        return result && result.items.some(item => item.label === 'alternateOnly') ? result : undefined;
+    });
+    assert.ok(alternateCompletion.items.some(item => item.label === 'alternateOnly'));
+    const isolatedCompletion = await completions(document, 3, 4);
+    assert.ok(!isolatedCompletion.items.some(item => item.label === 'deployApp'),
+        'symbols from the previous package must not leak after reload');
+
     const ordinaryPath = path.join(vscode.workspace.workspaceFolders[0].uri.fsPath, 'ordinary.groovy');
     const ordinary = await vscode.workspace.openTextDocument(vscode.Uri.file(ordinaryPath));
     await vscode.window.showTextDocument(ordinary);
     const ordinaryCompletions = await completions(ordinary, 0, 8);
-    assert.ok(!ordinaryCompletions.items.some(item => item.label === 'deployApp'),
+    assert.ok(!ordinaryCompletions.items.some(item => item.label === 'alternateOnly'),
         'ordinary Groovy files must not receive Jenkins catalog completions');
     const ordinaryHover = await vscode.commands.executeCommand(
         'vscode.executeHoverProvider',
