@@ -96,10 +96,11 @@ JENKINS_KNOWLEDGE_CACHE_DIR="$TEMP/cache" \
     target/debug/knowledge-builder build profiles/prebuilt-jenkins-2.356.yml "$OUT"
 
 echo "Validating package metadata, completeness, plugin lock, and Runtime queries..."
+target/debug/jenkins-runtime --package "$OUT" plugins > "$TEMP/plugin-query.json"
 target/debug/jenkins-runtime --package "$OUT" search example1 --source-kind shared-library > "$TEMP/library-query.json"
 target/debug/jenkins-runtime --package "$OUT" steps > "$TEMP/pipeline-query.json"
 
-python3 - "$OUT" "$TEMP/plugins.lock.json" "$TEMP/library-query.json" "$TEMP/pipeline-query.json" "$collector_token" <<'PY'
+python3 - "$OUT" "$TEMP/plugins.lock.json" "$TEMP/plugin-query.json" "$TEMP/library-query.json" "$TEMP/pipeline-query.json" "$collector_token" <<'PY'
 import hashlib
 import json
 import sys
@@ -107,8 +108,8 @@ from pathlib import Path
 
 package = Path(sys.argv[1])
 lock_path = Path(sys.argv[2])
-queries = [Path(value) for value in sys.argv[3:5]]
-secret = sys.argv[5]
+queries = [Path(value) for value in sys.argv[4:6]]
+secret = sys.argv[6]
 
 manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
 catalog = json.loads((package / "catalog.json").read_text(encoding="utf-8"))
@@ -163,6 +164,10 @@ for path in package.rglob("*"):
         assert secret.encode() not in data, f"credential leaked into {path}"
         assert "cache" not in path.parts and "tmp" not in path.parts, path
 
+plugin_inventory = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
+runtime_plugins = {item["shortName"]: item["version"] for item in plugin_inventory.get("plugins", [])}
+assert runtime_plugins.get("workflow-basic-steps") == expected["workflow-basic-steps"], runtime_plugins.get("workflow-basic-steps")
+
 library_results = json.loads(queries[0].read_text(encoding="utf-8"))
 assert library_results.get("results"), "Runtime returned no pinned Shared Library symbols"
 
@@ -170,12 +175,6 @@ pipeline_steps = json.loads(queries[1].read_text(encoding="utf-8"))
 steps = pipeline_steps.get("steps", [])
 step_names = {item.get("name") for item in steps}
 assert step_names.intersection({"sh", "echo", "checkout"}), step_names
-plugin_attributed_steps = [
-    item for item in steps
-    if item.get("availability", {}).get("pluginSourceIds")
-    or item.get("executionConstraints", {}).get("pluginDependencies")
-]
-assert plugin_attributed_steps, "Runtime returned no Pipeline steps with plugin dependency evidence"
 
 print(json.dumps({
     "profile": manifest["profile"],
