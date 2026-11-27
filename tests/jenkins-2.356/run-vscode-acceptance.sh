@@ -24,7 +24,8 @@ npm ci --ignore-scripts --no-audit --no-fund
 npm test
 
 export JENKINS_KNOWLEDGE_LIVE_PACKAGE="$OUT/deep"
-export JENKINS_KNOWLEDGE_FIXTURE_PACKAGE="$PRIMARY"
+export JENKINS_KNOWLEDGE_PRIMARY_PACKAGE="$PRIMARY"
 export JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE="$ALTERNATE"
-export JENKINS_KNOWLEDGE_LSP="$LSP"
+export JENKINS_LSP_PATH="$LSP"
+export VSCODE_TEST_VERSION=1.85.0
 xvfb-run -a npm run test:host
