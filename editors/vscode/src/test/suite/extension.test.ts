@@ -88,8 +88,10 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
     suiteSetup(async () => {
         const configuration = vscode.workspace.getConfiguration('jenkinsKnowledge');
         await configuration.update('serverPath', process.env.JENKINS_LSP_PATH, vscode.ConfigurationTarget.Workspace);
-        await configuration.update('packagePath', process.env.JENKINS_KNOWLEDGE_LIVE_PACKAGE, vscode.ConfigurationTarget.Workspace);
-        await configuration.update('profile', 'jenkins-2356-deep', vscode.ConfigurationTarget.Workspace);
+        const livePackage = process.env.JENKINS_KNOWLEDGE_LIVE_PACKAGE;
+        const initialPackage = livePackage || process.env.JENKINS_KNOWLEDGE_PRIMARY_PACKAGE;
+        await configuration.update('packagePath', initialPackage, vscode.ConfigurationTarget.Workspace);
+        await configuration.update('profile', livePackage ? 'jenkins-2356-deep' : 'contract-primary', vscode.ConfigurationTarget.Workspace);
         await vscode.workspace.getConfiguration('files').update(
             'associations',
             { 'Jenkinsfile.*': 'groovy' },
@@ -101,7 +103,8 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
         await extension.activate();
     });
 
-    test('live Jenkins 2.356 package provides Pipeline completion, Shared Library hover and navigation', async () => {
+    test('live Jenkins 2.356 package provides Pipeline completion, Shared Library hover and navigation', async function (this: Mocha.Context) {
+        if (!process.env.JENKINS_KNOWLEDGE_LIVE_PACKAGE) this.skip();
         const document = await writeJenkinsfile(
             'Jenkinsfile.live',
             "node {\n  sh 'echo from Jenkins 2.356'\n  example1()\n}\n"

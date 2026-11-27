@@ -6,7 +6,6 @@ const { runTests } = require('@vscode/test-electron');
 async function main() {
     const required = [
         'JENKINS_LSP_PATH',
-        'JENKINS_KNOWLEDGE_LIVE_PACKAGE',
         'JENKINS_KNOWLEDGE_PRIMARY_PACKAGE',
         'JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE'
     ];
@@ -16,6 +15,11 @@ async function main() {
         if (!value || !fs.existsSync(value)) {
             throw new Error(`Missing or invalid ${name}: ${value || '<unset>'}`);
         }
+    }
+
+    const livePackage = process.env.JENKINS_KNOWLEDGE_LIVE_PACKAGE;
+    if (livePackage && !fs.existsSync(livePackage)) {
+        throw new Error(`Missing or invalid JENKINS_KNOWLEDGE_LIVE_PACKAGE: ${livePackage}`);
     }
 
     const extensionDevelopmentPath = path.resolve(__dirname, '..');
