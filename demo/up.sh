@@ -88,7 +88,7 @@ if [ -z "$admin_token" ]; then
     exit 1
 fi
 
-"${COMPOSE[@]}" exec -T jenkins java -version 2> "$OUT/java-version.txt"
+"${COMPOSE[@]}" exec -T jenkins java -XshowSettings:properties -version 2> "$OUT/java-version.txt"
 curl --silent --show-error --fail --user "admin:$admin_token" \
     "$JENKINS_URL/pluginManager/api/json?depth=1" > "$OUT/plugin-inventory-api.json"
 curl --silent --show-error --fail --user "admin:$admin_token" \
