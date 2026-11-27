@@ -27,3 +27,6 @@ rustc-ice-*.txt
 node_modules/
 editors/vscode/node_modules/
 editors/vscode/out/
+
+# Local Jenkins demo credentials
+/demo/.env*

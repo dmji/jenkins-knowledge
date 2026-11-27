@@ -1,0 +1,15 @@
+{
+  "folders": [
+    { "path": ".." }
+  ],
+  "settings": {
+    "jenkinsKnowledge.serverPath": "demo/bin/jenkins-lsp",
+    "jenkinsKnowledge.packagePath": "/package/knowledge-package",
+    "jenkinsKnowledge.profile": "jenkins-2356-demo",
+    "files.associations": {
+      "Jenkinsfile": "groovy",
+      "Jenkinsfile.*": "groovy",
+      "*.jenkinsfile": "groovy"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+@Library('gsa-examples') _
+node {
+    example1('Jenkins Knowledge')
+}

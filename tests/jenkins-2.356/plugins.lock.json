@@ -74,6 +74,13 @@
       "version": "496.va67c6f9eefa7"
     },
     {
+      "name": "git",
+      "requiredCore": "2.289.1",
+      "sha256": "e3af0f3e7495b1c5c6d100bd30893c2c00ad5607db96d716795f7eddfc905939",
+      "url": "https://updates.jenkins.io/download/plugins/git/4.11.5/git.hpi",
+      "version": "4.11.5"
+    },
+    {
       "name": "git-client",
       "requiredCore": "2.289.1",
       "sha256": "a8990c4a535d2934a83ea5cd64e4b6800b994d0b3afb75680d101ff6c5a5127d",

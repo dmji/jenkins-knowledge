@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+exec docker compose \
+    --project-directory "$ROOT/demo" \
+    --env-file "$ROOT/demo/.env" \
+    -f "$ROOT/demo/compose.yml" \
+    exec -T runtime jenkins-lsp

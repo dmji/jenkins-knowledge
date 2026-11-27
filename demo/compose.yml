@@ -1,0 +1,77 @@
+name: jenkins-knowledge-demo
+
+services:
+  jenkins:
+    image: jenkins-knowledge-demo:2.356
+    platform: linux/amd64
+    build:
+      context: ../target/jenkins-2.356-demo/docker-context
+      dockerfile: Dockerfile
+    environment:
+      JAVA_OPTS: -Djenkins.install.runSetupWizard=false
+      TEST_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?Run demo/up.sh to create demo/.env}
+      TEST_READER_PASSWORD: ${DEMO_READER_PASSWORD:?Run demo/up.sh to create demo/.env}
+      JENKINS_KNOWLEDGE_DEMO: "true"
+      JENKINS_KNOWLEDGE_TOKEN_FILE: /var/jenkins_home/jenkins-knowledge-tokens.env
+    ports:
+      - "127.0.0.1:${DEMO_JENKINS_PORT:-18080}:8080"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - ../tests/jenkins-2.356/init.groovy:/usr/share/jenkins/ref/init.groovy.d/99-jenkins-knowledge.groovy:ro
+    mem_limit: 3g
+    cpus: 2.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8080/login >/dev/null"]
+      interval: 10s
+      timeout: 6s
+      retries: 30
+      start_period: 90s
+
+  builder:
+    image: jenkins-knowledge-builder:demo
+    build:
+      context: ..
+      dockerfile: Dockerfile.builder
+    depends_on:
+      jenkins:
+        condition: service_healthy
+    volumes:
+      - knowledge-package:/packages
+      - ./profile.yml:/config/profile.yml:ro
+    command: ["build", "/config/profile.yml", "/packages/knowledge-package"]
+    mem_limit: 1g
+    cpus: 1.0
+    restart: "no"
+
+  runtime:
+    image: jenkins-knowledge-runtime:demo
+    build:
+      context: ..
+      dockerfile: Dockerfile.runtime
+    volumes:
+      - knowledge-package:/package:ro
+    entrypoint: ["sleep"]
+    command: ["infinity"]
+    mem_limit: 512m
+    cpus: 0.5
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /package/knowledge-package/catalog.json"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  mcp:
+    image: jenkins-knowledge-runtime:demo
+    profiles: ["mcp"]
+    volumes:
+      - knowledge-package:/package:ro
+    entrypoint: ["jenkins-mcp"]
+    command: ["--package", "/package/knowledge-package"]
+    restart: "no"
+
+volumes:
+  jenkins-home:
+  knowledge-package:

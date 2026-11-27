@@ -76,6 +76,7 @@ assert outcome(deep_manifest, "library-source", "gsa-examples")["revision"] == "
 assert outcome(deep_manifest, "library-source", "missing-commit")["status"] == "failed"
 
 required_plugins = {
+    "git",
     "matrix-auth",
     "workflow-api",
     "workflow-basic-steps",
@@ -89,6 +90,7 @@ plugins = deep["controller"]["plugins"]
 plugin_by_name = {plugin["shortName"]: plugin for plugin in plugins}
 missing = sorted(required_plugins - plugin_by_name.keys())
 assert not missing, f"missing required Jenkins plugins: {missing}"
+assert plugin_by_name["git"]["version"] == "4.11.5"
 assert plugin_by_name["matrix-auth"]["version"] == "2.6.11"
 assert plugin_by_name["workflow-aggregator"]["version"] == "590.v6a_d052e5a_a_b_5"
 assert plugin_by_name["pipeline-model-definition"]["version"] == "2.2114.v2654ca_721309"

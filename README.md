@@ -164,6 +164,10 @@ docker run --rm -i -v "$PWD/target/fixture-package:/package:ro" jenkins-knowledg
 
 It contains no Git client, Rust toolchain, Builder, or Jenkins credentials.
 
+## Local Jenkins 2.356 demo
+
+An optional Docker Compose environment starts an isolated Jenkins 2.356/Java 17 controller with the exact plugin lock used by the live compatibility test. It builds a local Knowledge Package, exposes Runtime/MCP/LSP, and verifies the VS Code extension against a pinned Shared Library. It does not connect to a production Jenkins controller. See [the local demo guide](demo/README.md).
+
 ## VS Code integration
 
 The optional VS Code extension adds Jenkins catalog completion and hover information to Groovy documents while leaving ordinary Groovy language features to installed Groovy tooling. The Rust LSP reads one explicitly selected Knowledge Package and supports Pipeline steps and Shared Library APIs.

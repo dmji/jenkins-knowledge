@@ -5,6 +5,13 @@ on:
     paths:
       - ".github/workflows/jenkins-2-356-integration.yml"
       - "tests/jenkins-2.356/**"
+      - "demo/**"
+      - "editors/vscode/**"
+      - "Dockerfile.builder"
+      - "Dockerfile.runtime"
+      - ".dockerignore"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
       - "crates/knowledge-builder/**"
       - "crates/jenkins-gdsl-collector/**"
       - "crates/shared-library-scanner/**"
@@ -20,6 +27,13 @@ on:
     paths:
       - ".github/workflows/jenkins-2-356-integration.yml"
       - "tests/jenkins-2.356/**"
+      - "demo/**"
+      - "editors/vscode/**"
+      - "Dockerfile.builder"
+      - "Dockerfile.runtime"
+      - ".dockerignore"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
       - "crates/knowledge-builder/**"
       - "crates/jenkins-gdsl-collector/**"
       - "crates/shared-library-scanner/**"
@@ -66,3 +80,32 @@ jobs:
           path: target/jenkins-2.356/
           if-no-files-found: warn
           retention-days: 14
+
+  demo-environment:
+    name: Compose demo / Pipeline / Builder / Runtime / MCP / VS Code
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: 1.100.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: jenkins-2356-demo
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.1
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Build and start the local Jenkins demo
+        run: bash demo/up.sh
+      - name: Build the Knowledge Package
+        run: bash demo/build-package.sh
+      - name: Verify Pipeline, Runtime, MCP, LSP, and VS Code
+        run: bash demo/verify.sh
+      - name: Remove demo containers, volumes, and credentials
+        if: always()
+        run: bash demo/down.sh --reset

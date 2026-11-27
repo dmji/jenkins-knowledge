@@ -1,4 +1,4 @@
-FROM ubuntu:24.04 AS runtime-base
+FROM ubuntu:24.04@sha256:562111b88caa79c71391c0c4d3c2114a7d5c35915c20561fd893cb1e07929e6b AS runtime-base
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -11,6 +11,7 @@ RUN groupadd --system --gid 10001 runtime \
 COPY --chown=root:root target/release/jenkins-runtime /usr/local/bin/jenkins-runtime
 COPY --chown=root:root target/release/jenkins-mcp /usr/local/bin/jenkins-mcp
 COPY --chown=root:root target/release/groovy-stubs /usr/local/bin/groovy-stubs
+COPY --chown=root:root target/release/jenkins-lsp /usr/local/bin/jenkins-lsp
 WORKDIR /package
 USER runtime:runtime
 ENTRYPOINT ["jenkins-runtime"]

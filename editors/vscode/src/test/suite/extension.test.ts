@@ -89,9 +89,10 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
         const configuration = vscode.workspace.getConfiguration('jenkinsKnowledge');
         await configuration.update('serverPath', process.env.JENKINS_LSP_PATH, vscode.ConfigurationTarget.Workspace);
         const livePackage = process.env.JENKINS_KNOWLEDGE_LIVE_PACKAGE;
+        const liveProfile = process.env.JENKINS_KNOWLEDGE_LIVE_PROFILE || 'jenkins-2356-deep';
         const initialPackage = livePackage || process.env.JENKINS_KNOWLEDGE_PRIMARY_PACKAGE;
         await configuration.update('packagePath', initialPackage, vscode.ConfigurationTarget.Workspace);
-        await configuration.update('profile', livePackage ? 'jenkins-2356-deep' : 'contract-primary', vscode.ConfigurationTarget.Workspace);
+        await configuration.update('profile', livePackage ? liveProfile : 'contract-primary', vscode.ConfigurationTarget.Workspace);
         await vscode.workspace.getConfiguration('files').update(
             'associations',
             { 'Jenkinsfile.*': 'groovy' },

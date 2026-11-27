@@ -43,7 +43,54 @@ authorization.add(View.READ, "reader")
 jenkins.setAuthorizationStrategy(authorization)
 jenkins.save()
 
-def tokenFile = new File("/tmp/jenkins-knowledge-tokens.env")
+def tokenFilePath = System.getenv("JENKINS_KNOWLEDGE_TOKEN_FILE") ?: "/tmp/jenkins-knowledge-tokens.env"
+def tokenFile = new File(tokenFilePath)
 tokenFile.text = "ADMIN_TOKEN=" + adminToken + "\nREADER_TOKEN=" + readerToken + "\n"
 tokenFile.setReadable(false, false)
 tokenFile.setReadable(true, true)
+
+if (System.getenv("JENKINS_KNOWLEDGE_DEMO") == "true") {
+    def gitSource = new jenkins.plugins.git.GitSCMSource(
+        "gsa-examples",
+        "https://github.com/GSA/jenkins-shared-library-examples.git",
+        null,
+        "*",
+        "",
+        false
+    )
+    def library = new org.jenkinsci.plugins.workflow.libs.LibraryConfiguration(
+        "gsa-examples",
+        new org.jenkinsci.plugins.workflow.libs.SCMSourceRetriever(gitSource)
+    )
+    library.setDefaultVersion("main")
+    library.setImplicit(false)
+    library.setAllowVersionOverride(false)
+    def globalLibraries = org.jenkinsci.plugins.workflow.libs.GlobalLibraries.get()
+    globalLibraries.setLibraries([library])
+    globalLibraries.save()
+
+    def demoJobName = "jenkins-knowledge-demo"
+    def demoJob = jenkins.getItem(demoJobName)
+    if (demoJob == null) {
+        demoJob = jenkins.createProject(org.jenkinsci.plugins.workflow.job.WorkflowJob.class, demoJobName)
+    }
+    def demoPipeline = '''@Library('gsa-examples') _
+pipeline {
+    agent any
+    stages {
+        stage('Controller') {
+            steps {
+                echo 'Jenkins Knowledge local demo'
+                sh 'java -version'
+            }
+        }
+        stage('Pinned Shared Library') {
+            steps {
+                example1('Jenkins Knowledge')
+            }
+        }
+    }
+}'''
+    demoJob.setDefinition(new org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition(demoPipeline, true))
+    demoJob.save()
+}

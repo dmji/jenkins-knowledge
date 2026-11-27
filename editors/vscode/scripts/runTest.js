@@ -18,7 +18,7 @@ async function main() {
     }
 
     const livePackage = process.env.JENKINS_KNOWLEDGE_LIVE_PACKAGE;
-    if (livePackage && !fs.existsSync(livePackage)) {
+    if (livePackage && process.env.JENKINS_KNOWLEDGE_LIVE_PACKAGE_REMOTE !== 'true' && !fs.existsSync(livePackage)) {
         throw new Error(`Missing or invalid JENKINS_KNOWLEDGE_LIVE_PACKAGE: ${livePackage}`);
     }
 
@@ -27,10 +27,22 @@ async function main() {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'jenkins-knowledge-vscode-'));
 
     try {
+        const extensionTestsEnv = {};
+        for (const name of [
+            'JENKINS_LSP_PATH',
+            'JENKINS_KNOWLEDGE_LIVE_PACKAGE',
+            'JENKINS_KNOWLEDGE_LIVE_PROFILE',
+            'JENKINS_KNOWLEDGE_PRIMARY_PACKAGE',
+            'JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE'
+        ]) {
+            if (process.env[name]) extensionTestsEnv[name] = process.env[name];
+        }
+
         await runTests({
             version: process.env.VSCODE_TEST_VERSION || '1.91.0',
             extensionDevelopmentPath,
             extensionTestsPath,
+            extensionTestsEnv,
             launchArgs: [
                 workspace,
                 '--disable-workspace-trust',
