@@ -8,7 +8,7 @@ This optional demo starts a disposable Jenkins 2.356 / Java 17 controller. It is
 - Rust 1.100.0, Git, Python 3, curl, OpenSSL;
 - Node.js 26.13.1/npm 11.20.0 and `xvfb-run` for VS Code host acceptance.
 
-The image and plugin set are pinned in [the live integration test reference](../../tests/jenkins-2.356/README.md).
+The image and plugin set are pinned in [the live integration test reference](../../../tests/jenkins-2.356/README.md).
 
 ## Start and stop
 
