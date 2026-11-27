@@ -1,23 +1,28 @@
-# Prebuilt Knowledge Package releases
+# Choose and operate a Knowledge Package
 
-A prebuilt package is a convenience download for one explicitly identified reference environment. It lets a Runtime user start querying Jenkins knowledge without running collection against their own controller. It does not replace custom collection when the target Jenkins version, Java runtime, or plugin set differs.
+Jenkins Knowledge supports two package acquisition paths. They produce the same Knowledge Package format and are consumed by the same offline Runtime, MCP server, and LSP.
 
-## Published reference package
+- **Prebuilt reference package:** for someone who does not administer a Jenkins controller and wants to start querying immediately. Download a published release, verify it, and select the extracted directory.
+- **Custom package:** for an administrator who needs knowledge collected from their own Jenkins controller and its actual Java/plugin environment. Run Builder against that controller, then distribute the resulting package to developers.
 
-Version tags matching `vMAJOR.MINOR.PATCH` (optionally with a prerelease suffix) trigger the same live Jenkins 2.356 / Java 17 deep collection and validation workflow used on pull requests. A GitHub Release is created only after the package build and every required CI check succeeds, and only when the tag points to a commit already reachable from `master`.
+A prebuilt package is a convenience snapshot for one declared reference environment. It does not replace collection from a different Jenkins installation.
 
-Each release contains two assets:
+## 1. Prebuilt reference package
 
-- `jenkins-knowledge-vX.Y.Z-jenkins-2.356-java17-deep.tar.gz` — the complete Knowledge Package directory.
-- The same filename with `.sha256` appended — SHA-256 checksum of the compressed archive.
+### Available releases
 
-The release description records the exact Jenkins Core and Java versions, complete plugin inventory, collection profile and status, accepted partial outcome if present, package/catalog schema versions, Builder tool versions, source revisions, and source commit. The archive is not modified after the package's internal checksum validation.
+Published assets are listed on the [Jenkins Knowledge GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases). The release workflow is enabled for version tags, but the page may remain empty until the first version tag is published. Do not guess an asset URL or treat a CI artifact as a permanent release.
 
-A release tag is immutable for this publishing workflow. If a GitHub Release already exists for a tag, the workflow fails rather than replacing or silently overwriting assets. Publish a new version tag for a new package.
+The current reference profile is Jenkins 2.356 / Java 17 with the exact plugin versions recorded in the release catalog. The asset name includes both the product release version and the reference environment identifier:
 
-## Download, verify, and extract
+- `jenkins-knowledge-vX.Y.Z-jenkins-2.356-java17-deep.tar.gz`
+- The same name with `.sha256` appended.
 
-Set the release tag you want, then download both assets:
+The release description is generated from the package and records the exact Jenkins Core and Java versions, complete plugin inventory, collection profile/status, accepted partial outcome, package/catalog schema versions, Builder tool versions, source revisions, build time, and source commit.
+
+### Download, verify, and extract
+
+After choosing a version on the [Releases page](https://github.com/dmji/jenkins-knowledge/releases), set that exact tag and download both assets:
 
 ```sh
 TAG=vX.Y.Z
@@ -35,32 +40,168 @@ sha256sum -c "${ASSET}.sha256"
 tar -xzf "${ASSET}"
 ```
 
-On macOS, use `shasum -a 256 -c "${ASSET}.sha256"` for the checksum step. Keep the checksum file and archive in the same directory so the filename recorded in the checksum file resolves correctly.
+On macOS, use `shasum -a 256 -c "${ASSET}.sha256"` instead of `sha256sum`. Keep the checksum file and archive in the same directory: the checksum records the archive filename, not an absolute path.
 
-The extracted directory is `prebuilt-package/`, containing `manifest.json` and `catalog.json`. Runtime validates the manifest, catalog schema, and internal catalog checksum when it opens the package.
+The extracted directory is `prebuilt-package/`, containing `manifest.json` and `catalog.json`. Runtime validates the manifest, catalog schema, and internal catalog checksum when it opens the package. The external checksum verifies the complete compressed archive; the internal manifest checksum verifies the catalog.
 
-## Use with Runtime and MCP
+### Query with Runtime
 
-Point the CLI at the extracted directory:
-
-```sh
-jenkins-runtime --package ./prebuilt-package plugins
-jenkins-runtime --package ./prebuilt-package steps
-jenkins-runtime --package ./prebuilt-package search deploy
-```
-
-Start the read-only MCP server with the same package path:
+Build the CLI from the repository, then use the extracted package path explicitly:
 
 ```sh
-jenkins-mcp --package ./prebuilt-package
+cargo build --locked --release --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime
+RUNTIME="$PWD/target/release/jenkins-runtime"
+
+"$RUNTIME" --package ./prebuilt-package plugins
+"$RUNTIME" --package ./prebuilt-package steps
+"$RUNTIME" --package ./prebuilt-package search deploy
+"$RUNTIME" --package ./prebuilt-package compatibility
+"$RUNTIME" --package ./prebuilt-package coverage
 ```
 
-Configure LSP or the VS Code extension to use this same local package path, following the [VS Code setup guide](../editors/vscode/README.md). Runtime, MCP, and LSP do not download releases, contact Jenkins or Git, or update the package in the background. Selecting a different package is an explicit user action.
+The `compatibility` command without a target reports the environment recorded by the package and returns `not-compared` / `unknown`. Runtime is offline and does not infer a Jenkins installation from the machine on which it runs.
 
-## Scope and completeness
+### Use with MCP
 
-This prebuilt package targets exactly Jenkins 2.356, Java 17, and the plugin versions listed in the corresponding release notes and catalog. It is not a compatibility guarantee for another controller, even if the Jenkins Core version appears similar. Differences in plugin versions, plugin configuration, Java, or controller APIs can change the collected knowledge.
+Build and launch the MCP stdio server with the same package:
 
-The reference collector has one known bounded limitation: Jenkins 2.356 can report `script-console` as `partial` with `enumeration-failed` when a subset of extension classes cannot be enumerated. The workflow accepts only this specific partial outcome, while requiring controller metadata, the complete plugin inventory, Pipeline GDSL, the pinned Shared Library source, and Java metadata to succeed. The package metadata preserves the partial status; it is never rewritten as complete. Any other failed, unavailable, or partial required source blocks release publication.
+```sh
+cargo build --locked --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp
+cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp -- --package "$PWD/prebuilt-package"
+```
 
-For another Jenkins/Java/plugin combination, build a custom Knowledge Package from that controller using the [Builder documentation](../crates/knowledge-builder/README.md). The Runtime format is shared between prebuilt and custom packages.
+Example MCP client configuration (replace both paths with absolute paths):
+
+```json
+{
+  "mcpServers": {
+    "jenkins-knowledge": {
+      "command": "/absolute/path/to/jenkins-mcp",
+      "args": ["--package", "/absolute/path/to/prebuilt-package"]
+    }
+  }
+}
+```
+
+MCP exposes the same read-only search/details APIs and catalog resources. The `jenkins://catalog/compatibility` resource returns the offline report without a target. The `get_package_compatibility` tool can compare against a caller-supplied target environment; see [MCP configuration and contract]({{ '/reference-deployment/integration/mcp.html' | relative_url }}).
+
+### Use with LSP / VS Code
+
+Build the LSP server:
+
+```sh
+cargo build --locked --release --manifest-path crates/jenkins-lsp/Cargo.toml
+```
+
+Configure the VS Code extension to use the same local package:
+
+```json
+{
+  "jenkinsKnowledge.serverPath": "/absolute/path/to/jenkins-knowledge/target/release/jenkins-lsp",
+  "jenkinsKnowledge.packagePath": "/absolute/path/to/prebuilt-package",
+  "jenkinsKnowledge.profile": "jenkins-2356-prebuilt",
+  "files.associations": {
+    "Jenkinsfile": "groovy",
+    "*.jenkinsfile": "groovy"
+  }
+}
+```
+
+The configured profile must match the package manifest. The LSP custom requests `jenkinsKnowledge/collection` and `jenkinsKnowledge/coverage` expose collection outcomes and API-surface coverage separately. The LSP does not infer compatibility with a local Jenkins installation.
+
+Runtime, MCP, and LSP do not download releases, contact Jenkins or Git, or update the package in the background. Selecting a different package is an explicit user action.
+
+## 2. Build a custom package from your Jenkins
+
+Use this path when the package must reflect your own controller, its actual Java runtime, installed plugin versions, configured Shared Libraries, and API surfaces. A release built for the reference environment is not a substitute for this collection.
+
+1. Copy or edit a Builder profile for your controller. Set the real controller URL, desired collection profile, and any Shared Library repositories/revisions. Pin library commits to full commit SHAs where reproducibility is required.
+2. Inspect the plan without network access:
+
+   ```sh
+   cargo run --locked --manifest-path crates/knowledge-builder/Cargo.toml -- plan profiles/production-pipelines.yml
+   ```
+
+3. Supply credentials through the process environment or a secret manager; do not put tokens in profile URLs or commit them to the repository. For a controller requiring authentication, Builder expects both `JENKINS_USERNAME` and `JENKINS_API_TOKEN`:
+
+   ```sh
+   export JENKINS_USERNAME="your-jenkins-user"
+   export JENKINS_API_TOKEN="your-jenkins-api-token"
+   cargo run --locked --manifest-path crates/knowledge-builder/Cargo.toml -- build profiles/production-pipelines.yml ./target/custom-package
+   unset JENKINS_USERNAME JENKINS_API_TOKEN
+   ```
+
+4. Inspect the generated `manifest.json`, `catalog.json`, source outcomes, and plugin inventory. Use Runtime to query the package exactly as you would query a prebuilt package:
+
+   ```sh
+   cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml -- --package ./target/custom-package plugins
+   cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml -- --package ./target/custom-package steps
+   cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml -- --package ./target/custom-package compatibility
+   ```
+
+The profile's `collectionProfile` controls depth. `quick` and `standard` avoid the Deep Script Console probe; Java version/vendor may therefore be recorded as `not-collected-by-profile`. `deep` runs the fixed read-only Script Console probe and is needed when those JVM properties and deeper API metadata are required. See the [Builder collection profile and credential reference](https://github.com/dmji/jenkins-knowledge/blob/master/crates/knowledge-builder/README.md) before choosing.
+
+Distribute the resulting package directory as an immutable versioned artifact using your organization's release process. The package contract is the same as the prebuilt release; developers do not need Builder credentials or network access to Jenkins/Git.
+
+## 3. Read the manifest, inventory, and completeness
+
+The package separates structural validity, collection completeness, API-surface coverage, and environment comparison. Do not treat them as one compatibility flag.
+
+- **Manifest:** records package and catalog schema versions, package profile, build time, tool versions, source revisions, checksums, and the package-level collection result.
+- **Collection status:** `complete` or `partial`; per-source outcomes explain what succeeded, was skipped, was unavailable, or failed. Older packages without the collection object are `unknown`, not complete.
+- **Plugin inventory:** the catalog records each installed plugin's short name and version for the captured controller. This is the observed inventory, not a promise that every plugin API was fully understood.
+- **Java metadata:** the controller record includes Java version/vendor and separate status fields. A missing Java value can mean the selected collection profile did not run the Script Console probe; it must not be inferred from the Jenkins version.
+- **API coverage:** Runtime's `coverage` command reports inspected API surface. Coverage is distinct from package collection completeness.
+- **Checksums:** Runtime verifies every declared package file before using the catalog. The release's external SHA-256 verifies the archive before extraction.
+
+The current reference collector has one known bounded limitation: Jenkins 2.356 can report `script-console` as `partial` with `enumeration-failed` when a subset of extension classes cannot be enumerated. The release workflow accepts only this specific partial outcome, while requiring controller metadata, the complete plugin inventory, Pipeline GDSL, the pinned Shared Library source, and Java metadata to succeed. The package metadata preserves the partial status; it is never rewritten as complete. Any other failed, unavailable, or partial required source blocks release publication.
+
+## 4. Understand the compatibility report
+
+Run:
+
+```sh
+cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml -- --package ./prebuilt-package compatibility
+```
+
+Without a target environment, the report describes only the package's recorded environment and collection limitations. Its comparison status is `not-compared`; compatibility is `unknown`. This is expected for an offline package.
+
+For an explicit comparison, use MCP's `get_package_compatibility` tool and supply a `targetEnvironment` object containing:
+
+- `coreVersion`
+- `javaVersion`
+- `javaVendor`
+- a complete `plugins` array with `shortName` and `version` for every installed plugin.
+
+Interpret the result conservatively:
+
+| Result | Meaning |
+|---|---|
+| `environment-different` | One or more recorded versions differ. This is a known difference, not proof the package cannot run. |
+| `not-proven` | The supplied target matches the recorded Core, Java, and plugin inventory and package completeness is complete. Matching versions still do not prove API, configuration, or Pipeline compatibility. |
+| `unknown` | Target metadata is incomplete, package metadata is missing, or collection completeness is partial/unknown. |
+| `not-compared` | No target environment was supplied. |
+
+A compatibility report is evidence for an explicit comparison, not an automatic compatibility certification. Differences do not always make a package unusable; matching versions do not prove full compatibility. For the current Jenkins 2.356 reference package, the documented Script Console partial outcome means the package completeness assessment remains unknown even when version fields match.
+
+## 5. Update the reference package
+
+A new Jenkins Core version, Java version, plugin lock, or reference profile is a new reference environment snapshot. Do not overwrite an existing Release or silently replace its assets.
+
+Maintainers update the pinned Jenkins image digest, profile, plugin lock, reference environment identifier, validation expectations, and asset naming together. CI then rebuilds and independently validates the package. After those changes are merged to `master`, publishing a new `vX.Y.Z` tag triggers a new GitHub Release with a new archive and checksum. The product release tag is independent from `packageVersion` and `catalogSchemaVersion`; publishing a new reference environment does not by itself require a schema-version change. The release job rejects tags that do not point to a commit reachable from `master` and refuses to overwrite an existing Release.
+
+Maintainers publish from the merged `master` commit:
+
+```sh
+git fetch origin master
+git switch master
+git pull --ff-only
+git tag -a vX.Y.Z -m "Jenkins Knowledge vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+Consumers remain pinned to the package directory they selected. To adopt a newer package, download a new release, verify its checksum, extract it, review its manifest/release notes, and explicitly update the Runtime/MCP/LSP package path. No background update occurs.
+
+## 6. Optional local Jenkins demo
+
+The [local demo walkthrough]({{ '/reference-deployment/demo-environment/walkthrough.html' | relative_url }}) is a separate Builder example. It starts a disposable Jenkins 2.356 controller, collects a package, verifies Builder-to-Runtime/MCP/LSP handoff, and tears the environment down. It is useful for learning the custom collection path, but it is not required to use a prebuilt package and is not a production deployment recipe.

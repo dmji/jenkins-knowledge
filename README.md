@@ -175,9 +175,14 @@ The optional VS Code extension adds Jenkins catalog completion and hover informa
 See [VS Code setup, configuration, limitations, and smoke tests](editors/vscode/README.md). Build the server with `cargo --locked build --release -p jenkins-lsp`.
 
 
-## Prebuilt package releases
+## Choose a Knowledge Package
 
-Versioned GitHub Releases provide a downloadable Jenkins 2.356 / Java 17 reference package. See [download, checksum verification, extraction, and offline Runtime usage](docs/prebuilt-packages.md). Packages for other Jenkins/plugin combinations are built from the target controller.
+There are two ways to get a package; both use the same format and the same offline Runtime:
+
+- **Start without Jenkins:** download a versioned Jenkins 2.356 / Java 17 reference package from the [GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases), verify its SHA-256 asset, and point Runtime/MCP/LSP at the extracted directory. The Releases page will list assets after the first version tag is published.
+- **Use your own Jenkins:** an administrator runs Builder against the actual controller, Java runtime, plugin inventory, and configured Shared Libraries. Developers then consume that custom package locally; they do not need Builder credentials.
+
+The [package lifecycle guide](docs/prebuilt-packages.md) explains both paths, exact commands, manifest and compatibility-report interpretation, and how reference packages are updated. The [local Jenkins demo](demo/README.md) is a separate disposable Builder example, not a prerequisite for the prebuilt path.
 
 ## Published documentation
 

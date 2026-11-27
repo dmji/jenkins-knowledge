@@ -1,8 +1,8 @@
 # Deployment reference
 
-The [end-to-end deployment guide]({{ '/reference-deployment/guide.html' | relative_url }}) is the recommended starting point. It explains the complete path from an existing Jenkins controller to a local developer workflow without requiring the reader to assemble the process from separate pages.
+This section documents the **custom package path** for administrators collecting from their own Jenkins controller. If you do not administer a controller, start with the [prebuilt package guide]({{ '/prebuilt-packages.html' | relative_url }}) and browse the [published Releases](https://github.com/dmji/jenkins-knowledge/releases). Both paths use the same package contract and Runtime.
 
-This section retains focused references for readers who need a specific detail or want to verify one part of an existing deployment.
+The [end-to-end custom deployment guide]({{ '/reference-deployment/guide.html' | relative_url }}) explains the complete workflow from controller access and Builder collection to local developer consumers. This section retains focused references for individual operations.
 
 ## Before collection
 
