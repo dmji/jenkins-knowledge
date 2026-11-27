@@ -6,7 +6,7 @@ Jenkins Knowledge separates administrator-controlled collection from developer q
 
 <div class="guide-summary">
   <div><strong>For administrators</strong><span>Collect and publish an evidence-backed package from an existing controller</span></div>
-  <div><strong>For developers</strong><span>Search Pipeline APIs and library symbols from local tools</span></div>
+  <div><strong>For developers</strong><span>Download a prebuilt package or query a package collected from your own controller</span></div>
   <div><strong>For operators</strong><span>Promote immutable releases and roll back without recollecting</span></div>
 </div>
 
