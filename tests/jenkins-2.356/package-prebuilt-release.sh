@@ -63,8 +63,8 @@ assert (manifest["collection"]["status"] == "partial") == (script_console[0]["st
 controller = catalog["controller"]
 assert controller["coreVersion"] == lock["jenkinsCoreVersion"], controller["coreVersion"]
 runtime = controller["runtime"]
-assert runtime["javaVersion"].startswith("17."), runtime.get("javaVersion")
-assert runtime["javaVendor"], "JVM vendor was not collected"
+assert runtime["javaVersion"] == lock["javaVersion"], runtime.get("javaVersion")
+assert runtime["javaVendor"] == lock["javaVendor"], runtime.get("javaVendor")
 
 expected = dict(lock["basePlugins"])
 expected.update({item["name"]: item["version"] for item in lock["plugins"]})
