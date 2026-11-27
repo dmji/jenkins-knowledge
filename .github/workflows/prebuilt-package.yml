@@ -64,7 +64,7 @@ jobs:
 
   build-runtime-binaries:
     name: Runtime binaries (${{ matrix.platform }})
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
     needs: build-prebuilt-package
     strategy:
       fail-fast: false
