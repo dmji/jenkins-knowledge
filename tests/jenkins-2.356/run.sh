@@ -96,7 +96,7 @@ fi
 
 # Prove that the reader has Overall/Read without granting Overall/Administer.
 curl --silent --show-error --fail --user "reader:$reader_token" "$JENKINS_URL/api/json" >/dev/null
-docker exec "$CONTAINER" java -version 2> "$OUT/java-version.txt"
+docker exec "$CONTAINER" java -XshowSettings:properties -version 2> "$OUT/java-version.txt"
 grep -q '17\.0\.3' "$OUT/java-version.txt"
 
 # Verify the live Core, JVM, and complete plugin inventory against the shared lock.
