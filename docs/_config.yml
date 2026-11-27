@@ -1,0 +1,8 @@
+title: Jenkins Knowledge
+description: Reference deployment, integration, and operations documentation
+theme: minima
+markdown: kramdown
+header_pages:
+  - reference-deployment/index.md
+  - architecture.md
+  - catalog-contract.md
