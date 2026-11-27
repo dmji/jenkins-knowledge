@@ -770,3 +770,112 @@ fn builder_rejects_a_fixture_with_a_dangling_symbol_source() {
     assert!(error.to_lowercase().contains("source"));
     assert!(!output.exists());
 }
+
+
+#[test]
+fn product_crate_graph_preserves_builder_server_boundary() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml");
+    let output = Command::new("cargo")
+        .args(["metadata", "--no-deps", "--format-version", "1", "--manifest-path"])
+        .arg(&manifest)
+        .output()
+        .expect("cargo metadata is available while running Cargo tests");
+    assert!(
+        output.status.success(),
+        "cargo metadata failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let metadata: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let packages = metadata["packages"].as_array().unwrap();
+    let package = |name: &str| {
+        packages
+            .iter()
+            .find(|package| package["name"] == name)
+            .unwrap_or_else(|| panic!("workspace package '{name}' is missing"))
+    };
+    let dependencies = |package: &Value| {
+        package["dependencies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|dependency| dependency["name"].as_str())
+            .collect::<Vec<_>>()
+    };
+    let binaries = |package: &Value| {
+        package["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|target| target["kind"].as_array().is_some_and(|kinds| {
+                kinds.iter().any(|kind| kind == "bin")
+            }))
+            .filter_map(|target| target["name"].as_str())
+            .collect::<Vec<_>>()
+    };
+
+    let builder = package("knowledge-builder");
+    let builder_dependencies = dependencies(builder);
+    for dependency in [
+        "catalog-validator",
+        "declarative-model",
+        "jenkins-gdsl-collector",
+        "shared-library-scanner",
+    ] {
+        assert!(
+            builder_dependencies.contains(&dependency),
+            "Builder must own dependency on {dependency}"
+        );
+    }
+    for forbidden in ["jenkins-runtime", "jenkins-lsp", "jenkins-contract-tests"] {
+        assert!(
+            !builder_dependencies.contains(&forbidden),
+            "Builder must not depend on Server/test package {forbidden}"
+        );
+    }
+    assert!(binaries(builder).contains(&"knowledge-builder"));
+
+    let runtime = package("jenkins-runtime");
+    let runtime_dependencies = dependencies(runtime);
+    assert!(runtime_dependencies.contains(&"catalog-validator"));
+    for forbidden in [
+        "knowledge-builder",
+        "declarative-model",
+        "jenkins-gdsl-collector",
+        "shared-library-scanner",
+        "jenkins-lsp",
+        "jenkins-contract-tests",
+    ] {
+        assert!(
+            !runtime_dependencies.contains(&forbidden),
+            "Server core must not depend on Builder/LSP/test package {forbidden}"
+        );
+    }
+    let runtime_binaries = binaries(runtime);
+    for binary in ["jenkins-runtime", "jenkins-mcp", "groovy-stubs"] {
+        assert!(
+            runtime_binaries.contains(&binary),
+            "expected Runtime package binary {binary}"
+        );
+    }
+
+    let lsp = package("jenkins-lsp");
+    let lsp_dependencies = dependencies(lsp);
+    assert!(lsp_dependencies.contains(&"jenkins-runtime"));
+    for forbidden in [
+        "knowledge-builder",
+        "jenkins-gdsl-collector",
+        "shared-library-scanner",
+    ] {
+        assert!(
+            !lsp_dependencies.contains(&forbidden),
+            "LSP adapter must delegate to Runtime, not depend on {forbidden}"
+        );
+    }
+    assert!(binaries(lsp).contains(&"jenkins-lsp"));
+
+    let contract_tests = package("jenkins-contract-tests");
+    let contract_dependencies = dependencies(contract_tests);
+    assert!(contract_dependencies.contains(&"knowledge-builder"));
+    assert!(contract_dependencies.contains(&"jenkins-runtime"));
+}
