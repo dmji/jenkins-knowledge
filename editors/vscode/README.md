@@ -39,7 +39,7 @@ The package path is resolved relative to the workspace. The Rust server validate
 
 ## Extension-host acceptance
 
-The reproducible acceptance suite launches a pinned VS Code 1.85.0 extension host with the real `jenkins-lsp` binary. It consumes the Deep package produced by the live Jenkins 2.356 integration job plus deterministic primary/alternate fixture packages.
+The reproducible acceptance suite launches a pinned VS Code 1.85.0 extension host with the real release `jenkins-lsp` binary. It starts from the Deep package collected from the ephemeral Jenkins 2.356 controller, then explicitly reloads deterministic primary and alternate packages built by Builder.
 
 From the repository root, after `tests/jenkins-2.356/run.sh` has completed:
 
@@ -47,7 +47,7 @@ From the repository root, after `tests/jenkins-2.356/run.sh` has completed:
 bash tests/jenkins-2.356/run-vscode-acceptance.sh
 ```
 
-The suite verifies GDSL completion and a revision-pinned Shared Library definition against the live package; positive hover/navigation and an explicit unavailable-plugin diagnostic against the primary fixture; comment/string/unknown-name negative cases; package reload/profile isolation against the alternate fixture; and no Jenkins-specific completion in ordinary Groovy files. It runs without a public Jenkins service or credentials. The integration workflow runs it automatically after the live Jenkins matrix.
+The host test exercises actual VS Code completion and hover against the live package; Shared Library completion, hover, and revision-pinned definition against the primary package; the verified unavailable-plugin diagnostic; comment/string/unknown-name negative cases; package reload and stale-symbol isolation against the alternate package; and the absence of Jenkins-specific completion/hover in ordinary Groovy files. The same script also runs the fast extension-adapter test without launching VS Code. The integration workflow runs the host suite after the live Jenkins matrix; it never depends on a public Jenkins service.
 
 ## Features and limitations
 
