@@ -12,7 +12,7 @@ This guide starts with an **existing Jenkins controller** already operated by yo
 6. [Inspect package completeness and publish](integration/package.md).
 7. Distribute the package to consumer hosts.
 8. Configure [Runtime](integration/runtime.md), [MCP](integration/mcp.md), and [VS Code](integration/vscode.md).
-9. Operate releases using [refresh, versioning, backup, and troubleshooting](operations/refresh.md).
+9. Operate releases using [refresh](operations/refresh.md), [versioning](operations/versioning.md), [backup/restore](operations/backup-restore.md), and [troubleshooting](operations/troubleshooting.md).
 
 ## Trust boundary
 
@@ -21,3 +21,5 @@ Builder is an administrator-operated, explicitly invoked collection process. Run
 ## Optional demonstration
 
 The [Demo Environment](demo-environment/installation.md) starts a disposable Jenkins 2.356 / Java 17 controller. It is not a prerequisite or production deployment recipe.
+
+[Back to documentation home](../index.md)
