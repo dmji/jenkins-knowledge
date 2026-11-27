@@ -12,7 +12,7 @@ Jenkins Knowledge separates administrator-controlled collection from developer q
 
 ## Choose your starting point
 
-- **No Jenkins controller to collect from?** Start with a [published prebuilt package]({{ '/prebuilt-packages.html' | relative_url }}), then follow the download, checksum, extraction, and Runtime/MCP/LSP steps. Browse the [GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases); versioned assets appear after the first release tag is published.
+- **No Jenkins controller to collect from?** Start with a [published prebuilt package]({{ '/prebuilt-packages.html' | relative_url }}). Releases include the package plus ready-to-run CLI/MCP archives for Linux, macOS, and Windows; no Rust toolchain or source checkout is required. Browse the [GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases).
 - **Need knowledge from your own Jenkins?** Follow the [custom deployment guide]({{ '/reference-deployment/guide.html' | relative_url }}). An administrator configures Builder for the real controller, Java runtime, plugin inventory, and Shared Libraries; developers consume the resulting package locally.
 
 Both paths produce the same package contract and use the same offline Runtime. The [optional local demo]({{ '/reference-deployment/demo-environment/walkthrough.html' | relative_url }}) is a disposable Builder example, not a prerequisite for the prebuilt path.
