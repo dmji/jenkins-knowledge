@@ -5,6 +5,7 @@ baseurl: /jenkins-knowledge
 theme: minima
 markdown: kramdown
 header_pages:
+  - reference-deployment/guide.md
   - reference-deployment/index.md
   - architecture.md
   - catalog-contract.md

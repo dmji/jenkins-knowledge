@@ -1,46 +1,35 @@
-# Jenkins Knowledge documentation
+# Jenkins Knowledge
 
-Jenkins Knowledge builds a versioned knowledge package from an existing Jenkins controller and optional Shared Libraries. Runtime, MCP, and VS Code consumers use that package locally without connecting to Jenkins or Git.
+**Turn an existing Jenkins controller into a versioned, locally consumable knowledge package.**
 
-## Start here
+Jenkins Knowledge separates administrator-controlled collection from developer queries. Builder reads the configured Jenkins controller and optional Shared Libraries, then produces an immutable Knowledge Package. Runtime, MCP, and VS Code use that package locally — without Jenkins credentials, Git access, or background collection.
 
-- [Reference deployment guide]({{ '/reference-deployment/index.html' | relative_url }}) — production lifecycle, starting with an existing Jenkins.
-- [Prerequisites and compatibility]({{ '/reference-deployment/prerequisites.html' | relative_url }})
-- [Acceptance checklist]({{ '/reference-deployment/acceptance-tests.html' | relative_url }})
+<div class="guide-summary">
+  <div><strong>For administrators</strong><span>Collect and publish an evidence-backed package from an existing controller</span></div>
+  <div><strong>For developers</strong><span>Search Pipeline APIs and library symbols from local tools</span></div>
+  <div><strong>For operators</strong><span>Promote immutable releases and roll back without recollecting</span></div>
+</div>
 
-## Integration
+## Start with the end-to-end guide
 
-- [Connect an existing controller]({{ '/reference-deployment/integration/controller.html' | relative_url }})
-- [Jenkins permissions]({{ '/reference-deployment/integration/permissions.html' | relative_url }})
-- [Credentials]({{ '/reference-deployment/integration/credentials.html' | relative_url }})
-- [Shared Libraries]({{ '/reference-deployment/integration/shared-libraries.html' | relative_url }})
-- [Collection profiles]({{ '/reference-deployment/integration/collection.html' | relative_url }})
-- [Knowledge Package]({{ '/reference-deployment/integration/package.html' | relative_url }})
-- [Runtime CLI]({{ '/reference-deployment/integration/runtime.html' | relative_url }})
-- [MCP server]({{ '/reference-deployment/integration/mcp.html' | relative_url }})
-- [VS Code]({{ '/reference-deployment/integration/vscode.html' | relative_url }})
+The [deployment guide]({{ '/reference-deployment/guide.html' | relative_url }}) walks through the complete workflow in sequence: prepare the controller, configure access, collect and inspect the package, publish it, configure consumers, and operate future releases.
 
-## Operations
+It assumes you already have a Jenkins controller. Installing or administering Jenkins is not a required part of the product lifecycle.
 
-- [Refresh]({{ '/reference-deployment/operations/refresh.html' | relative_url }})
-- [Versioning and promotion]({{ '/reference-deployment/operations/versioning.html' | relative_url }})
-- [Backup and restore]({{ '/reference-deployment/operations/backup-restore.html' | relative_url }})
-- [Troubleshooting]({{ '/reference-deployment/operations/troubleshooting.html' | relative_url }})
+## Reference material
 
-## Optional demo
+- [Architecture and trust boundaries]({{ '/architecture.html' | relative_url }}) — why collection and consumption are separate.
+- [Catalog contract]({{ '/catalog-contract.html' | relative_url }}) — package schema, evidence, coverage, and completeness semantics.
+- [Deployment acceptance checklist]({{ '/reference-deployment/acceptance-tests.html' | relative_url }}) — validate an integration before rollout.
+- [Detailed deployment reference]({{ '/reference-deployment/index.html' | relative_url }}) — focused pages for individual operations.
+- [Optional demo environment]({{ '/reference-deployment/demo-environment/walkthrough.html' | relative_url }}) — disposable Jenkins 2.356 / Java 17 fixture, not a production prerequisite.
 
-- [Installation]({{ '/reference-deployment/demo-environment/installation.html' | relative_url }})
-- [Configuration]({{ '/reference-deployment/demo-environment/configuration.html' | relative_url }})
-- [Test data]({{ '/reference-deployment/demo-environment/test-data.html' | relative_url }})
-- [Walkthrough]({{ '/reference-deployment/demo-environment/walkthrough.html' | relative_url }})
+## Product components
 
-## Technical reference
-
-- [Architecture]({{ '/architecture.html' | relative_url }}) · [Catalog contract]({{ '/catalog-contract.html' | relative_url }})
-- [Builder](https://github.com/dmji/jenkins-knowledge/blob/master/crates/knowledge-builder/README.md) · [MCP](https://github.com/dmji/jenkins-knowledge/blob/master/runtime/mcp.md) · [VS Code](https://github.com/dmji/jenkins-knowledge/blob/master/editors/vscode/README.md)
-
-The production guide does not require Docker Compose or a new Jenkins installation. The demo is separate.
+- [Builder source and commands](https://github.com/dmji/jenkins-knowledge/tree/master/crates/knowledge-builder)
+- [Runtime and MCP](https://github.com/dmji/jenkins-knowledge/tree/master/crates/jenkins-runtime)
+- [VS Code extension](https://github.com/dmji/jenkins-knowledge/tree/master/editors/vscode)
 
 ## Publishing
 
-The documentation is built from `docs/` and deployed by the **Documentation Pages** workflow. In repository Settings → Pages, set the build and deployment source to **GitHub Actions**. Pull requests build the site without deploying it.
+The site is built from `docs/` and deployed by the **Documentation Pages** GitHub Actions workflow. Pull requests validate the site without publishing it; merges to `master` trigger deployment.
