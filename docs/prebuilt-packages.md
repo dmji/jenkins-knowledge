@@ -11,7 +11,7 @@ A prebuilt package is a convenience snapshot for one declared reference environm
 
 ### Available releases
 
-Published assets are listed on the [Jenkins Knowledge GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases). The release workflow is enabled for version tags, but the page may remain empty until the first version tag is published. Do not guess an asset URL or treat a CI artifact as a permanent release.
+Published assets are listed on the [Jenkins Knowledge GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases). Each versioned release contains the portable Knowledge Package plus ready-to-run Runtime archives for Linux x86_64, macOS Apple Silicon, macOS Intel, and Windows x86_64. The Runtime archives contain the CLI and MCP server; they are separate from the package data.
 
 The current reference profile is Jenkins 2.356 / Java 17 with the exact plugin versions recorded in the release catalog. The asset name includes both the product release version and the reference environment identifier:
 
@@ -44,13 +44,20 @@ On macOS, use `shasum -a 256 -c "${ASSET}.sha256"` instead of `sha256sum`. Keep 
 
 The extracted directory is `prebuilt-package/`, containing `manifest.json` and `catalog.json`. Runtime validates the manifest, catalog schema, and internal catalog checksum when it opens the package. The external checksum verifies the complete compressed archive; the internal manifest checksum verifies the catalog.
 
-### Query with Runtime
+### Download the matching Runtime
 
-Build the CLI from the repository, then use the extracted package path explicitly:
+Choose the archive for your operating system and CPU architecture from the same GitHub Release. The examples below use Linux x86_64; use the corresponding `linux-x86_64`, `macos-aarch64`, `macos-x86_64`, or `windows-x86_64` asset on other hosts.
 
 ```sh
-cargo build --locked --release --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime
-RUNTIME="$PWD/target/release/jenkins-runtime"
+TAG=vX.Y.Z
+PLATFORM=linux-x86_64
+RUNTIME_ARCHIVE="jenkins-runtime-${TAG}-${PLATFORM}.tar.gz"
+BASE_URL="https://github.com/dmji/jenkins-knowledge/releases/download/${TAG}"
+curl -fLO "${BASE_URL}/${RUNTIME_ARCHIVE}"
+curl -fLO "${BASE_URL}/${RUNTIME_ARCHIVE}.sha256"
+sha256sum -c "${RUNTIME_ARCHIVE}.sha256"
+mkdir -p runtime && tar -xzf "${RUNTIME_ARCHIVE}" -C runtime
+RUNTIME="$PWD/runtime/bin/jenkins-runtime"
 
 "$RUNTIME" --package ./prebuilt-package plugins
 "$RUNTIME" --package ./prebuilt-package steps
@@ -59,15 +66,16 @@ RUNTIME="$PWD/target/release/jenkins-runtime"
 "$RUNTIME" --package ./prebuilt-package coverage
 ```
 
+On macOS, use `shasum -a 256 -c` instead of `sha256sum`. On Windows, extract the `.tar.gz` archive with a compatible archiver and invoke `runtime\bin\jenkins-runtime.exe` from PowerShell. No Rust toolchain, Cargo, compiler, or source checkout is required.
+
 The `compatibility` command without a target reports the environment recorded by the package and returns `not-compared` / `unknown`. Runtime is offline and does not infer a Jenkins installation from the machine on which it runs.
 
 ### Use with MCP
 
-Build and launch the MCP stdio server with the same package:
+Launch the downloaded MCP stdio server with the same package. It reads JSON-RPC over standard input/output and does not expose a network listener:
 
 ```sh
-cargo build --locked --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp
-cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp -- --package "$PWD/prebuilt-package"
+"$PWD/runtime/bin/jenkins-mcp" --package "$PWD/prebuilt-package"
 ```
 
 Example MCP client configuration (replace both paths with absolute paths):
@@ -109,7 +117,7 @@ Configure the VS Code extension to use the same local package:
 
 The configured profile must match the package manifest. The LSP custom requests `jenkinsKnowledge/collection` and `jenkinsKnowledge/coverage` expose collection outcomes and API-surface coverage separately. The LSP does not infer compatibility with a local Jenkins installation.
 
-Runtime, MCP, and LSP do not download releases, contact Jenkins or Git, or update the package in the background. Selecting a different package is an explicit user action.
+Runtime, MCP, and LSP do not download releases, contact Jenkins or Git, or update the package in the background. Selecting a different package is an explicit user action. The Runtime release version is independent of the Knowledge Package version; opening a package performs embedded manifest/catalog schema, metadata, and checksum validation. This establishes package-format compatibility only, not compatibility with a different Jenkins controller or plugin environment.
 
 ## 2. Build a custom package from your Jenkins
 
