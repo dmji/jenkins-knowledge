@@ -45,7 +45,9 @@ authorization.add(View.READ, "reader")
 authorization.add(Jenkins.READ, "collector")
 authorization.add(Item.READ, "collector")
 authorization.add(View.READ, "collector")
-authorization.add(Jenkins.RUN_SCRIPTS, "collector")
+// Jenkins 2.356 protects /scriptText with Overall/Administer; RunScripts alone is insufficient.
+// This account is used only by Builder on the disposable, isolated CI controller.
+authorization.add(Jenkins.ADMINISTER, "collector")
 jenkins.setAuthorizationStrategy(authorization)
 jenkins.save()
 
