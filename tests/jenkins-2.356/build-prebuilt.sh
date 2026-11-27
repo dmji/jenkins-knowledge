@@ -96,7 +96,7 @@ JENKINS_KNOWLEDGE_CACHE_DIR="$TEMP/cache" \
     target/debug/knowledge-builder build profiles/prebuilt-jenkins-2.356.yml "$OUT"
 
 echo "Validating package metadata, completeness, plugin lock, and Runtime queries..."
-target/debug/jenkins-runtime --package "$OUT" plugin-symbols --plugin workflow-basic-steps > "$TEMP/plugin-query.json"
+target/debug/jenkins-runtime --package "$OUT" search echo --plugin workflow-basic-steps > "$TEMP/plugin-query.json"
 target/debug/jenkins-runtime --package "$OUT" search example1 --source-kind shared-library > "$TEMP/library-query.json"
 target/debug/jenkins-runtime --package "$OUT" steps > "$TEMP/pipeline-query.json"
 
@@ -164,9 +164,12 @@ for path in package.rglob("*"):
         assert secret.encode() not in data, f"credential leaked into {path}"
         assert "cache" not in path.parts and "tmp" not in path.parts, path
 
-plugin_symbols = json.loads(queries[0].read_text(encoding="utf-8"))
-assert plugin_symbols.get("symbols"), "Runtime returned no workflow-basic-steps plugin symbols"
-assert all(symbol["source"]["kind"] == "plugin" for symbol in plugin_symbols["symbols"])
+plugin_results = json.loads(queries[0].read_text(encoding="utf-8")).get("results", [])
+assert any(
+    "workflow-basic-steps" in symbol.get("availability", {}).get("pluginSourceIds", [])
+    or "workflow-basic-steps" in symbol.get("executionConstraints", {}).get("pluginDependencies", [])
+    for symbol in plugin_results
+), "Runtime returned no Pipeline symbol attributed to workflow-basic-steps"
 
 library_results = json.loads(queries[1].read_text(encoding="utf-8"))
 assert library_results.get("results"), "Runtime returned no pinned Shared Library symbols"
