@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TAG="\${1:?Usage: package-prebuilt-release.sh vX.Y.Z PACKAGE_DIR OUTPUT_DIR COMMIT}"
-PACKAGE_DIR="\${2:?Package directory is required}"
-OUTPUT_DIR="\${3:?Output directory is required}"
-COMMIT="\${4:?Source commit is required}"
+TAG="${1:?Usage: package-prebuilt-release.sh vX.Y.Z PACKAGE_DIR OUTPUT_DIR COMMIT}"
+PACKAGE_DIR="${2:?Package directory is required}"
+OUTPUT_DIR="${3:?Output directory is required}"
+COMMIT="${4:?Source commit is required}"
 
 if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
     echo "Release tag must be a version tag such as v1.2.3 or v1.2.3-rc.1" >&2
     exit 1
 fi
 
-ROOT="$(cd "$(dirname "\${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PACKAGE_DIR="$(cd "$PACKAGE_DIR" && pwd)"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
-ASSET_BASE="jenkins-knowledge-\${TAG}-jenkins-2.356-java17-deep"
+ASSET_BASE="jenkins-knowledge-${TAG}-jenkins-2.356-java17-deep"
 ARCHIVE="$OUTPUT_DIR/$ASSET_BASE.tar.gz"
 CHECKSUM="$ARCHIVE.sha256"
 NOTES="$OUTPUT_DIR/RELEASE-NOTES.md"
