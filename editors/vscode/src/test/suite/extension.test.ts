@@ -101,11 +101,11 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
         );
 
         const stepLabels = await waitFor(
-            () => completionLabels(document, new vscode.Position(1, 4)),
-            labels => labels.includes('echo'),
+            () => completionLabels(document, new vscode.Position(0, 4)),
+            labels => labels.includes('node'),
             'Jenkins 2.356 Pipeline GDSL completion'
         );
-        assert.ok(stepLabels.includes('echo'));
+        assert.ok(stepLabels.includes('node'));
 
         const globalLabels = await waitFor(
             () => completionLabels(document, new vscode.Position(2, 7)),
@@ -176,12 +176,14 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
         assert.ok(labels.includes('alternateOnly'));
         assert.ok(!labels.includes('deployApp'));
 
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
         const ordinaryUri = vscode.Uri.file(path.join(workspacePath(), 'Ordinary.groovy'));
-        await vscode.workspace.fs.writeFile(ordinaryUri, Buffer.from("node {\n  sh 'not a Jenkinsfile'\n}\n", 'utf8'));
+        await vscode.workspace.fs.writeFile(ordinaryUri, Buffer.from('def value = 1\\n\\n', 'utf8'));
         const ordinary = await vscode.workspace.openTextDocument(ordinaryUri);
         assert.strictEqual(ordinary.languageId, 'groovy');
-        const ordinaryLabels = await completionLabels(ordinary, new vscode.Position(1, 4));
-        assert.ok(!ordinaryLabels.includes('echo'));
+        const ordinaryLabels = await completionLabels(ordinary, new vscode.Position(1, 0));
         assert.ok(!ordinaryLabels.includes('alternateOnly'));
+        assert.ok(!ordinaryLabels.includes('deployApp'));
+        assert.ok(!ordinaryLabels.includes('node'));
     });
 });
