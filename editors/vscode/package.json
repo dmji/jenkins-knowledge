@@ -21,7 +21,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && node --test test/*.test.cjs",
-    "test:host": "node --test test/*.test.cjs"
+    "test:host": "node test/run-host-tests.cjs"
   },
   "dependencies": {
     "vscode-languageclient": "^11.0.1"
