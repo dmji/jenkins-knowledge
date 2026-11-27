@@ -83,7 +83,7 @@ Example MCP client configuration (replace both paths with absolute paths):
 }
 ```
 
-MCP exposes the same read-only search/details APIs and catalog resources. The `jenkins://catalog/compatibility` resource returns the offline report without a target. The `get_package_compatibility` tool can compare against a caller-supplied target environment; see [MCP configuration and contract](reference-deployment/integration/mcp.md).
+MCP exposes the same read-only search/details APIs and catalog resources. The `jenkins://catalog/compatibility` resource returns the offline report without a target. The `get_package_compatibility` tool can compare against a caller-supplied target environment; see [MCP configuration and contract]({{ '/reference-deployment/integration/mcp.html' | relative_url }}).
 
 ### Use with LSP / VS Code
 
@@ -204,4 +204,4 @@ Consumers remain pinned to the package directory they selected. To adopt a newer
 
 ## 6. Optional local Jenkins demo
 
-The [local demo walkthrough](reference-deployment/demo-environment/walkthrough.md) is a separate Builder example. It starts a disposable Jenkins 2.356 controller, collects a package, verifies Builder-to-Runtime/MCP/LSP handoff, and tears the environment down. It is useful for learning the custom collection path, but it is not required to use a prebuilt package and is not a production deployment recipe.
+The [local demo walkthrough]({{ '/reference-deployment/demo-environment/walkthrough.html' | relative_url }}) is a separate Builder example. It starts a disposable Jenkins 2.356 controller, collects a package, verifies Builder-to-Runtime/MCP/LSP handoff, and tears the environment down. It is useful for learning the custom collection path, but it is not required to use a prebuilt package and is not a production deployment recipe.
