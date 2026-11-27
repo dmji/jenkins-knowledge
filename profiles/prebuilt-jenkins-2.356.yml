@@ -1,3 +1,5 @@
+# Release policy: only Script Console enumeration-failed is an accepted partial outcome.
+# Controller metadata, plugin inventory, Pipeline GDSL, and the pinned library must succeed.
 profile: jenkins-2356-prebuilt
 collectionProfile: deep
 jenkins:
