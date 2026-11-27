@@ -336,5 +336,6 @@
     "url": "https://github.com/GSA/jenkins-shared-library-examples.git",
     "revision": "main",
     "commit": "7dfe2ab4bf7123b6aea29b0ec92caa2277cea5de"
-  }
+  },
+  "hostPort": 18080
 }
