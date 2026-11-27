@@ -20,4 +20,4 @@ Runtime/MCP/LSP need the selected package and executable; they do not need Jenki
 
 ## Evidence-based compatibility
 
-Compatibility depends on actual Core/plugin versions, permissions, GDSL availability, Shared Library revisions, and collection profile. The live CI target is Jenkins 2.356 with Java 17 and a pinned plugin set; this is a test target, not a minimum or recommended production version. See [the pinned matrix](../../tests/jenkins-2.356/README.md).
+Compatibility depends on actual Core/plugin versions, permissions, GDSL availability, Shared Library revisions, and collection profile. The live CI target is Jenkins 2.356 with Java 17 and a pinned plugin set; this is a test target, not a minimum or recommended production version. See [the pinned matrix](https://github.com/dmji/jenkins-knowledge/blob/master/tests/jenkins-2.356/README.md).
