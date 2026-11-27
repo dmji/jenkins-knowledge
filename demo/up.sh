@@ -57,7 +57,7 @@ grep -q '^DEMO_READER_PASSWORD=.' "$DEMO_DIR/.env" || {
 }
 
 echo "Building the pinned Rust binaries..."
-cargo build --locked --release --workspace
+cargo build --locked --release --workspace --bins
 
 echo "Preparing the digest-pinned Jenkins 2.356 plugin image..."
 rm -rf "$DOCKER_CONTEXT"
