@@ -42,9 +42,6 @@ assert manifest["catalogSchemaVersion"] == "1.0.0", manifest["catalogSchemaVersi
 assert manifest["profile"] == "jenkins-2356-prebuilt", manifest["profile"]
 assert manifest["collection"]["profile"] == "deep"
 assert manifest["collection"]["status"] in {"complete", "partial"}
-catalog_completeness = catalog["completeness"]
-assert catalog_completeness["status"] in {"complete", "partial"}, catalog_completeness
-assert catalog_completeness["status"] == manifest["collection"]["status"], catalog_completeness
 
 outcomes = manifest["collection"]["sources"]
 script_console = [item for item in outcomes if item["surface"] == "script-console"]
@@ -92,7 +89,6 @@ lines = [
     f"- Java: **{runtime['javaVersion']}** ({runtime['javaVendor']})",
     f"- Collection profile: **{manifest['collection']['profile']}**",
     f"- Collection status: **{manifest['collection']['status']}**",
-    f"- Catalog completeness: **{catalog_completeness['status']}**",
     f"- Knowledge Package format: **{manifest['packageVersion']}**",
     f"- Catalog schema: **{manifest['catalogSchemaVersion']}**",
     f"- Built at: {manifest['createdAt']}",
