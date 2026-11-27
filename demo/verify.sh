@@ -71,19 +71,13 @@ printf '%s\n' "$mcp_response" | grep -q '"protocolVersion":"2025-06-18"'
 printf '%s\n' "$mcp_response" | grep -q '"name":"search_api"'
 
 echo "Checking VS Code -> containerized LSP -> local Knowledge Package..."
-BUILDER="$ROOT/target/release/knowledge-builder"
-PRIMARY="$OUT/contract-primary"
-ALTERNATE="$OUT/contract-alternate"
-"$BUILDER" build "$ROOT/crates/jenkins-contract-tests/tests/fixtures/primary/profile.yml" "$PRIMARY"
-"$BUILDER" build "$ROOT/crates/jenkins-contract-tests/tests/fixtures/alternate/profile.yml" "$ALTERNATE"
 npm --prefix "$ROOT/editors/vscode" ci --ignore-scripts --no-audit --no-fund
 npm --prefix "$ROOT/editors/vscode" test
 export JENKINS_LSP_PATH="$DEMO_DIR/bin/jenkins-lsp"
-export JENKINS_KNOWLEDGE_PRIMARY_PACKAGE="$PRIMARY"
-export JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE="$ALTERNATE"
 export JENKINS_KNOWLEDGE_LIVE_PACKAGE=/package/knowledge-package
 export JENKINS_KNOWLEDGE_LIVE_PACKAGE_REMOTE=true
 export JENKINS_KNOWLEDGE_LIVE_PROFILE=jenkins-2356-demo
+export JENKINS_KNOWLEDGE_LIVE_ONLY=true
 export VSCODE_TEST_VERSION=1.91.0
 if command -v xvfb-run >/dev/null 2>&1; then
     xvfb-run -a npm --prefix "$ROOT/editors/vscode" run test:host

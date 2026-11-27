@@ -140,7 +140,8 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
         assert.ok(definitions.some(value => value.includes('vars/example1.groovy')));
     });
 
-    test('fixture package reports unavailable plugin steps but ignores unknown names, comments and strings', async () => {
+    test('fixture package reports unavailable plugin steps but ignores unknown names, comments and strings', async function (this: Mocha.Context) {
+        if (process.env.JENKINS_KNOWLEDGE_LIVE_ONLY === 'true') this.skip();
         await selectPackage(
             process.env.JENKINS_KNOWLEDGE_PRIMARY_PACKAGE!,
             'contract-primary'
@@ -170,7 +171,8 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
         assert.strictEqual(definitions.length, 0, 'non-GitHub fixture URLs must not become navigation targets');
     });
 
-    test('package reload switches the completion catalog and ordinary Groovy files stay out of Jenkins context', async () => {
+    test('package reload switches the completion catalog and ordinary Groovy files stay out of Jenkins context', async function (this: Mocha.Context) {
+        if (process.env.JENKINS_KNOWLEDGE_LIVE_ONLY === 'true') this.skip();
         await selectPackage(
             process.env.JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE!,
             'contract-alternate'

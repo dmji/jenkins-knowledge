@@ -4,11 +4,14 @@ const path = require('path');
 const { runTests } = require('@vscode/test-electron');
 
 async function main() {
-    const required = [
-        'JENKINS_LSP_PATH',
-        'JENKINS_KNOWLEDGE_PRIMARY_PACKAGE',
-        'JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE'
-    ];
+    const liveOnly = process.env.JENKINS_KNOWLEDGE_LIVE_ONLY === 'true';
+    const required = ['JENKINS_LSP_PATH'];
+    if (!liveOnly) {
+        required.push(
+            'JENKINS_KNOWLEDGE_PRIMARY_PACKAGE',
+            'JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE'
+        );
+    }
 
     for (const name of required) {
         const value = process.env[name];
@@ -33,7 +36,8 @@ async function main() {
             'JENKINS_KNOWLEDGE_LIVE_PACKAGE',
             'JENKINS_KNOWLEDGE_LIVE_PROFILE',
             'JENKINS_KNOWLEDGE_PRIMARY_PACKAGE',
-            'JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE'
+            'JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE',
+            'JENKINS_KNOWLEDGE_LIVE_ONLY'
         ]) {
             if (process.env[name]) extensionTestsEnv[name] = process.env[name];
         }
