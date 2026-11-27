@@ -17,6 +17,7 @@ on:
       - "rust-toolchain.toml"
   push:
     branches: [master]
+    tags: ["v*"]
     paths:
       - ".github/workflows/prebuilt-package.yml"
       - "profiles/prebuilt-jenkins-2.356.yml"
@@ -51,6 +52,8 @@ jobs:
           shared-key: prebuilt-jenkins-2356
       - name: Build, collect, and independently validate the package
         run: bash tests/jenkins-2.356/build-prebuilt.sh
+      - name: Verify release archive and external checksum
+        run: bash tests/jenkins-2.356/package-prebuilt-release.sh v0.0.0-test target/prebuilt-package target/release-test "$GITHUB_SHA"
       - name: Upload validated Knowledge Package
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -58,3 +61,47 @@ jobs:
           path: target/prebuilt-package/
           if-no-files-found: error
           retention-days: 30
+
+  publish-github-release:
+    name: Publish versioned GitHub Release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-prebuilt-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: 1.100.0
+      - name: Build Runtime for extracted-archive verification
+        run: cargo build --locked --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime
+      - name: Download the validated package from this workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --name jenkins-2356-prebuilt-knowledge-package --dir target/prebuilt-package
+      - name: Require a version tag pointing to master
+        run: |
+          git fetch origin master
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+      - name: Package, checksum, and verify the release archive
+        run: bash tests/jenkins-2.356/package-prebuilt-release.sh "$GITHUB_REF_NAME" target/prebuilt-package target/release "$GITHUB_SHA"
+      - name: Refuse to overwrite an existing release and publish assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; refusing to replace its assets." >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            "target/release/jenkins-knowledge-$GITHUB_REF_NAME-jenkins-2.356-java17-deep.tar.gz" \
+            "target/release/jenkins-knowledge-$GITHUB_REF_NAME-jenkins-2.356-java17-deep.tar.gz.sha256" \
+            --verify-tag \
+            --title "Jenkins Knowledge $GITHUB_REF_NAME — Jenkins 2.356 / Java 17" \
+            --notes-file "target/release/RELEASE-NOTES.md"

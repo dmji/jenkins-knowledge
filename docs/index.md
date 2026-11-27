@@ -20,6 +20,7 @@ It assumes you already have a Jenkins controller. Installing or administering Je
 
 - [Architecture and trust boundaries]({{ '/architecture.html' | relative_url }}) — why collection and consumption are separate.
 - [Catalog contract]({{ '/catalog-contract.html' | relative_url }}) — package schema, evidence, coverage, and completeness semantics.
+- [Prebuilt package releases]({{ '/prebuilt-packages.html' | relative_url }}) — download, verify, extract, and use the versioned Jenkins 2.356 reference package.
 - [Deployment acceptance checklist]({{ '/reference-deployment/acceptance-tests.html' | relative_url }}) — validate an integration before rollout.
 - [Detailed deployment reference]({{ '/reference-deployment/index.html' | relative_url }}) — focused pages for individual operations.
 - [Optional demo environment]({{ '/reference-deployment/demo-environment/walkthrough.html' | relative_url }}) — disposable Jenkins 2.356 / Java 17 fixture, not a production prerequisite.
