@@ -20,9 +20,19 @@ async function main() {
         'jenkinsKnowledge.packagePath': livePackage,
         'jenkinsKnowledge.profile': 'jenkins-2356-deep'
     }, null, 2));
-    fs.writeFileSync(path.join(workspace, 'Jenkinsfile'),
-        "node {\n  sh 'echo ok'\n  unavailableStep()\n  deployApp()\n  alternateOnly()\n  // unavailableStep()\n  def message = \"unavailableStep()\"\n  unknownStep()\n}\n");
-    fs.writeFileSync(path.join(workspace, 'ordinary.groovy'), "node { sh 'echo ok' }\n");
+    fs.writeFileSync(path.join(workspace, 'Jenkinsfile'), [
+        'node {',
+        "  sh 'echo ok'",
+        '  unavailableStep()',
+        '  deployApp()',
+        '  alternateOnly()',
+        '  // unavailableStep()',
+        '  def message = "unavailableStep()"',
+        '  unknownStep()',
+        '}',
+        ''
+    ].join('\n'));
+    fs.writeFileSync(path.join(workspace, 'ordinary.groovy'), "node { sh 'echo ok' }");
 
     try {
         await runTests({
