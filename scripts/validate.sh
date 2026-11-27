@@ -76,7 +76,6 @@ cargo --locked run -p jenkins-runtime -- --package target/fixture-package search
 cargo --locked build -p jenkins-runtime --bin jenkins-mcp
 cargo --locked build -p jenkins-lsp
 npm --prefix editors/vscode ci --ignore-scripts --no-audit --no-fund
-npm --prefix editors/vscode run compile
 npm --prefix editors/vscode test
 
 cargo --locked build --release -p knowledge-builder -p catalog-validator -p jenkins-runtime --bins
