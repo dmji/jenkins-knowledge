@@ -129,14 +129,16 @@ async function run() {
     const ordinary = await vscode.workspace.openTextDocument(vscode.Uri.file(ordinaryPath));
     await vscode.window.showTextDocument(ordinary);
     const ordinaryCompletions = await completions(ordinary, 0, 8);
-    assert.ok(!ordinaryCompletions.items.some(item => item.label === 'alternateOnly'),
+    const ordinaryItems = ordinaryCompletions?.items || ordinaryCompletions || [];
+    assert.ok(!ordinaryItems.some(item => item.label === 'alternateOnly'),
         'ordinary Groovy files must not receive Jenkins catalog completions');
     const ordinaryHover = await vscode.commands.executeCommand(
         'vscode.executeHoverProvider',
         ordinary.uri,
         new vscode.Position(0, 8)
     );
-    assert.equal(ordinaryHover, undefined, 'ordinary Groovy files must not receive Jenkins catalog hover');
+    assert.ok(!ordinaryHover || ordinaryHover.length === 0,
+        'ordinary Groovy files must not receive Jenkins catalog hover');
 
     console.log('VS Code extension-host acceptance passed: live Jenkins package, fixture reload, completion, hover, definition, diagnostics, and ordinary Groovy isolation.');
 }
