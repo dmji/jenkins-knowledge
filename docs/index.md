@@ -37,7 +37,7 @@ Jenkins Knowledge builds a versioned knowledge package from an existing Jenkins 
 ## Technical reference
 
 - [Architecture](architecture.md) · [Catalog contract](catalog-contract.md)
-- [Builder](../crates/knowledge-builder/README.md) · [MCP](../runtime/mcp.md) · [VS Code](../editors/vscode/README.md)
+- [Builder](https://github.com/dmji/jenkins-knowledge/blob/master/crates/knowledge-builder/README.md) · [MCP](https://github.com/dmji/jenkins-knowledge/blob/master/runtime/mcp.md) · [VS Code](https://github.com/dmji/jenkins-knowledge/blob/master/editors/vscode/README.md)
 
 The production guide does not require Docker Compose or a new Jenkins installation. The demo is separate.
 
