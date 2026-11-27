@@ -39,7 +39,7 @@ The package path is resolved relative to the workspace. The Rust server validate
 
 ## Extension-host acceptance
 
-The reproducible acceptance suite launches a pinned VS Code 1.85.0 extension host with the real release `jenkins-lsp` binary. It starts from the Deep package collected from the ephemeral Jenkins 2.356 controller, then explicitly reloads deterministic primary and alternate packages built by Builder.
+The reproducible acceptance suite launches a pinned VS Code 1.91.0 extension host with the real release `jenkins-lsp` binary. It starts from the Deep package collected from the ephemeral Jenkins 2.356 controller, then explicitly reloads deterministic primary and alternate packages built by Builder.
 
 From the repository root, after `tests/jenkins-2.356/run.sh` has completed:
 
