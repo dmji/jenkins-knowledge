@@ -112,7 +112,7 @@ jobs:
       - name: Package platform binaries and verify checksum
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
           PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
