@@ -20,4 +20,4 @@ Example client configuration (adjust absolute paths):
 }
 ```
 
-Read-only tools cover search/list, exact symbol details, examples, Pipeline steps, controller inventory, and offline compatibility reporting. Resources expose manifest, collection, inventory, compatibility, libraries, Pipeline steps, coverage, and profile metadata. Search/list default to 50; callers may request 1–100 and use offset pagination. The server does not execute Pipeline steps or connect to Jenkins/Git. See [full MCP contract](../../../runtime/mcp.md).
+Read-only tools cover search/list, exact symbol details, examples, Pipeline steps, controller inventory, and offline compatibility reporting. Resources expose manifest, collection, inventory, compatibility, libraries, Pipeline steps, coverage, and profile metadata. Search/list default to 50; callers may request 1–100 and use offset pagination. The server does not execute Pipeline steps or connect to Jenkins/Git. See [full MCP contract](https://github.com/dmji/jenkins-knowledge/blob/master/runtime/mcp.md).
