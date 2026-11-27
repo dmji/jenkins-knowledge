@@ -533,7 +533,11 @@ fn symbol_markdown(runtime: &Runtime, symbol: &Value) -> String {
 }
 
 fn completion_for_document(
-    runtime: Option<&Runtime>, uri: &str, text: &str, line: usize, character: usize,
+    runtime: Option<&Runtime>,
+    uri: &str,
+    text: &str,
+    line: usize,
+    character: usize,
 ) -> Value {
     if is_jenkinsfile_uri(uri) {
         completion(runtime, text, line, character)
@@ -1405,13 +1409,21 @@ mod tests {
     fn completion_is_restricted_to_jenkinsfile_documents() {
         let runtime = fixture_runtime("fixture");
         let jenkinsfile = completion_for_document(
-            Some(&runtime), "file:///workspace/Jenkinsfile", "node {\n  de", 1, 4,
+            Some(&runtime),
+            "file:///workspace/Jenkinsfile",
+            "node {\n  de",
+            1,
+            4,
         );
         assert!(jenkinsfile["items"].as_array().unwrap().iter()
             .any(|item| item["label"] == "deployApp"));
 
         let groovy = completion_for_document(
-            Some(&runtime), "file:///workspace/ordinary.groovy", "node {\n  de", 1, 4,
+            Some(&runtime),
+            "file:///workspace/ordinary.groovy",
+            "node {\n  de",
+            1,
+            4,
         );
         assert_eq!(groovy, json!({"isIncomplete": false, "items": []}));
     }
