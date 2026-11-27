@@ -776,7 +776,13 @@ fn builder_rejects_a_fixture_with_a_dangling_symbol_source() {
 fn product_crate_graph_preserves_builder_server_boundary() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml");
     let output = Command::new("cargo")
-        .args(["metadata", "--no-deps", "--format-version", "1", "--manifest-path"])
+        .args([
+            "metadata",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--manifest-path",
+        ])
         .arg(&manifest)
         .output()
         .expect("cargo metadata is available while running Cargo tests");
@@ -794,24 +800,26 @@ fn product_crate_graph_preserves_builder_server_boundary() {
             .find(|package| package["name"] == name)
             .unwrap_or_else(|| panic!("workspace package '{name}' is missing"))
     };
-    let dependencies = |package: &Value| {
+    let dependencies = |package: &Value| -> Vec<String> {
         package["dependencies"]
             .as_array()
             .unwrap()
             .iter()
-            .filter_map(|dependency| dependency["name"].as_str())
-            .collect::<Vec<_>>()
+            .filter_map(|dependency| dependency["name"].as_str().map(str::to_owned))
+            .collect()
     };
-    let binaries = |package: &Value| {
+    let binaries = |package: &Value| -> Vec<String> {
         package["targets"]
             .as_array()
             .unwrap()
             .iter()
-            .filter(|target| target["kind"].as_array().is_some_and(|kinds| {
-                kinds.iter().any(|kind| kind == "bin")
-            }))
-            .filter_map(|target| target["name"].as_str())
-            .collect::<Vec<_>>()
+            .filter(|target| {
+                target["kind"]
+                    .as_array()
+                    .is_some_and(|kinds| kinds.iter().any(|kind| kind == "bin"))
+            })
+            .filter_map(|target| target["name"].as_str().map(str::to_owned))
+            .collect()
     };
 
     let builder = package("knowledge-builder");
@@ -823,21 +831,25 @@ fn product_crate_graph_preserves_builder_server_boundary() {
         "shared-library-scanner",
     ] {
         assert!(
-            builder_dependencies.contains(&dependency),
+            builder_dependencies.iter().any(|name| name == dependency),
             "Builder must own dependency on {dependency}"
         );
     }
     for forbidden in ["jenkins-runtime", "jenkins-lsp", "jenkins-contract-tests"] {
         assert!(
-            !builder_dependencies.contains(&forbidden),
+            !builder_dependencies.iter().any(|name| name == forbidden),
             "Builder must not depend on Server/test package {forbidden}"
         );
     }
-    assert!(binaries(builder).contains(&"knowledge-builder"));
+    assert!(binaries(builder).iter().any(|name| name == "knowledge-builder"));
 
     let runtime = package("jenkins-runtime");
     let runtime_dependencies = dependencies(runtime);
-    assert!(runtime_dependencies.contains(&"catalog-validator"));
+    assert!(
+        runtime_dependencies
+            .iter()
+            .any(|name| name == "catalog-validator")
+    );
     for forbidden in [
         "knowledge-builder",
         "declarative-model",
@@ -847,35 +859,47 @@ fn product_crate_graph_preserves_builder_server_boundary() {
         "jenkins-contract-tests",
     ] {
         assert!(
-            !runtime_dependencies.contains(&forbidden),
+            !runtime_dependencies.iter().any(|name| name == forbidden),
             "Server core must not depend on Builder/LSP/test package {forbidden}"
         );
     }
     let runtime_binaries = binaries(runtime);
     for binary in ["jenkins-runtime", "jenkins-mcp", "groovy-stubs"] {
         assert!(
-            runtime_binaries.contains(&binary),
+            runtime_binaries.iter().any(|name| name == binary),
             "expected Runtime package binary {binary}"
         );
     }
 
     let lsp = package("jenkins-lsp");
     let lsp_dependencies = dependencies(lsp);
-    assert!(lsp_dependencies.contains(&"jenkins-runtime"));
+    assert!(
+        lsp_dependencies
+            .iter()
+            .any(|name| name == "jenkins-runtime")
+    );
     for forbidden in [
         "knowledge-builder",
         "jenkins-gdsl-collector",
         "shared-library-scanner",
     ] {
         assert!(
-            !lsp_dependencies.contains(&forbidden),
+            !lsp_dependencies.iter().any(|name| name == forbidden),
             "LSP adapter must delegate to Runtime, not depend on {forbidden}"
         );
     }
-    assert!(binaries(lsp).contains(&"jenkins-lsp"));
+    assert!(binaries(lsp).iter().any(|name| name == "jenkins-lsp"));
 
     let contract_tests = package("jenkins-contract-tests");
     let contract_dependencies = dependencies(contract_tests);
-    assert!(contract_dependencies.contains(&"knowledge-builder"));
-    assert!(contract_dependencies.contains(&"jenkins-runtime"));
+    assert!(
+        contract_dependencies
+            .iter()
+            .any(|name| name == "knowledge-builder")
+    );
+    assert!(
+        contract_dependencies
+            .iter()
+            .any(|name| name == "jenkins-runtime")
+    );
 }
