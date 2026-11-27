@@ -532,6 +532,20 @@ fn symbol_markdown(runtime: &Runtime, symbol: &Value) -> String {
     sections.join("\n\n")
 }
 
+fn completion_for_document(
+    runtime: Option<&Runtime>,
+    uri: &str,
+    text: &str,
+    line: usize,
+    character: usize,
+) -> Value {
+    if is_jenkinsfile_uri(uri) {
+        completion(runtime, text, line, character)
+    } else {
+        json!({"isIncomplete": false, "items": []})
+    }
+}
+
 fn completion(runtime: Option<&Runtime>, text: &str, line: usize, character: usize) -> Value {
     let Some(runtime) = runtime else { return json!({"isIncomplete": false, "items": []}); };
     let (prefix, contexts, kinds) = completion_context(text, line, character);
@@ -1010,7 +1024,7 @@ fn handle_request(connection: &Connection, request: Request, runtime: Option<&Ru
             let line = request.params.pointer("/position/line").and_then(Value::as_u64).unwrap_or(0) as usize;
             let character = request.params.pointer("/position/character").and_then(Value::as_u64).unwrap_or(0) as usize;
             let text = documents.get(uri).map(String::as_str).unwrap_or("");
-            completion(runtime, text, line, character)
+            completion_for_document(runtime, uri, text, line, character)
         },
         "jenkinsKnowledge/coverage" => json!({
             "profile": runtime.map(Runtime::profile),
@@ -1389,6 +1403,29 @@ mod tests {
         assert!(supported_symbol(&json!({"kind":"class","source":{"kind":"jenkins-controller"}})));
         assert!(supported_symbol(&json!({"kind":"method","source":{"kind":"shared-library"}})));
         assert!(!supported_symbol(&json!({"kind":"directive","source":{"kind":"jenkins"}})));
+    }
+
+    #[test]
+    fn completion_is_restricted_to_jenkinsfile_documents() {
+        let runtime = fixture_runtime("fixture");
+        let jenkinsfile = completion_for_document(
+            Some(&runtime),
+            "file:///workspace/Jenkinsfile",
+            "node {\n  de",
+            1,
+            4,
+        );
+        assert!(jenkinsfile["items"].as_array().unwrap().iter()
+            .any(|item| item["label"] == "deployApp"));
+
+        let groovy = completion_for_document(
+            Some(&runtime),
+            "file:///workspace/ordinary.groovy",
+            "node {\n  de",
+            1,
+            4,
+        );
+        assert_eq!(groovy, json!({"isIncomplete": false, "items": []}));
     }
 
     #[test]

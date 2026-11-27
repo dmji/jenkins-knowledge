@@ -12,7 +12,8 @@
     "esModuleInterop": true,
     "moduleResolution": "Node16",
     "types": [
-      "node"
+      "node",
+      "mocha"
     ]
   },
   "include": [

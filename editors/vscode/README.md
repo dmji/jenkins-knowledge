@@ -59,3 +59,20 @@ The package path is resolved relative to the workspace. The Rust server validate
 9. Open an ordinary Groovy source file; verify Jenkins catalog completions do not appear and the installed Groovy tooling remains active.
 
 The extension host is intentionally limited to process startup and configuration forwarding. Catalog access and language intelligence remain in Rust.
+
+
+## Automated extension-host acceptance
+
+CI launches a real VS Code extension host against a sanitized Jenkins Knowledge Package produced by Builder and the compiled local LSP. The suite verifies extension activation, Jenkinsfile completion, hover, revision-pinned go-to-definition, verified unavailable-plugin diagnostics, exclusion of ordinary Groovy files, and clearing/restoring catalog results after a profile mismatch/reload. It uses only local fixture data and does not connect to Jenkins or Git. Run it from the repository root after building the fixture package and LSP:
+
+```sh
+mkdir -p target/vscode-acceptance-fixture
+cp crates/jenkins-contract-tests/tests/fixtures/primary/{profile.yml,catalog.json,manifest.json} target/vscode-acceptance-fixture/
+sed -i 's#https://example.test/fixture-library.git#https://github.com/example/fixture-library.git#' target/vscode-acceptance-fixture/catalog.json
+rm -rf target/vscode-acceptance-package
+cargo --locked run -p knowledge-builder -- build target/vscode-acceptance-fixture/profile.yml target/vscode-acceptance-package
+cargo --locked build -p jenkins-lsp
+JENKINS_LSP_PATH="$PWD/target/debug/jenkins-lsp" \
+JENKINS_KNOWLEDGE_PACKAGE="$PWD/target/vscode-acceptance-package" \
+xvfb-run -a npm --prefix editors/vscode test
+```
