@@ -13,7 +13,8 @@ async function main(): Promise<void> {
         'jenkinsKnowledge.serverPath': process.env.JENKINS_LSP_PATH,
         'jenkinsKnowledge.packagePath': process.env.JENKINS_KNOWLEDGE_PACKAGE,
         'jenkinsKnowledge.profile': 'contract-primary',
-        'files.associations': { 'Jenkinsfile': 'groovy' }
+        'files.associations': { 'Jenkinsfile': 'groovy' },
+        'editor.wordBasedSuggestions': 'off'
     }, null, 2));
 
     await runTests({
