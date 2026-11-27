@@ -1007,10 +1007,14 @@ fn handle_request(connection: &Connection, request: Request, runtime: Option<&Ru
         "shutdown" => Value::Null,
         "textDocument/completion" => {
             let uri = request.params.pointer("/textDocument/uri").and_then(Value::as_str).unwrap_or_default();
-            let line = request.params.pointer("/position/line").and_then(Value::as_u64).unwrap_or(0) as usize;
-            let character = request.params.pointer("/position/character").and_then(Value::as_u64).unwrap_or(0) as usize;
-            let text = documents.get(uri).map(String::as_str).unwrap_or("");
-            completion(runtime, text, line, character)
+            if !is_jenkinsfile_uri(uri) {
+                Value::Null
+            } else {
+                let line = request.params.pointer("/position/line").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let character = request.params.pointer("/position/character").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let text = documents.get(uri).map(String::as_str).unwrap_or("");
+                completion(runtime, text, line, character)
+            }
         },
         "jenkinsKnowledge/coverage" => json!({
             "profile": runtime.map(Runtime::profile),
