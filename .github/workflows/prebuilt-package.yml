@@ -82,7 +82,7 @@ jobs:
         run: cargo build --locked --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime
       - name: Download the validated package from this workflow run
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: gh run download "$GITHUB_RUN_ID" --name jenkins-2356-prebuilt-knowledge-package --dir target/prebuilt-package
       - name: Require a version tag pointing to master
         run: |
@@ -92,7 +92,7 @@ jobs:
         run: bash tests/jenkins-2.356/package-prebuilt-release.sh "$GITHUB_REF_NAME" target/prebuilt-package target/release "$GITHUB_SHA"
       - name: Refuse to overwrite an existing release and publish assets
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "Release $GITHUB_REF_NAME already exists; refusing to replace its assets." >&2
