@@ -22,6 +22,21 @@ admin_token="$(printf '%s\n' "$tokens" | sed -n 's/^ADMIN_TOKEN=//p')"
     exit 1
 }
 
+# The container healthcheck only probes /login; wait for the authenticated API too.
+api_ready=false
+for attempt in $(seq 1 60); do
+    if curl --globoff --silent --fail --user "admin:$admin_token" \
+        "$JENKINS_URL/api/json?tree=mode" >/dev/null; then
+        api_ready=true
+        break
+    fi
+    sleep 2
+done
+if [ "$api_ready" != "true" ]; then
+    echo "The local Jenkins API did not become ready." >&2
+    exit 1
+fi
+
 echo "Checking the demo Pipeline job..."
 before="$(
     curl --globoff --silent --show-error --fail --user "admin:$admin_token" \

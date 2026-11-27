@@ -22,6 +22,7 @@ def realm = new HudsonPrivateSecurityRealm(false)
 jenkins.setSecurityRealm(realm)
 def admin = realm.createAccount("admin", adminPassword)
 def reader = realm.createAccount("reader", readerPassword)
+def collector = realm.createAccount("collector", System.getenv("TEST_COLLECTOR_PASSWORD") ?: readerPassword)
 
 def createToken = { User user, String name ->
     def property = user.getProperty(ApiTokenProperty.class)
@@ -34,18 +35,25 @@ def createToken = { User user, String name ->
 
 def adminToken = createToken(admin, "jenkins-knowledge-integration-admin")
 def readerToken = createToken(reader, "jenkins-knowledge-integration-reader")
+def collectorToken = createToken(collector, "jenkins-knowledge-prebuilt-collector")
 
 def authorization = new GlobalMatrixAuthorizationStrategy()
 authorization.add(Jenkins.ADMINISTER, "admin")
 authorization.add(Jenkins.READ, "reader")
 authorization.add(Item.READ, "reader")
 authorization.add(View.READ, "reader")
+authorization.add(Jenkins.READ, "collector")
+authorization.add(Item.READ, "collector")
+authorization.add(View.READ, "collector")
+// Jenkins 2.356 protects /scriptText with Overall/Administer; RunScripts alone is insufficient.
+// This account is used only by Builder on the disposable, isolated CI controller.
+authorization.add(Jenkins.ADMINISTER, "collector")
 jenkins.setAuthorizationStrategy(authorization)
 jenkins.save()
 
 def tokenFilePath = System.getenv("JENKINS_KNOWLEDGE_TOKEN_FILE") ?: "/tmp/jenkins-knowledge-tokens.env"
 def tokenFile = new File(tokenFilePath)
-tokenFile.text = "ADMIN_TOKEN=" + adminToken + "\nREADER_TOKEN=" + readerToken + "\n"
+tokenFile.text = "ADMIN_TOKEN=" + adminToken + "\nREADER_TOKEN=" + readerToken + "\nCOLLECTOR_TOKEN=" + collectorToken + "\n"
 tokenFile.setReadable(false, false)
 tokenFile.setReadable(true, true)
 

@@ -1,0 +1,15 @@
+# Release policy: only Script Console enumeration-failed is an accepted partial outcome.
+# Controller metadata, plugin inventory, Pipeline GDSL, and the pinned library must succeed.
+profile: jenkins-2356-prebuilt
+collectionProfile: deep
+jenkins:
+  controllers:
+    - id: jenkins-2356
+      url: http://127.0.0.1:18080/
+      apiRoots:
+        - hudson.model.Run
+libraries:
+  - name: gsa-examples
+    url: https://github.com/GSA/jenkins-shared-library-examples.git
+    revision: main
+    commit: 7dfe2ab4bf7123b6aea29b0ec92caa2277cea5de
