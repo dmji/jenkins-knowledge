@@ -643,8 +643,15 @@ fn hover(runtime: Option<&Runtime>, word: Option<String>) -> Value {
 
 fn parse_source_location(value: &str) -> Option<(String, Option<usize>)> {
     let (path, line) = match value.rsplit_once(':') {
-        Some((path, line)) if line.parse::<usize>().is_ok() => (path, line.parse::<usize>().ok()),
-        _ => (value, None),
+        Some((path, suffix)) => match suffix
+            .split_whitespace()
+            .next()
+            .and_then(|line| line.parse::<usize>().ok())
+        {
+            Some(line) => (path, Some(line)),
+            None => (value, None),
+        },
+        None => (value, None),
     };
     let path = path.trim_start_matches("./");
     let allowed_extension = [".groovy", ".java", ".kt", ".scala"].iter().any(|extension| path.ends_with(extension));
@@ -1791,12 +1798,26 @@ mod tests {
             "signature":"buildThing","description":"A Shared Library global.","confidence":"verified",
             "contexts":["pipeline","scripted"],"provenance":["vars/buildThing.groovy"],
             "evidence":[{"sourceId":"platform-lib","kind":"source-scanned","confidence":"verified","retrievedAt":"2026-01-01T00:00:00Z","revision":"0123456789abcdef0123456789abcdef01234567","location":"vars/buildThing.groovy:12"}]
+        }), json!({
+            "id":"platform-lib:annotatedGlobal:global-variable",
+            "name":"annotatedGlobal","kind":"global-variable","namespace":"vars","sourceId":"platform-lib",
+            "signature":"annotatedGlobal","description":"A global with an annotated source location.","confidence":"verified",
+            "contexts":["pipeline","scripted"],"provenance":["vars/example1.groovy:1 (global script)"],
+            "evidence":[{"sourceId":"platform-lib","kind":"source-scanned","confidence":"verified","retrievedAt":"2026-01-01T00:00:00Z","revision":"0123456789abcdef0123456789abcdef01234567","location":"vars/example1.groovy:1 (global script)"}]
         })]);
         let locations = definition(Some(&runtime), Some("buildThing".into()));
         assert_eq!(locations.as_array().unwrap().len(), 1);
         let location = &locations[0];
         assert!(location["uri"].as_str().unwrap().contains("/blob/0123456789abcdef0123456789abcdef01234567/vars/buildThing.groovy#L12"));
         assert_eq!(location["range"]["start"]["line"], 11);
+        let annotated = definition(Some(&runtime), Some("annotatedGlobal".into()));
+        assert!(
+            annotated[0]["uri"]
+                .as_str()
+                .unwrap()
+                .ends_with("/vars/example1.groovy#L1")
+        );
+        assert_eq!(annotated[0]["range"]["start"]["line"], 0);
         assert!(definition(Some(&runtime), Some("sh".into())).is_null());
         assert!(parse_source_location("../secrets.groovy:4").is_none());
     }
