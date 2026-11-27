@@ -96,9 +96,9 @@ JENKINS_KNOWLEDGE_CACHE_DIR="$TEMP/cache" \
     target/debug/knowledge-builder build profiles/prebuilt-jenkins-2.356.yml "$OUT"
 
 echo "Validating package metadata, completeness, plugin lock, and Runtime queries..."
-target/debug/jenkins-runtime --package "$OUT" search sh --source-kind plugin > "$TEMP/plugin-query.json"
+target/debug/jenkins-runtime --package "$OUT" plugin-symbols --plugin workflow-basic-steps > "$TEMP/plugin-query.json"
 target/debug/jenkins-runtime --package "$OUT" search example1 --source-kind shared-library > "$TEMP/library-query.json"
-target/debug/jenkins-runtime --package "$OUT" search echo > "$TEMP/pipeline-query.json"
+target/debug/jenkins-runtime --package "$OUT" steps > "$TEMP/pipeline-query.json"
 
 python3 - "$OUT" "$TEMP/plugins.lock.json" "$TEMP/plugin-query.json" "$TEMP/library-query.json" "$TEMP/pipeline-query.json" "$collector_token" <<'PY'
 import hashlib
@@ -164,9 +164,16 @@ for path in package.rglob("*"):
         assert secret.encode() not in data, f"credential leaked into {path}"
         assert "cache" not in path.parts and "tmp" not in path.parts, path
 
-for query in queries:
-    result = json.loads(query.read_text(encoding="utf-8"))
-    assert result.get("results"), f"Runtime smoke query returned no results: {query.name}"
+plugin_symbols = json.loads(queries[0].read_text(encoding="utf-8"))
+assert plugin_symbols.get("symbols"), "Runtime returned no workflow-basic-steps plugin symbols"
+assert all(symbol["source"]["kind"] == "plugin" for symbol in plugin_symbols["symbols"])
+
+library_results = json.loads(queries[1].read_text(encoding="utf-8"))
+assert library_results.get("results"), "Runtime returned no pinned Shared Library symbols"
+
+pipeline_steps = json.loads(queries[2].read_text(encoding="utf-8"))
+step_names = {item.get("name") for item in pipeline_steps.get("steps", [])}
+assert step_names.intersection({"sh", "echo", "checkout"}), step_names
 
 print(json.dumps({
     "profile": manifest["profile"],
