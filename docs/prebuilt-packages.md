@@ -46,14 +46,17 @@ The extracted directory is `prebuilt-package/`, containing `manifest.json` and `
 
 ### Query with Runtime
 
-Use the extracted package path explicitly:
+Build the CLI from the repository, then use the extracted package path explicitly:
 
 ```sh
-jenkins-runtime --package ./prebuilt-package plugins
-jenkins-runtime --package ./prebuilt-package steps
-jenkins-runtime --package ./prebuilt-package search deploy
-jenkins-runtime --package ./prebuilt-package compatibility
-jenkins-runtime --package ./prebuilt-package coverage
+cargo build --locked --release --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime
+RUNTIME="$PWD/target/release/jenkins-runtime"
+
+"$RUNTIME" --package ./prebuilt-package plugins
+"$RUNTIME" --package ./prebuilt-package steps
+"$RUNTIME" --package ./prebuilt-package search deploy
+"$RUNTIME" --package ./prebuilt-package compatibility
+"$RUNTIME" --package ./prebuilt-package coverage
 ```
 
 The `compatibility` command without a target reports the environment recorded by the package and returns `not-compared` / `unknown`. Runtime is offline and does not infer a Jenkins installation from the machine on which it runs.
@@ -131,9 +134,9 @@ Use this path when the package must reflect your own controller, its actual Java
 4. Inspect the generated `manifest.json`, `catalog.json`, source outcomes, and plugin inventory. Use Runtime to query the package exactly as you would query a prebuilt package:
 
    ```sh
-   jenkins-runtime --package ./target/custom-package plugins
-   jenkins-runtime --package ./target/custom-package steps
-   jenkins-runtime --package ./target/custom-package compatibility
+   cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml -- --package ./target/custom-package plugins
+   cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml -- --package ./target/custom-package steps
+   cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml -- --package ./target/custom-package compatibility
    ```
 
 The profile's `collectionProfile` controls depth. `quick` and `standard` avoid the Deep Script Console probe; Java version/vendor may therefore be recorded as `not-collected-by-profile`. `deep` runs the fixed read-only Script Console probe and is needed when those JVM properties and deeper API metadata are required. See the [Builder collection profile and credential reference](https://github.com/dmji/jenkins-knowledge/blob/master/crates/knowledge-builder/README.md) before choosing.
