@@ -47,6 +47,7 @@ grep -v '^DEMO_LIBRARY_COMMIT=' "$DEMO_DIR/.env" > "$tmp_env" || true
 printf 'DEMO_LIBRARY_COMMIT=%s\n' "$library_commit" >> "$tmp_env"
 mv "$tmp_env" "$DEMO_DIR/.env"
 chmod 600 "$DEMO_DIR/.env"
+umask 022
 grep -q '^DEMO_ADMIN_PASSWORD=.' "$DEMO_DIR/.env" || {
     echo "demo/.env must define DEMO_ADMIN_PASSWORD" >&2
     exit 1
