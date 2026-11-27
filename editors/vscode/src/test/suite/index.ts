@@ -35,6 +35,7 @@ export function run(): Promise<void> {
     }));
 
     suite.addTest(new Mocha.Test('does not provide Jenkins catalog completion for ordinary Groovy files', async () => {
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
         const document = await vscode.workspace.openTextDocument(ordinaryGroovy);
         await vscode.window.showTextDocument(document);
         const completions = await vscode.commands.executeCommand<vscode.CompletionList>(
@@ -44,6 +45,8 @@ export function run(): Promise<void> {
     }));
 
     suite.addTest(new Mocha.Test('clears catalog results after profile mismatch and restores them on reload', async () => {
+        const document = await vscode.workspace.openTextDocument(jenkinsfile);
+        await vscode.window.showTextDocument(document);
         const configuration = vscode.workspace.getConfiguration('jenkinsKnowledge');
         await configuration.update('profile', 'wrong-profile', vscode.ConfigurationTarget.Workspace);
         await vscode.commands.executeCommand('jenkinsKnowledge.reload');
