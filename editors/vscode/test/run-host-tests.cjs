@@ -30,7 +30,10 @@ async function main() {
             extensionDevelopmentPath: path.resolve(__dirname, '..'),
             extensionTestsPath: path.join(__dirname, 'suite/index.js'),
             launchArgs: [workspace, '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes'],
-            extensionTestsEnv: { JENKINS_KNOWLEDGE_FIXTURE_PACKAGE: fixturePackage }
+            extensionTestsEnv: {
+                JENKINS_KNOWLEDGE_FIXTURE_PACKAGE: fixturePackage,
+                JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE: process.env.JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE || ''
+            }
         });
     } finally {
         fs.rmSync(workspace, { recursive: true, force: true });
