@@ -139,8 +139,8 @@ jobs:
         with:
           name: runtime-${{ matrix.platform }}
           path: |
-            target/jenkins-runtime-${{ github.ref_name }}-${{ matrix.platform }}.tar.gz
-            target/jenkins-runtime-${{ github.ref_name }}-${{ matrix.platform }}.tar.gz.sha256
+            target/jenkins-runtime-*.tar.gz
+            target/jenkins-runtime-*.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
 
