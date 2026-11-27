@@ -552,6 +552,16 @@ fn completion(runtime: Option<&Runtime>, text: &str, line: usize, character: usi
         ..common.clone()
     };
     let mut queries = vec![primary, library];
+    if kinds.iter().any(|kind| kind == "step") {
+        // Controller GDSL declarations are inherently Pipeline steps, but older
+        // Jenkins GDSL responses do not carry explicit context metadata.
+        queries.push(SearchOptions {
+            kinds: Some(vec!["step".into()]),
+            contexts: None,
+            source_kind: Some("jenkins-controller".into()),
+            ..common.clone()
+        });
+    }
     if include_api_types {
         queries.push(SearchOptions { kinds: Some(api_kinds.clone()), source_kind: Some("plugin".into()), ..common.clone() });
         queries.push(SearchOptions { kinds: Some(api_kinds.clone()), source_kind: Some("jenkins-core".into()), ..common.clone() });
