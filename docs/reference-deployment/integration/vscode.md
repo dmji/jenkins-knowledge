@@ -23,4 +23,4 @@ Workspace settings:
 }
 ```
 
-Build/validate the package first. The profile must match the manifest. Use **Jenkins Knowledge: Reload Knowledge Package** after publishing a new package; changing settings does not invoke Builder or refresh sources. LSP/extension need local package access, not Jenkins/Git credentials. See [extension documentation](../../../../editors/vscode/README.md).
+Build/validate the package first. The profile must match the manifest. Use **Jenkins Knowledge: Reload Knowledge Package** after publishing a new package; changing settings does not invoke Builder or refresh sources. LSP/extension need local package access, not Jenkins/Git credentials. See [extension documentation](../../../editors/vscode/README.md).
