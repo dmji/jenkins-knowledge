@@ -25,7 +25,7 @@ cleanup() {
 trap cleanup EXIT
 
 rm -rf "$OUT"
-mkdir -p "$OUT" "$TEMP/docker-context/plugins"
+mkdir -p "$(dirname "$OUT")" "$TEMP/docker-context/plugins"
 cargo build --locked --manifest-path crates/knowledge-builder/Cargo.toml
 cargo build --locked --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime
 
