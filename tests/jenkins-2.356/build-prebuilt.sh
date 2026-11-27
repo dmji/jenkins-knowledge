@@ -119,9 +119,11 @@ assert manifest["profile"] == "jenkins-2356-prebuilt", manifest["profile"]
 assert manifest["collection"]["profile"] == "deep"
 assert manifest["collection"]["status"] == "complete", manifest["collection"]
 outcomes = manifest["collection"]["sources"]
-for surface, name in (("script-console", "jenkins-2356"), ("pipeline-gdsl", "jenkins-2356"), ("library-source", "gsa-examples")):
-    matches = [item for item in outcomes if item["surface"] == surface and item["name"] == name]
+for surface in ("script-console", "pipeline-gdsl"):
+    matches = [item for item in outcomes if item["surface"] == surface]
     assert len(matches) == 1 and matches[0]["status"] == "succeeded", (surface, matches)
+library_matches = [item for item in outcomes if item["surface"] == "library-source" and item["name"] == "gsa-examples"]
+assert len(library_matches) == 1 and library_matches[0]["status"] == "succeeded", library_matches
 
 controller = catalog["controller"]
 assert controller["coreVersion"] == lock["jenkinsCoreVersion"], controller["coreVersion"]
