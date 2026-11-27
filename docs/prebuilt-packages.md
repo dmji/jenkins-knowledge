@@ -136,7 +136,7 @@ Use this path when the package must reflect your own controller, its actual Java
    jenkins-runtime --package ./target/custom-package compatibility
    ```
 
-The profile's `collectionProfile` controls depth. `quick` and `standard` avoid the Deep Script Console probe; Java version/vendor may therefore be recorded as `not-collected-by-profile`. `deep` runs the fixed read-only Script Console probe and is needed when those JVM properties and deeper API metadata are required. See the [Builder collection profile and credential reference](../crates/knowledge-builder/README.md) before choosing.
+The profile's `collectionProfile` controls depth. `quick` and `standard` avoid the Deep Script Console probe; Java version/vendor may therefore be recorded as `not-collected-by-profile`. `deep` runs the fixed read-only Script Console probe and is needed when those JVM properties and deeper API metadata are required. See the [Builder collection profile and credential reference](https://github.com/dmji/jenkins-knowledge/blob/master/crates/knowledge-builder/README.md) before choosing.
 
 Distribute the resulting package directory as an immutable versioned artifact using your organization's release process. The package contract is the same as the prebuilt release; developers do not need Builder credentials or network access to Jenkins/Git.
 
