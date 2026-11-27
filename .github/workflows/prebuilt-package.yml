@@ -63,7 +63,7 @@ jobs:
           retention-days: 30
 
   build-runtime-binaries:
-    name: Runtime binaries (\${{ matrix.platform }})
+    name: Runtime binaries (${{ matrix.platform }})
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build-prebuilt-package
     strategy:
@@ -78,7 +78,7 @@ jobs:
             runner: macos-15-intel
           - platform: windows-x86_64
             runner: windows-latest
-    runs-on: \${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,11 +112,11 @@ jobs:
       - name: Package platform binaries and verify checksum
         shell: bash
         env:
-          RELEASE_TAG: \${{ github.ref_name }}
-          PLATFORM: \${{ matrix.platform }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
-          STAGING="target/runtime-\${PLATFORM}"
+          STAGING="target/runtime-${PLATFORM}"
           mkdir -p "$STAGING/bin"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             cp target/release/jenkins-runtime.exe "$STAGING/bin/"
@@ -127,7 +127,7 @@ jobs:
             chmod 755 "$STAGING/bin/jenkins-runtime" "$STAGING/bin/jenkins-mcp"
           fi
           printf '%s\n' 'Jenkins Knowledge Runtime: jenkins-runtime CLI and jenkins-mcp stdio server.' 'Download and verify the separate Knowledge Package archive. Both programs are offline and read-only.' > "$STAGING/README.txt"
-          ARCHIVE="jenkins-runtime-\${RELEASE_TAG}-\${PLATFORM}.tar.gz"
+          ARCHIVE="jenkins-runtime-${RELEASE_TAG}-${PLATFORM}.tar.gz"
           tar -czf "target/$ARCHIVE" -C "$STAGING" .
           (cd target && sha256sum "$ARCHIVE" > "$ARCHIVE.sha256")
           (cd target && sha256sum --check "$ARCHIVE.sha256")
@@ -136,10 +136,10 @@ jobs:
       - name: Upload verified platform archive
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: runtime-\${{ matrix.platform }}
+          name: runtime-${{ matrix.platform }}
           path: |
-            target/jenkins-runtime-\${{ github.ref_name }}-\${{ matrix.platform }}.tar.gz
-            target/jenkins-runtime-\${{ github.ref_name }}-\${{ matrix.platform }}.tar.gz.sha256
+            target/jenkins-runtime-${{ github.ref_name }}-${{ matrix.platform }}.tar.gz
+            target/jenkins-runtime-${{ github.ref_name }}-${{ matrix.platform }}.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -183,7 +183,7 @@ jobs:
         run: |
           set -euo pipefail
           for platform in linux-x86_64 macos-aarch64 macos-x86_64 windows-x86_64; do
-            archive="target/runtime-assets/jenkins-runtime-\${GITHUB_REF_NAME}-\${platform}.tar.gz"
+            archive="target/runtime-assets/jenkins-runtime-${GITHUB_REF_NAME}-${platform}.tar.gz"
             test -s "$archive"
             test -s "$archive.sha256"
             (cd target/runtime-assets && sha256sum --check "$(basename "$archive").sha256")
@@ -209,10 +209,10 @@ jobs:
           EOF
       - name: Publish or append verified assets without replacing existing assets
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          PACKAGE="target/release/jenkins-knowledge-\${GITHUB_REF_NAME}-jenkins-2.356-java17-deep.tar.gz"
+          PACKAGE="target/release/jenkins-knowledge-${GITHUB_REF_NAME}-jenkins-2.356-java17-deep.tar.gz"
           CHECKSUM="$PACKAGE.sha256"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release edit "$GITHUB_REF_NAME" --notes-file target/release/RELEASE-NOTES.md
