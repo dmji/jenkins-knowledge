@@ -1523,7 +1523,7 @@ mod tests {
             "provenance":["GET /pipeline-syntax/gdsl"]
         })]);
 
-                let result = completion(Some(&runtime), r#"node {
+        let result = completion(Some(&runtime), r#"node {
   controllerGdslStep"#, 1, 20);
         assert!(result["items"].as_array().unwrap().iter()
             .any(|item| item["label"] == "controllerGdslStep"));
