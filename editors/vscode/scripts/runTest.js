@@ -24,7 +24,7 @@ async function main() {
 
     try {
         await runTests({
-            version: process.env.VSCODE_TEST_VERSION || '1.85.0',
+            version: process.env.VSCODE_TEST_VERSION || '1.91.0',
             extensionDevelopmentPath,
             extensionTestsPath,
             launchArgs: [
