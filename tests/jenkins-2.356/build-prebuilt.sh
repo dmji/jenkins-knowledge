@@ -117,11 +117,25 @@ lock = json.loads(lock_path.read_text(encoding="utf-8"))
 
 assert manifest["profile"] == "jenkins-2356-prebuilt", manifest["profile"]
 assert manifest["collection"]["profile"] == "deep"
-assert manifest["collection"]["status"] == "complete", manifest["collection"]
+assert manifest["collection"]["status"] in {"complete", "partial"}, manifest["collection"]["status"]
 outcomes = manifest["collection"]["sources"]
-for surface in ("script-console", "pipeline-gdsl"):
-    matches = [item for item in outcomes if item["surface"] == surface]
-    assert len(matches) == 1 and matches[0]["status"] == "succeeded", (surface, matches)
+script_console = [item for item in outcomes if item["surface"] == "script-console"]
+pipeline_gdsl = [item for item in outcomes if item["surface"] == "pipeline-gdsl"]
+assert len(script_console) == 1, script_console
+assert len(pipeline_gdsl) == 1 and pipeline_gdsl[0]["status"] == "succeeded", pipeline_gdsl
+# Jenkins 2.356 may deny enumeration of a subset of extension classes even to an administrator.
+# This is the sole accepted partial outcome; missing controller, plugin, GDSL, or library data fails.
+assert script_console[0]["status"] == "succeeded" or (
+    script_console[0]["status"] == "partial"
+    and script_console[0].get("errorCode") == "enumeration-failed"
+), script_console
+unexpected = [
+    item for item in outcomes
+    if item["status"] not in {"succeeded", "partial"}
+    or (item["status"] == "partial" and item["surface"] != "script-console")
+]
+assert not unexpected, unexpected
+assert (manifest["collection"]["status"] == "partial") == (script_console[0]["status"] == "partial")
 library_matches = [item for item in outcomes if item["surface"] == "library-source" and item["name"] == "gsa-examples"]
 assert len(library_matches) == 1 and library_matches[0]["status"] == "succeeded", library_matches
 
