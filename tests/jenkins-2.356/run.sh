@@ -47,17 +47,10 @@ chmod 600 "$ENV_FILE"
 mkdir -p "$OUT/docker-context/plugins"
 python3 tests/jenkins-2.356/test_resolve_plugins.py
 cp tests/jenkins-2.356/Dockerfile "$OUT/docker-context/Dockerfile"
-if [ -f tests/jenkins-2.356/plugins.lock.json ]; then
-    python3 tests/jenkins-2.356/resolve_plugins.py \
-        --lock-file tests/jenkins-2.356/plugins.lock.json \
-        --output "$OUT/docker-context/plugins" \
-        --lock-output "$OUT/plugins.lock.json"
-else
-    python3 tests/jenkins-2.356/resolve_plugins.py \
-        --roots-file tests/jenkins-2.356/plugins.txt \
-        --output "$OUT/docker-context/plugins" \
-        --lock-output "$OUT/plugins.lock.json"
-fi
+python3 tests/jenkins-2.356/resolve_plugins.py \
+    --lock-file tests/jenkins-2.356/plugins.lock.json \
+    --output "$OUT/docker-context/plugins" \
+    --lock-output "$OUT/plugins.lock.json"
 
 docker build --platform linux/amd64 --pull=false -t "$IMAGE" "$OUT/docker-context"
 rm -rf "$OUT/docker-context"
@@ -106,11 +99,17 @@ curl --silent --show-error --fail --user "reader:$reader_token" "$JENKINS_URL/ap
 docker exec "$CONTAINER" java -version 2> "$OUT/java-version.txt"
 grep -q '17\.0\.3' "$OUT/java-version.txt"
 
-# Save the exact plugin inventory observed from this digest-pinned controller.
+# Verify the live Core, JVM, and complete plugin inventory against the shared lock.
 curl --silent --show-error --fail --user "admin:$admin_token" \
     "$JENKINS_URL/pluginManager/api/json?depth=1" > "$OUT/plugin-inventory-api.json"
-printf '%s\n' 'jenkins/jenkins:2.356-jdk17@sha256:211419c659bd04b2d065ead531aad35ea47471489dcf714ab2c8a30cb9870850' \
-    > "$OUT/image.txt"
+curl --silent --show-error --fail --user "admin:$admin_token" \
+    --dump-header "$OUT/jenkins-headers.txt" "$JENKINS_URL/api/json" >/dev/null
+python3 tests/jenkins-2.356/assert_reference_environment.py \
+    --lock-file tests/jenkins-2.356/plugins.lock.json \
+    --java-version-file "$OUT/java-version.txt" \
+    --plugin-inventory "$OUT/plugin-inventory-api.json" \
+    --jenkins-headers "$OUT/jenkins-headers.txt" \
+    --image-output "$OUT/image.txt"
 
 run_build() {
     profile="$1"
