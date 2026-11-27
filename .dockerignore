@@ -9,6 +9,7 @@
 !/target/release/jenkins-runtime
 !/target/release/jenkins-mcp
 !/target/release/groovy-stubs
+!/target/release/jenkins-lsp
 **/node_modules
 **/out
 **/.env*

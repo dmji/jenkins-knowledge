@@ -1,0 +1,11 @@
+profile: jenkins-2356-demo
+collectionProfile: standard
+jenkins:
+  controllers:
+    - id: jenkins-2356-demo
+      url: http://jenkins:8080/
+libraries:
+  - name: gsa-examples
+    url: https://github.com/GSA/jenkins-shared-library-examples.git
+    revision: main
+    commit: 7dfe2ab4bf7123b6aea29b0ec92caa2277cea5de

@@ -78,7 +78,7 @@ cargo --locked build -p jenkins-lsp
 npm --prefix editors/vscode ci --ignore-scripts --no-audit --no-fund
 npm --prefix editors/vscode test
 
-cargo --locked build --release -p knowledge-builder -p catalog-validator -p jenkins-runtime --bins
+cargo --locked build --release -p knowledge-builder -p catalog-validator -p jenkins-runtime -p jenkins-lsp --bins
 docker build --file Dockerfile.builder --tag jenkins-knowledge-builder:local .
 docker build --file Dockerfile.runtime --tag jenkins-knowledge-runtime:local .
 BUILDER_IMAGE=jenkins-knowledge-builder:local RUNTIME_IMAGE=jenkins-knowledge-runtime:local bash .github/scripts/container-smoke.sh
