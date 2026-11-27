@@ -103,8 +103,9 @@ class ReferenceEnvironmentTests(unittest.TestCase):
         self.assertIn('cp "$ROOT/tests/jenkins-2.356/Dockerfile"', demo_up)
         self.assertIn('cp tests/jenkins-2.356/Dockerfile', prebuilt)
 
-        for script in (run, demo_up, prebuilt):
-            self.assertIn("python3 tests/jenkins-2.356/test_resolve_plugins.py", script)
+        self.assertIn("python3 tests/jenkins-2.356/test_resolve_plugins.py", run)
+        self.assertIn('python3 "$ROOT/tests/jenkins-2.356/test_resolve_plugins.py"', demo_up)
+        self.assertIn("python3 tests/jenkins-2.356/test_resolve_plugins.py", prebuilt)
 
     def test_live_environment_checks_compare_java_and_plugin_inventory_to_lock(self) -> None:
         run = (TEST_DIR / "run.sh").read_text(encoding="utf-8")
