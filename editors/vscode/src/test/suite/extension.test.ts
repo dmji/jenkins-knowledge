@@ -17,14 +17,21 @@ async function writeJenkinsfile(name: string, contents: string): Promise<vscode.
     return document;
 }
 
+async function completionItems(
+    document: vscode.TextDocument,
+    position: vscode.Position
+): Promise<vscode.CompletionItem[]> {
+    const result = await vscode.commands.executeCommand<
+        vscode.CompletionList | vscode.CompletionItem[] | undefined
+    >('vscode.executeCompletionItemProvider', document.uri, position);
+    return Array.isArray(result) ? result : result?.items ?? [];
+}
+
 async function completionLabels(
     document: vscode.TextDocument,
     position: vscode.Position
 ): Promise<string[]> {
-    const result = await vscode.commands.executeCommand<
-        vscode.CompletionList | vscode.CompletionItem[] | undefined
-    >('vscode.executeCompletionItemProvider', document.uri, position);
-    const items = Array.isArray(result) ? result : result?.items ?? [];
+    const items = await completionItems(document, position);
     return items.map(item => typeof item.label === 'string' ? item.label : item.label.label);
 }
 
@@ -97,15 +104,15 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
     test('live Jenkins 2.356 package provides Pipeline completion, Shared Library hover and navigation', async () => {
         const document = await writeJenkinsfile(
             'Jenkinsfile.live',
-            "node {\n  echo 'from Jenkins 2.356'\n  example1()\n}\n"
+            "node {\n  sh 'echo from Jenkins 2.356'\n  example1()\n}\n"
         );
 
         const stepLabels = await waitFor(
-            () => completionLabels(document, new vscode.Position(0, 4)),
-            labels => labels.includes('node'),
+            () => completionLabels(document, new vscode.Position(1, 4)),
+            labels => labels.includes('sh'),
             'Jenkins 2.356 Pipeline GDSL completion'
         );
-        assert.ok(stepLabels.includes('node'));
+        assert.ok(stepLabels.includes('sh'));
 
         const globalLabels = await waitFor(
             () => completionLabels(document, new vscode.Position(2, 7)),
@@ -178,12 +185,19 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
 
         await vscode.commands.executeCommand('workbench.action.closeAllEditors');
         const ordinaryUri = vscode.Uri.file(path.join(workspacePath(), 'Ordinary.groovy'));
-        await vscode.workspace.fs.writeFile(ordinaryUri, Buffer.from('def value = 1\\n\\n', 'utf8'));
+        await vscode.workspace.fs.writeFile(
+            ordinaryUri,
+            Buffer.from(['def value = 1', '', ''].join('\\n'), 'utf8')
+        );
         const ordinary = await vscode.workspace.openTextDocument(ordinaryUri);
         assert.strictEqual(ordinary.languageId, 'groovy');
-        const ordinaryLabels = await completionLabels(ordinary, new vscode.Position(1, 0));
-        assert.ok(!ordinaryLabels.includes('alternateOnly'));
-        assert.ok(!ordinaryLabels.includes('deployApp'));
-        assert.ok(!ordinaryLabels.includes('node'));
+        const ordinaryItems = await completionItems(ordinary, new vscode.Position(1, 0));
+        const jenkinsCatalogItems = ordinaryItems.filter(item => {
+            const label = typeof item.label === 'string' ? item.label : item.label.label;
+            const isCatalogKind = item.kind === vscode.CompletionItemKind.Function
+                || item.kind === vscode.CompletionItemKind.Variable;
+            return isCatalogKind && ['sh', 'node', 'alternateOnly', 'deployApp'].includes(label);
+        });
+        assert.deepStrictEqual(jenkinsCatalogItems, [], 'ordinary Groovy must not receive Jenkins catalog completion items');
     });
 });
