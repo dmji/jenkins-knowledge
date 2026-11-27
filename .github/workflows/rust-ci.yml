@@ -94,22 +94,21 @@ jobs:
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
 
-      - name: Build fixture Knowledge Package and LSP
+      - name: Build fixture Knowledge Packages and LSP
         run: |
-          mkdir -p target/vscode-acceptance-fixture
-          cp crates/jenkins-contract-tests/tests/fixtures/primary/{profile.yml,catalog.json,manifest.json} target/vscode-acceptance-fixture/
-          sed -i 's#https://example.test/fixture-library.git#https://github.com/example/fixture-library.git#' target/vscode-acceptance-fixture/catalog.json
-          rm -rf target/vscode-acceptance-package
-          cargo --locked run -p knowledge-builder -- build target/vscode-acceptance-fixture/profile.yml target/vscode-acceptance-package
+          cargo --locked run -p knowledge-builder -- build crates/jenkins-contract-tests/tests/fixtures/primary/profile.yml target/vscode-acceptance-primary
+          cargo --locked run -p knowledge-builder -- build crates/jenkins-contract-tests/tests/fixtures/alternate/profile.yml target/vscode-acceptance-alternate
           cargo --locked build -p jenkins-lsp
 
       - name: Run VS Code extension-host acceptance tests
         env:
           JENKINS_LSP_PATH: ${{ github.workspace }}/target/debug/jenkins-lsp
-          JENKINS_KNOWLEDGE_PACKAGE: ${{ github.workspace }}/target/vscode-acceptance-package
+          JENKINS_KNOWLEDGE_PRIMARY_PACKAGE: ${{ github.workspace }}/target/vscode-acceptance-primary
+          JENKINS_KNOWLEDGE_ALTERNATE_PACKAGE: ${{ github.workspace }}/target/vscode-acceptance-alternate
         run: |
           npm --prefix editors/vscode ci --ignore-scripts --no-audit --no-fund
-          xvfb-run -a npm --prefix editors/vscode test
+          npm --prefix editors/vscode test
+          xvfb-run -a npm --prefix editors/vscode run test:host
 
   scanner-portability:
     name: Shared Library scanner portability (${{ matrix.os }})

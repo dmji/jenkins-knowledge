@@ -7,7 +7,7 @@
   "packageManager": "npm@11.20.0",
   "license": "UNLICENSED",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.91.0"
   },
   "categories": [
     "Programming Languages"
@@ -20,7 +20,8 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node ./out/test/runTest.js"
+    "test": "npm run compile && node --test test/*.test.cjs",
+    "test:host": "node scripts/runTest.js"
   },
   "dependencies": {
     "vscode-languageclient": "^11.0.1"
@@ -28,9 +29,9 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "^26.6.6",
-    "@types/vscode": "^1.85.0",
-    "@vscode/test-electron": "^2.5.2",
-    "mocha": "^10.8.2",
+    "@types/vscode": "^1.91.0",
+    "@vscode/test-electron": "2.5.2",
+    "mocha": "10.8.2",
     "typescript": "^7.0.2"
   },
   "contributes": {

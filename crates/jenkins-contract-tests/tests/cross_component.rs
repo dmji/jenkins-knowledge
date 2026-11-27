@@ -188,6 +188,34 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
         .collect();
     assert!(labels.contains(&"sh"));
 
+    let ordinary_uri = "file:///workspace/Ordinary.groovy";
+    lsp_write(
+        &mut writer,
+        &json!({
+            "jsonrpc":"2.0",
+            "method":"textDocument/didOpen",
+            "params":{"textDocument":{
+                "uri":ordinary_uri,
+                "languageId":"groovy",
+                "version":1,
+                "text":"node {\\n  deployApp()\\n}\\n"
+            }}
+        }),
+    );
+    lsp_write(
+        &mut writer,
+        &json!({
+            "jsonrpc":"2.0",
+            "id":12,
+            "method":"textDocument/completion",
+            "params":{"textDocument":{"uri":ordinary_uri},"position":{"line":1,"character":8}}
+        }),
+    );
+    assert!(lsp_response(&mut reader, 12)["result"]["items"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+
     lsp_write(
         &mut writer,
         &json!({
@@ -202,6 +230,33 @@ fn run_lsp(primary: &Path, alternate: &Path, expected: &Value) {
     assert!(hover_text.contains("deployApp"));
     assert!(hover_text.contains("verified"));
     assert!(hover_text.contains("Fixture Shared Library"));
+
+    lsp_write(
+        &mut writer,
+        &json!({
+            "jsonrpc":"2.0",
+            "id":10,
+            "method":"textDocument/definition",
+            "params":{"textDocument":{"uri":uri},"position":{"line":3,"character":6}}
+        }),
+    );
+    let definition = lsp_response(&mut reader, 10);
+    assert!(
+        definition["result"].is_null(),
+        "non-GitHub fixture URLs must not become navigation targets"
+    );
+
+    lsp_write(
+        &mut writer,
+        &json!({
+            "jsonrpc":"2.0",
+            "id":11,
+            "method":"textDocument/definition",
+            "params":{"textDocument":{"uri":uri},"position":{"line":2,"character":8}}
+        }),
+    );
+    let missing_definition = lsp_response(&mut reader, 11);
+    assert!(missing_definition["result"].is_null());
 
     lsp_write(
         &mut writer,
