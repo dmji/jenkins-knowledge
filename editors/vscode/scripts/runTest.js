@@ -21,17 +21,21 @@ const extensionDevelopmentPath = path.resolve(__dirname, '..');
 const extensionTestsPath = path.join(extensionDevelopmentPath, 'out', 'test', 'suite', 'index.js');
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'jenkins-knowledge-vscode-'));
 
-runTests({
-    version: process.env.VSCODE_TEST_VERSION || '1.85.0',
-    extensionDevelopmentPath,
-    extensionTestsPath,
-    launchArgs: [
-        workspace,
-        '--disable-workspace-trust',
-        '--disable-gpu',
-        '--no-sandbox'
-    ]
-}).catch(error => {
+try {
+    await runTests({
+        version: process.env.VSCODE_TEST_VERSION || '1.85.0',
+        extensionDevelopmentPath,
+        extensionTestsPath,
+        launchArgs: [
+            workspace,
+            '--disable-workspace-trust',
+            '--disable-gpu',
+            '--no-sandbox'
+        ]
+    });
+} finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+}.catch(error => {
     console.error(error);
     process.exit(1);
 });
