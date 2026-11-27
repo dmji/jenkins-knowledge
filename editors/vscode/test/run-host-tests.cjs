@@ -18,10 +18,10 @@ async function main() {
         'files.associations': { 'Jenkinsfile': 'groovy' },
         'jenkinsKnowledge.serverPath': serverPath,
         'jenkinsKnowledge.packagePath': livePackage,
-        'jenkinsKnowledge.profile': 'deep'
+        'jenkinsKnowledge.profile': 'jenkins-2356-deep'
     }, null, 2));
     fs.writeFileSync(path.join(workspace, 'Jenkinsfile'),
-        "node {\n  sh 'echo ok'\n  unavailableStep()\n  deployApp()\n}\n");
+        "node {\n  sh 'echo ok'\n  unavailableStep()\n  deployApp()\n  alternateOnly()\n  // unavailableStep()\n  def message = \"unavailableStep()\"\n  unknownStep()\n}\n");
     fs.writeFileSync(path.join(workspace, 'ordinary.groovy'), "node { sh 'echo ok' }\n");
 
     try {
