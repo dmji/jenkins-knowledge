@@ -62,9 +62,9 @@ Supporting libraries have narrow roles: **catalog-validator** is shared by packa
 - **Builder input:** an administrator-owned YAML profile, plus credentials supplied through the Builder process environment or the host's Git credential mechanisms. The profile determines the target controller, collection depth, configured libraries, and output package directory.
 - **Builder output:** a validated Knowledge Package directory containing its manifest, catalog, schema/version metadata, provenance, collection outcomes, and integrity checksums. The package is data, not a platform executable.
 - **Server input:** one explicit local package path. Runtime validates package metadata, schemas, references, and checksums before serving queries. Relative LSP package paths resolve against the workspace root; MCP and CLI accept an explicit package path (MCP also supports **JENKINS_KNOWLEDGE_PACKAGE**).
-- **CLI behavior:** the Runtime CLI writes query JSON to stdout and errors to stderr. Builder writes build/plan summaries to stdout and failures to stderr. Neither CLI silently starts a long-running protocol server.
-- **MCP behavior:** **jenkins-mcp** uses newline-delimited JSON-RPC on stdin/stdout. Only protocol responses are written to stdout; startup/validation failures go to stderr and terminate the process with a non-zero status.
-- **LSP behavior:** **jenkins-lsp** uses the LSP stdio framing and initialization/configuration messages. Package selection is explicit; failed reloads unload the previous package rather than serving stale symbols.
+- **CLI behavior:** the Runtime CLI writes query JSON to stdout and errors to stderr (exit 0 on success/help, exit 1 on argument, package, or query errors). Builder writes build/plan summaries to stdout and failures to stderr (exit 0 on success, exit 1 on operation failure, exit 2 on invalid usage). Neither CLI silently starts a long-running protocol server.
+- **MCP behavior:** **jenkins-mcp** uses newline-delimited JSON-RPC on stdin/stdout. Only protocol responses are written to stdout; startup/validation failures go to stderr and terminate with exit 2. A clean stdin EOF ends the server normally.
+- **LSP behavior:** **jenkins-lsp** uses Content-Length-framed LSP messages on stdin/stdout and initialization/configuration messages. Package selection is explicit; failed reloads unload the previous package rather than serving stale symbols. Operational startup failures are written to stderr and exit 1; runtime diagnostics/log messages use LSP notifications.
 - **Offline guarantee:** after package selection, Runtime, MCP, and LSP do not contact Jenkins, Git, or the network. The contract test starts a local listener as a tripwire and verifies that the package consumers make no request to it and do not mutate the package.
 
 The stable boundary is the package contract plus the Runtime API. Builder may evolve its collection internals and the Server may expose additional protocol adapters or executables without changing who owns collection, package validation, and client-facing query behavior. The names and count of executables are packaging decisions, not architectural boundaries.
@@ -99,7 +99,7 @@ This is a selected controller-observed API surface, not complete Groovy, Java, J
 
 The Knowledge Package is the handoff artifact between stages. It contains the manifest, catalog, schema/version metadata, provenance, collection outcomes, and integrity checksums. The catalog is the canonical data contract shared by Builder and all consumers.
 
-Package publication is atomic from Builder's perspective: staging data is validated before publication. A package selected by Runtime is treated as immutable. To update knowledge, an administrator builds a new package and explicitly changes which package a Runtime process opens.
+Package publication is atomic from Builder's perspective: staging data is validated before publication. A package selected by Runtime is treated as immutable. To update knowledge, an administrator builds a new package and explicitly changes which package a Runtime process opens. The project-provided prebuilt/reference package is a convenience dataset for demonstration and quick-start use; it is not a substitute for collecting a package from the user's own Jenkins instance and its specific Jenkins Core, Java, and plugin environment.
 
 ## Stage 2 — user queries
 
