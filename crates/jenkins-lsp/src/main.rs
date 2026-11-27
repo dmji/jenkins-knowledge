@@ -1511,6 +1511,24 @@ mod tests {
 
 
     #[test]
+    fn completion_includes_controller_gdsl_steps_without_context_metadata() {
+        let runtime = fixture_runtime_with_symbols("completion-profile", vec![json!({
+            "id":"controller:controllerGdslStep:step",
+            "name":"controllerGdslStep",
+            "kind":"step",
+            "sourceId":"controller",
+            "signature":"controllerGdslStep()",
+            "description":"A step observed from the Jenkins Pipeline GDSL endpoint.",
+            "confidence":"verified",
+            "provenance":["GET /pipeline-syntax/gdsl"]
+        })]);
+
+        let result = completion(Some(&runtime), "node {\\n  controllerGdslStep", 1, 20);
+        assert!(result["items"].as_array().unwrap().iter()
+            .any(|item| item["label"] == "controllerGdslStep"));
+    }
+
+    #[test]
     fn completion_includes_controller_globals_and_selected_plugin_types() {
         let runtime = fixture_runtime_with_symbols("completion-profile", vec![
             json!({
