@@ -175,6 +175,10 @@ The optional VS Code extension adds Jenkins catalog completion and hover informa
 See [VS Code setup, configuration, limitations, and smoke tests](editors/vscode/README.md). Build the server with `cargo --locked build --release -p jenkins-lsp`.
 
 
+## Prebuilt package releases
+
+Versioned GitHub Releases provide a downloadable Jenkins 2.356 / Java 17 reference package. See [download, checksum verification, extraction, and offline Runtime usage](docs/prebuilt-packages.md). Packages for other Jenkins/plugin combinations are built from the target controller.
+
 ## Published documentation
 
 The [Jenkins Knowledge reference deployment and operations guide](docs/index.md) covers integration with an existing Jenkins controller, collection profiles, package publication, Runtime/MCP/VS Code setup, and the optional isolated demo environment. Enable GitHub Pages in repository Settings → Pages and select **GitHub Actions** as the build and deployment source.
