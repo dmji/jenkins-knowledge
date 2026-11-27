@@ -97,15 +97,15 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
     test('live Jenkins 2.356 package provides Pipeline completion, Shared Library hover and navigation', async () => {
         const document = await writeJenkinsfile(
             'Jenkinsfile.live',
-            "node {\n  sh 'echo from Jenkins 2.356'\n  example1()\n}\n"
+            "node {\n  echo 'from Jenkins 2.356'\n  example1()\n}\n"
         );
 
         const stepLabels = await waitFor(
             () => completionLabels(document, new vscode.Position(1, 4)),
-            labels => labels.includes('sh'),
+            labels => labels.includes('echo'),
             'Jenkins 2.356 Pipeline GDSL completion'
         );
-        assert.ok(stepLabels.includes('sh'));
+        assert.ok(stepLabels.includes('echo'));
 
         const globalLabels = await waitFor(
             () => completionLabels(document, new vscode.Position(2, 7)),
@@ -181,7 +181,7 @@ suite('Jenkins Knowledge VS Code extension host acceptance', function () {
         const ordinary = await vscode.workspace.openTextDocument(ordinaryUri);
         assert.strictEqual(ordinary.languageId, 'groovy');
         const ordinaryLabels = await completionLabels(ordinary, new vscode.Position(1, 4));
-        assert.ok(!ordinaryLabels.includes('sh'));
+        assert.ok(!ordinaryLabels.includes('echo'));
         assert.ok(!ordinaryLabels.includes('alternateOnly'));
     });
 });
