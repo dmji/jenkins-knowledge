@@ -11,12 +11,13 @@ A prebuilt package is a convenience snapshot for one declared reference environm
 
 ### Available releases
 
-Published assets are listed on the [Jenkins Knowledge GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases). Each versioned release contains the portable Knowledge Package plus ready-to-run Runtime archives for Linux x86_64, macOS Apple Silicon, macOS Intel, and Windows x86_64. The Runtime archives contain the CLI and MCP server; they are separate from the package data.
+Published assets are listed on the [Jenkins Knowledge GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases). Each versioned release contains the portable Knowledge Package plus ready-to-run platform tool bundles for Linux x86_64, macOS Apple Silicon, macOS Intel, and Windows x86_64. Each bundle contains knowledge-builder, jenkins-runtime, jenkins-mcp, jenkins-lsp, and groovy-stubs; the executables are separate from the package data.
 
 The current reference profile is Jenkins 2.356 / Java 17 with the exact plugin versions recorded in the release catalog. The asset name includes both the product release version and the reference environment identifier:
 
-- `jenkins-knowledge-vX.Y.Z-jenkins-2.356-java17-deep.tar.gz`
-- The same name with `.sha256` appended.
+- `jenkins-knowledge-vX.Y.Z-jenkins-2.356-java17-deep.tar.gz` (reference package)
+- `jenkins-knowledge-tools-vX.Y.Z-linux-x86_64.tar.gz` (or the matching platform suffix)
+- The same names with `.sha256` appended.
 
 The release description is generated from the package and records the exact Jenkins Core and Java versions, complete plugin inventory, collection profile/status, accepted partial outcome, package/catalog schema versions, Builder tool versions, source revisions, build time, and source commit.
 
@@ -44,20 +45,24 @@ On macOS, use `shasum -a 256 -c "${ASSET}.sha256"` instead of `sha256sum`. Keep 
 
 The extracted directory is `prebuilt-package/`, containing `manifest.json` and `catalog.json`. Runtime validates the manifest, catalog schema, and internal catalog checksum when it opens the package. The external checksum verifies the complete compressed archive; the internal manifest checksum verifies the catalog.
 
-### Download the matching Runtime
+### Download the matching platform tool bundle
 
 Choose the archive for your operating system and CPU architecture from the same GitHub Release. The examples below use Linux x86_64; use the corresponding `linux-x86_64`, `macos-aarch64`, `macos-x86_64`, or `windows-x86_64` asset on other hosts.
 
 ```sh
 TAG=vX.Y.Z
 PLATFORM=linux-x86_64
-RUNTIME_ARCHIVE="jenkins-runtime-${TAG}-${PLATFORM}.tar.gz"
+TOOLS_ARCHIVE="jenkins-knowledge-tools-${TAG}-${PLATFORM}.tar.gz"
 BASE_URL="https://github.com/dmji/jenkins-knowledge/releases/download/${TAG}"
-curl -fLO "${BASE_URL}/${RUNTIME_ARCHIVE}"
-curl -fLO "${BASE_URL}/${RUNTIME_ARCHIVE}.sha256"
-sha256sum -c "${RUNTIME_ARCHIVE}.sha256"
-mkdir -p runtime && tar -xzf "${RUNTIME_ARCHIVE}" -C runtime
-RUNTIME="$PWD/runtime/bin/jenkins-runtime"
+curl -fLO "${BASE_URL}/${TOOLS_ARCHIVE}"
+curl -fLO "${BASE_URL}/${TOOLS_ARCHIVE}.sha256"
+sha256sum -c "${TOOLS_ARCHIVE}.sha256"
+mkdir -p tools && tar -xzf "${TOOLS_ARCHIVE}" -C tools
+RUNTIME="$PWD/tools/bin/jenkins-runtime"
+BUILDER="$PWD/tools/bin/knowledge-builder"
+MCP="$PWD/tools/bin/jenkins-mcp"
+LSP="$PWD/tools/bin/jenkins-lsp"
+STUBS="$PWD/tools/bin/groovy-stubs"
 
 "$RUNTIME" --package ./prebuilt-package plugins
 "$RUNTIME" --package ./prebuilt-package steps
@@ -66,7 +71,7 @@ RUNTIME="$PWD/runtime/bin/jenkins-runtime"
 "$RUNTIME" --package ./prebuilt-package coverage
 ```
 
-On macOS, use `shasum -a 256 -c` instead of `sha256sum`. On Windows, extract the `.tar.gz` archive with a compatible archiver and invoke `runtime\bin\jenkins-runtime.exe` from PowerShell. No Rust toolchain, Cargo, compiler, or source checkout is required.
+On macOS, use `shasum -a 256 -c` instead of `sha256sum`. On Windows, extract the `.tar.gz` archive with a compatible archiver and invoke the `.exe` files under `tools\bin\` from PowerShell. No Rust toolchain, Cargo, compiler, or source checkout is required to run the bundled executables.
 
 The `compatibility` command without a target reports the environment recorded by the package and returns `not-compared` / `unknown`. Runtime is offline and does not infer a Jenkins installation from the machine on which it runs.
 
@@ -78,34 +83,35 @@ Launch the downloaded MCP stdio server with the same package. It reads JSON-RPC 
 "$PWD/runtime/bin/jenkins-mcp" --package "$PWD/prebuilt-package"
 ```
 
-Example MCP client configuration (replace both paths with absolute paths):
+For OpenCode, use the current `mcp.servers` configuration with a local command array:
 
 ```json
 {
-  "mcpServers": {
-    "jenkins-knowledge": {
-      "command": "/absolute/path/to/jenkins-mcp",
-      "args": ["--package", "/absolute/path/to/prebuilt-package"]
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "jenkins_knowledge": {
+        "type": "local",
+        "command": ["/absolute/path/to/jenkins-mcp", "--package", "/absolute/path/to/prebuilt-package"],
+        "protocol": "legacy",
+        "codemode": false
+      }
     }
   }
 }
 ```
 
+See the [complete OpenCode setup and MCP contract]({{ '/interfaces.html' | relative_url }}).
+
 MCP exposes the same read-only search/details APIs and catalog resources. The `jenkins://catalog/compatibility` resource returns the offline report without a target. The `get_package_compatibility` tool can compare against a caller-supplied target environment; see [MCP configuration and contract]({{ '/reference-deployment/integration/mcp.html' | relative_url }}).
 
 ### Use with LSP / VS Code
 
-Build the LSP server:
-
-```sh
-cargo build --locked --release --manifest-path crates/jenkins-lsp/Cargo.toml
-```
-
-Configure the VS Code extension to use the same local package:
+The bundle includes the `jenkins-lsp` executable. Configure the VS Code extension to use the same local package:
 
 ```json
 {
-  "jenkinsKnowledge.serverPath": "/absolute/path/to/jenkins-knowledge/target/release/jenkins-lsp",
+  "jenkinsKnowledge.serverPath": "/absolute/path/to/tools/bin/jenkins-lsp",
   "jenkinsKnowledge.packagePath": "/absolute/path/to/prebuilt-package",
   "jenkinsKnowledge.profile": "jenkins-2356-prebuilt",
   "files.associations": {
