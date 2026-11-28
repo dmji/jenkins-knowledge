@@ -22,21 +22,24 @@ assert(vim.filetype.match({ filename = "Jenkinsfile" }) == "groovy")
 assert(vim.filetype.match({ filename = "Jenkinsfile.ci" }) == "groovy")
 assert(vim.filetype.match({ filename = "build.jenkinsfile" }) == "groovy")
 
+local workspace = vim.fn.tempname()
+vim.fn.mkdir(workspace, "p")
 local buffer = vim.api.nvim_create_buf(false, true)
-vim.api.nvim_buf_set_name(buffer, "/workspace/vars/build.groovy")
+vim.api.nvim_buf_set_name(buffer, workspace .. "/vars/build.groovy")
 local started = false
 config.root_dir(buffer, function()
   started = true
 end)
 assert(not started, "ordinary Groovy files must not start Jenkins Knowledge")
 
-vim.api.nvim_buf_set_name(buffer, "/workspace/Jenkinsfile")
+vim.api.nvim_buf_set_name(buffer, workspace .. "/Jenkinsfile")
 config.root_dir(buffer, function(root)
-  assert(root == "/workspace", "Jenkinsfile should use its workspace directory")
+  assert(root == workspace, "Jenkinsfile should use its workspace directory")
   started = true
 end)
 assert(started, "Jenkinsfile should start Jenkins Knowledge")
 
 vim.api.nvim_buf_delete(buffer, { force = true })
+vim.fn.delete(workspace, "rf")
 print("Neovim Jenkins Knowledge configuration smoke test passed")
 vim.cmd("qa!")
