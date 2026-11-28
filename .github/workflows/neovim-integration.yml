@@ -1,0 +1,37 @@
+name: Neovim integration
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/neovim-integration.yml"
+      - "lua/jenkins_knowledge.lua"
+      - "tests/neovim/**"
+      - "docs/neovim.md"
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/neovim-integration.yml"
+      - "lua/jenkins_knowledge.lua"
+      - "tests/neovim/**"
+      - "docs/neovim.md"
+
+permissions:
+  contents: read
+
+jobs:
+  neovim-0126:
+    name: Neovim 0.12.6 configuration smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Neovim 0.12.6
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/neovim/neovim/releases/download/v0.12.6/nvim-linux-x86_64.tar.gz \
+            --output /tmp/nvim.tar.gz
+          tar -xzf /tmp/nvim.tar.gz -C /opt
+          echo "/opt/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+      - name: Verify Neovim version
+        run: nvim --version | head -n 1 | grep -F 'NVIM v0.12.6'
+      - name: Test Jenkins Knowledge LSP configuration
+        run: nvim --headless -u NONE -l tests/neovim/config-smoke.lua
