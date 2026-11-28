@@ -244,7 +244,11 @@ OpenCode connects to local MCP servers over stdio. Its current configuration for
 
 ### Prerequisites and package selection
 
-1. Install OpenCode using its [official installation instructions](https://opencode.ai/docs/).
+1. Install current OpenCode 2 using its [official installation instructions](https://opencode.ai/docs/). With npm, the current package is @opencode/cli (do not use the older V1 package name opencode-ai):
+
+~~~sh
+npm install -g @opencode/cli
+~~~
 2. Download the Runtime archive for your operating system and CPU architecture from the [Jenkins Knowledge Releases](https://github.com/dmji/jenkins-knowledge/releases) page. Each archive contains both jenkins-runtime and jenkins-mcp under bin/.
 3. Verify the archive's adjacent .sha256 file before extracting it. On Linux use sha256sum -c; on macOS use shasum -a 256 -c. On Windows use Get-FileHash as shown below.
 4. Select a Knowledge Package directory containing manifest.json. For a quick demonstration, download the separate reference-package archive from the same release and verify its adjacent checksum. For useful controller-specific answers, an administrator must first build a package from the user's own Jenkins instance and configured Shared Libraries.
