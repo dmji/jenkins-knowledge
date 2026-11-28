@@ -1,0 +1,43 @@
+name: Neovim 0.12.6 integration
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/neovim-integration.yml"
+      - "lua/jenkins_knowledge/**"
+      - "editors/neovim/**"
+      - "docs/neovim.md"
+      - "crates/jenkins-lsp/**"
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/neovim-integration.yml"
+      - "lua/jenkins_knowledge/**"
+      - "editors/neovim/**"
+      - "docs/neovim.md"
+      - "crates/jenkins-lsp/**"
+
+permissions:
+  contents: read
+
+jobs:
+  neovim-config:
+    name: Neovim 0.12.6 config smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Neovim 0.12.6
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            https://github.com/neovim/neovim/releases/download/v0.12.6/nvim-linux-x86_64.tar.gz \
+            --output "$RUNNER_TEMP/nvim.tar.gz"
+          tar -xzf "$RUNNER_TEMP/nvim.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+          nvim --version | head -n 1 | grep -Fx "NVIM v0.12.6"
+      - name: Test native LSP configuration and filetype filtering
+        run: |
+          nvim --headless -u NONE --cmd "set rtp+=." \
+            -c "luafile editors/neovim/tests/config_spec.lua" \
+            -c "qa!"
