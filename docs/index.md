@@ -19,6 +19,7 @@ Both paths produce the same package contract and use the same offline Runtime. T
 
 ## Reference material
 
+- [LSP and MCP interfaces]({{ '/interfaces.html' | relative_url }}) — editor assistance, MCP tools/resources, and a complete OpenCode setup.
 - [Architecture and trust boundaries]({{ '/architecture.html' | relative_url }}) — why collection and consumption are separate.
 - [Catalog contract]({{ '/catalog-contract.html' | relative_url }}) — package schema, evidence, coverage, and completeness semantics.
 - [Prebuilt package releases]({{ '/prebuilt-packages.html' | relative_url }}) — download, verify, extract, and use the versioned Jenkins 2.356 reference package.
