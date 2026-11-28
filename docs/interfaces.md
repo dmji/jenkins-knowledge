@@ -262,8 +262,8 @@ BASE=https://github.com/dmji/jenkins-knowledge/releases/download/$TAG
 curl -fLO $BASE/$ARCHIVE
 curl -fLO $BASE/$ARCHIVE.sha256
 sha256sum -c $ARCHIVE.sha256
-mkdir -p runtime && tar -xzf $ARCHIVE -C runtime
-MCP=$PWD/runtime/bin/jenkins-mcp
+mkdir -p tools && tar -xzf $ARCHIVE -C tools
+MCP=$PWD/tools/bin/jenkins-mcp
 PACKAGE_ARCHIVE=jenkins-knowledge-$TAG-jenkins-2.356-java17-deep.tar.gz
 curl -fLO $BASE/$PACKAGE_ARCHIVE
 curl -fLO $BASE/$PACKAGE_ARCHIVE.sha256
@@ -283,9 +283,9 @@ Invoke-WebRequest "$base/$archive.sha256" -OutFile "$archive.sha256"
 $expected = (Get-Content "$archive.sha256" -Raw).Trim().Split(' ')[0]
 $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw "Runtime archive checksum mismatch" }
-New-Item -ItemType Directory -Force runtime | Out-Null
-tar -xzf $archive -C runtime
-$MCP = (Resolve-Path "runtime/bin/jenkins-mcp.exe").Path
+New-Item -ItemType Directory -Force tools | Out-Null
+tar -xzf $archive -C tools
+$MCP = (Resolve-Path "tools/bin/jenkins-mcp.exe").Path
 ~~~
 
 The project-provided reference package is a fixed Jenkins 2.356 / Java 17 demonstration snapshot. It is not a current inventory of your controller. If the matching release archive is not yet published, build the MCP executable from the source checkout:
