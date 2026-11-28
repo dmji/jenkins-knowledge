@@ -140,6 +140,7 @@ jobs:
           test -s target/groovy-stubs.groovy
           cat <<'JSONL' | "$MCP" --package target/prebuilt-package > target/mcp-smoke.jsonl
           {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"release-smoke-test","version":"1"}}}
+          {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
           {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
           {"jsonrpc":"2.0","id":3,"method":"resources/list","params":{}}
           JSONL
