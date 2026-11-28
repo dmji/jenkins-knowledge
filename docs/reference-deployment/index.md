@@ -20,6 +20,7 @@ For a feature-oriented explanation of editor assistance and AI-agent access, see
 - [Runtime CLI]({{ '/reference-deployment/integration/runtime.html' | relative_url }})
 - [MCP server]({{ '/reference-deployment/integration/mcp.html' | relative_url }})
 - [VS Code extension]({{ '/reference-deployment/integration/vscode.html' | relative_url }})
+- [Neovim 0.12.6]({{ '/neovim.html' | relative_url }})
 
 ## Operations
 
