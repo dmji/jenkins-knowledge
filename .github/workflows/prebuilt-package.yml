@@ -128,25 +128,25 @@ jobs:
             chmod 755 "$STAGING/bin/knowledge-builder" "$STAGING/bin/jenkins-runtime" "$STAGING/bin/jenkins-mcp" "$STAGING/bin/jenkins-lsp" "$STAGING/bin/groovy-stubs"
           fi
           cat > "$STAGING/README.txt" <<'EOF'
-Jenkins Knowledge platform tool bundle
-
-bin/knowledge-builder  Build/refresh a Knowledge Package from a configured Jenkins controller.
-bin/jenkins-runtime    Offline CLI for searching and inspecting a selected package.
-bin/jenkins-mcp        Local MCP stdio server for AI-agent clients.
-bin/jenkins-lsp        Local LSP stdio server for editor integrations.
-bin/groovy-stubs       Offline Groovy stub generator for a selected package.
-
-Builder collection requires Git, network access to the configured Jenkins/Shared Library sources,
-and credentials supplied through JENKINS_USERNAME and JENKINS_API_TOKEN. Runtime, MCP, LSP,
-and groovy-stubs only read a local package and do not contact Jenkins/Git.
-
-Builder usage: knowledge-builder plan <profile.yml> and knowledge-builder build <profile.yml> <package-dir>.
-Runtime usage: jenkins-runtime --package <package-dir> search <query>.
-Stub generation: groovy-stubs --package <package-dir> --output <stubs.groovy>.
-The MCP server receives --package <directory> (or JENKINS_KNOWLEDGE_PACKAGE).
-The LSP server receives packagePath/profile in the LSP initialize.initializationOptions.
-See https://github.com/dmji/jenkins-knowledge for profiles and integration configuration.
-EOF
+          Jenkins Knowledge platform tool bundle
+          
+          bin/knowledge-builder  Build/refresh a Knowledge Package from a configured Jenkins controller.
+          bin/jenkins-runtime    Offline CLI for searching and inspecting a selected package.
+          bin/jenkins-mcp        Local MCP stdio server for AI-agent clients.
+          bin/jenkins-lsp        Local LSP stdio server for editor integrations.
+          bin/groovy-stubs       Offline Groovy stub generator for a selected package.
+          
+          Builder collection requires Git, network access to the configured Jenkins/Shared Library sources,
+          and credentials supplied through JENKINS_USERNAME and JENKINS_API_TOKEN. Runtime, MCP, LSP,
+          and groovy-stubs only read a local package and do not contact Jenkins/Git.
+          
+          Builder usage: knowledge-builder plan <profile.yml> and knowledge-builder build <profile.yml> <package-dir>.
+          Runtime usage: jenkins-runtime --package <package-dir> search <query>.
+          Stub generation: groovy-stubs --package <package-dir> --output <stubs.groovy>.
+          The MCP server receives --package <directory> (or JENKINS_KNOWLEDGE_PACKAGE).
+          The LSP server receives packagePath/profile in the LSP initialize.initializationOptions.
+          See https://github.com/dmji/jenkins-knowledge for profiles and integration configuration.
+          EOF
           ARCHIVE="jenkins-knowledge-tools-${RELEASE_TAG}-${PLATFORM}.tar.gz"
           tar -czf "target/$ARCHIVE" -C "$STAGING" .
           (cd target && sha256sum "$ARCHIVE" > "$ARCHIVE.sha256")
