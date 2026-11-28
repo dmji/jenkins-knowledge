@@ -325,13 +325,18 @@ jobs:
           PACKAGE="target/release/jenkins-knowledge-${RELEASE_TAG}-jenkins-2.356-java17-deep.tar.gz"
           CHECKSUM="$PACKAGE.sha256"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --notes-file target/release/RELEASE-NOTES.md
+            gh release view "$RELEASE_TAG" --json body --jq .body > target/release/EXISTING-RELEASE-NOTES.md
+            if ! grep -q '^## Platform tool bundles
+ target/release/EXISTING-RELEASE-NOTES.md; then
+              sed -n '/^## Platform tool bundles$/,$p' target/release/RELEASE-NOTES.md >> target/release/EXISTING-RELEASE-NOTES.md
+              gh release edit "$RELEASE_TAG" --notes-file target/release/EXISTING-RELEASE-NOTES.md
+            fi
             gh release upload "$RELEASE_TAG" "$PACKAGE" "$CHECKSUM" target/runtime-assets/*.tar.gz target/runtime-assets/*.tar.gz.sha256 --clobber
           else
             gh release create "$RELEASE_TAG" \
               "$PACKAGE" "$CHECKSUM" \
               target/runtime-assets/*.tar.gz target/runtime-assets/*.tar.gz.sha256 \
               --verify-tag \
-              --title "Jenkins Knowledge $GITHUB_REF_NAME — Jenkins 2.356 / Java 17" \
+              --title "Jenkins Knowledge $RELEASE_TAG — Jenkins 2.356 / Java 17" \
               --notes-file target/release/RELEASE-NOTES.md
           fi
