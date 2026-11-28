@@ -127,7 +127,7 @@ Runtime, MCP, LSP, and groovy-stubs do not download releases, contact Jenkins or
 
 ## 2. Build a custom package from your Jenkins
 
-Use this path when the package must reflect your own controller, its actual Java runtime, installed plugin versions, configured Shared Libraries, and API surfaces. A release built for the reference environment is not a substitute for this collection.
+Use this path when the package must reflect your own controller, its actual Java runtime, installed plugin versions, configured Shared Libraries, and API surfaces. A release built for the reference environment is not a substitute for this collection. The bundled Builder requires network access to the configured controller; install Git and make it available on PATH when the profile includes Shared Library repositories.
 
 1. Copy or edit a Builder profile for your controller. Set the real controller URL, desired collection profile, and any Shared Library repositories/revisions. Pin library commits to full commit SHAs where reproducibility is required.
 2. Inspect the plan without network access:
