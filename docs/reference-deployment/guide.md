@@ -88,7 +88,7 @@ read -r -s -p "Jenkins API token: " JENKINS_API_TOKEN
 printf '\\n'
 export JENKINS_API_TOKEN
 
-knowledge-builder build profiles/production-pipelines.yml ./out/production-pipelines-2026-11
+/opt/jenkins-knowledge/tools/bin/knowledge-builder build profiles/production-pipelines.yml ./out/production-pipelines-2026-11
 
 unset JENKINS_USERNAME JENKINS_API_TOKEN
 ```
