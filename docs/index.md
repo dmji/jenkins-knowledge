@@ -12,7 +12,7 @@ Jenkins Knowledge separates administrator-controlled collection from developer q
 
 ## Choose your starting point
 
-- **No Jenkins controller to collect from?** Start with a [published prebuilt package]({{ '/prebuilt-packages.html' | relative_url }}). Releases include the package plus ready-to-run CLI/MCP archives for Linux, macOS, and Windows; no Rust toolchain or source checkout is required. Browse the [GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases).
+- **No Jenkins controller to collect from?** Start with a [published prebuilt package]({{ '/prebuilt-packages.html' | relative_url }}). Releases include the package plus ready-to-run Builder, Runtime, MCP, LSP, and Groovy-stub tool bundles for Linux, macOS, and Windows; no Rust toolchain or source checkout is required. Browse the [GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases).
 - **Need knowledge from your own Jenkins?** Follow the [custom deployment guide]({{ '/reference-deployment/guide.html' | relative_url }}). An administrator configures Builder for the real controller, Java runtime, plugin inventory, and Shared Libraries; developers consume the resulting package locally.
 
 Both paths produce the same package contract and use the same offline Runtime. The [optional local demo]({{ '/reference-deployment/demo-environment/walkthrough.html' | relative_url }}) is a disposable Builder example, not a prerequisite for the prebuilt path.
@@ -20,6 +20,7 @@ Both paths produce the same package contract and use the same offline Runtime. T
 ## Reference material
 
 - [LSP and MCP interfaces]({{ '/interfaces.html' | relative_url }}) — editor assistance, MCP tools/resources, and a complete OpenCode setup.
+- [Neovim 0.12.6 integration]({{ '/neovim.html' | relative_url }}) — stock Neovim with vim.pack and LazyVim setup using the native LSP client.
 - [Architecture and trust boundaries]({{ '/architecture.html' | relative_url }}) — why collection and consumption are separate.
 - [Catalog contract]({{ '/catalog-contract.html' | relative_url }}) — package schema, evidence, coverage, and completeness semantics.
 - [Prebuilt package releases]({{ '/prebuilt-packages.html' | relative_url }}) — download, verify, extract, and use the versioned Jenkins 2.356 reference package.
