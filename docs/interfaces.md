@@ -4,6 +4,8 @@ title: LSP and MCP interfaces
 
 # Use Jenkins Knowledge from editors and AI agents
 
+Neovim users can follow the dedicated [Neovim 0.12.6 and LazyVim setup guide]({{ '/neovim.html' | relative_url }}). It uses the same `jenkins-lsp` server described below.
+
 Jenkins Knowledge exposes one selected Knowledge Package through two complementary interfaces:
 
 - **Language Server Protocol (LSP)** gives an editor contextual assistance while a developer writes a Jenkinsfile.
