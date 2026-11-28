@@ -90,7 +90,7 @@ For supported Jenkinsfiles, the server provides:
 - **Go to Definition:** only when safe, revision-pinned source evidence exists.
 - **Diagnostics:** verified Declarative-context mistakes, unavailable plugin symbols, CPS incompatibility, and Script Security Sandbox rejection. Unknown evidence is not turned into an error.
 
-The setup module enables Neovim's built-in LSP completion with automatic trigger characters. Inside a Pipeline step block, use CTRL-X CTRL-O to request completion manually; typing a dot can also trigger completion. Press K over a symbol for hover. For definition navigation, run:
+The setup module enables Neovim's built-in LSP completion with automatic trigger characters. Inside a Pipeline step block, use CTRL-X CTRL-O to request completion manually; typing a dot can also trigger completion. Press K over a symbol for hover (or run :lua vim.lsp.buf.hover() if your keymap overrides K). For definition navigation, run:
 
 ~~~vim
 :lua vim.lsp.buf.definition()
