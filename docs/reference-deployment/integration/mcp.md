@@ -10,7 +10,7 @@ cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenki
   --package /srv/jenkins-knowledge/production-pipelines
 ~~~
 
-In production, use the **jenkins-mcp** executable from the platform Runtime archive rather than invoking Cargo. Select the package with **--package** or **JENKINS_KNOWLEDGE_PACKAGE**. The process does not contact Jenkins/Git, execute Pipeline steps, refresh a package, or mutate package contents.
+In production, use the **jenkins-mcp** executable from the platform platform tool bundle rather than invoking Cargo. Select the package with **--package** or **JENKINS_KNOWLEDGE_PACKAGE**. The process does not contact Jenkins/Git, execute Pipeline steps, refresh a package, or mutate package contents.
 
 ## OpenCode
 
