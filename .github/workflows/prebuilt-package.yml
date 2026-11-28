@@ -34,6 +34,11 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing version tag to build and append verified assets to (for example v0.0.1)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -45,6 +50,8 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -66,7 +73,7 @@ jobs:
 
   build-runtime-binaries:
     name: Tool bundle (${{ matrix.platform }})
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.release_tag, 'v'))
     needs: build-prebuilt-package
     strategy:
       fail-fast: false
@@ -84,6 +91,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -94,7 +103,7 @@ jobs:
           name: jenkins-2356-prebuilt-knowledge-package
           path: target/prebuilt-package
       - name: Checkout release smoke helper from master
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: master
@@ -107,7 +116,7 @@ jobs:
       - name: Package platform binaries and verify checksum
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+          RELEASE_TAG: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || inputs.release_tag || github.ref_name }}
           PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
@@ -160,7 +169,7 @@ jobs:
       - name: Smoke-test extracted platform tool bundle
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+          RELEASE_TAG: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || inputs.release_tag || github.ref_name }}
           PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
@@ -208,7 +217,7 @@ jobs:
           grep -q '"protocolVersion":"2025-06-18"' target/mcp-smoke.jsonl
           grep -q '"name":"search_api"' target/mcp-smoke.jsonl
           grep -q '"uri":"jenkins://catalog/manifest"' target/mcp-smoke.jsonl
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          if [[ "$GITHUB_REF" == refs/tags/* || "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             LSP_SMOKE="smoke-helpers/tests/jenkins-2.356/smoke-lsp.py"
           else
             LSP_SMOKE="tests/jenkins-2.356/smoke-lsp.py"
@@ -226,7 +235,7 @@ jobs:
 
   publish-github-release:
     name: Publish versioned GitHub Release assets
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.release_tag, 'v'))
     needs: [build-prebuilt-package, build-runtime-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -236,6 +245,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
@@ -254,17 +264,26 @@ jobs:
           pattern: tools-*
           path: target/runtime-assets
           merge-multiple: true
-      - name: Require a version tag pointing to master
+      - name: Require the selected version tag to point to master
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
-          git fetch origin master
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+          set -euo pipefail
+          git fetch origin master --tags
+          RELEASE_COMMIT="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)"
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/master
       - name: Package, checksum, and verify Knowledge Package archive
-        run: bash tests/jenkins-2.356/package-prebuilt-release.sh "$GITHUB_REF_NAME" target/prebuilt-package target/release "$GITHUB_SHA"
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: bash tests/jenkins-2.356/package-prebuilt-release.sh "$RELEASE_TAG" target/prebuilt-package target/release "$(git rev-parse HEAD)"
       - name: Verify complete platform tool bundle matrix
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
           for platform in linux-x86_64 macos-aarch64 macos-x86_64 windows-x86_64; do
-            archive="target/runtime-assets/jenkins-knowledge-tools-${GITHUB_REF_NAME}-${platform}.tar.gz"
+            archive="target/runtime-assets/jenkins-knowledge-tools-${RELEASE_TAG}-${platform}.tar.gz"
             test -s "$archive"
             test -s "$archive.sha256"
             (cd target/runtime-assets && sha256sum --check "$(basename "$archive").sha256")
@@ -276,6 +295,8 @@ jobs:
             grep -q 'bin/groovy-stubs' "$archive.contents"
           done
       - name: Add platform support and quick-start notes
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           cat >> target/release/RELEASE-NOTES.md <<'EOF'
 
@@ -295,21 +316,27 @@ jobs:
           This is a format/schema compatibility check, not a guarantee that a
           reference package describes a different Jenkins installation.
           EOF
-      - name: Publish or append verified assets without replacing existing assets
+      - name: Publish or append verified assets without losing existing assets
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
-          PACKAGE="target/release/jenkins-knowledge-${GITHUB_REF_NAME}-jenkins-2.356-java17-deep.tar.gz"
+          PACKAGE="target/release/jenkins-knowledge-${RELEASE_TAG}-jenkins-2.356-java17-deep.tar.gz"
           CHECKSUM="$PACKAGE.sha256"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --notes-file target/release/RELEASE-NOTES.md
-            gh release upload "$GITHUB_REF_NAME" "$PACKAGE" "$CHECKSUM" target/runtime-assets/*.tar.gz target/runtime-assets/*.tar.gz.sha256
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release view "$RELEASE_TAG" --json body --jq .body > target/release/EXISTING-RELEASE-NOTES.md
+            if ! grep -q '^## Platform tool bundles
+ target/release/EXISTING-RELEASE-NOTES.md; then
+              sed -n '/^## Platform tool bundles$/,$p' target/release/RELEASE-NOTES.md >> target/release/EXISTING-RELEASE-NOTES.md
+              gh release edit "$RELEASE_TAG" --notes-file target/release/EXISTING-RELEASE-NOTES.md
+            fi
+            gh release upload "$RELEASE_TAG" "$PACKAGE" "$CHECKSUM" target/runtime-assets/*.tar.gz target/runtime-assets/*.tar.gz.sha256 --clobber
           else
-            gh release create "$GITHUB_REF_NAME" \
+            gh release create "$RELEASE_TAG" \
               "$PACKAGE" "$CHECKSUM" \
               target/runtime-assets/*.tar.gz target/runtime-assets/*.tar.gz.sha256 \
               --verify-tag \
-              --title "Jenkins Knowledge $GITHUB_REF_NAME — Jenkins 2.356 / Java 17" \
+              --title "Jenkins Knowledge $RELEASE_TAG — Jenkins 2.356 / Java 17" \
               --notes-file target/release/RELEASE-NOTES.md
           fi
