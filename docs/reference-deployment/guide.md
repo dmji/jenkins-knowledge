@@ -147,7 +147,7 @@ Do not distribute Builder credentials or local snapshot-cache contents. Mount th
 
 ## 5. Configure local consumers
 
-Consumers need the package and their executable, not access to Jenkins or Git. Build the tools from the repository using the pinned toolchain, or deploy the corresponding release binaries.
+Consumers need the package and their executable, not access to Jenkins or Git. Build the tools from the repository using the pinned toolchain, or deploy the corresponding release binaries. Use the [LSP and MCP interface guide]({{ '/interfaces.html' | relative_url }}) for the complete feature reference, copyable VS Code settings, MCP tool/resource schemas, and OpenCode setup.
 
 ### Runtime CLI
 
