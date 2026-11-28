@@ -176,7 +176,7 @@ The current reference collector has one known bounded limitation: Jenkins 2.356 
 Run:
 
 ```sh
-cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml -- --package ./prebuilt-package compatibility
+"$RUNTIME" --package ./prebuilt-package compatibility
 ```
 
 Without a target environment, the report describes only the package's recorded environment and collection limitations. Its comparison status is `not-compared`; compatibility is `unknown`. This is expected for an offline package.
