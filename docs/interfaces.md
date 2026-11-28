@@ -94,7 +94,25 @@ Configure the extension in the workspace settings:
 
 Use **Jenkins Knowledge: Reload Knowledge Package** after changing the selected package. The extension sends jenkinsKnowledge/reload; a successful reload switches the Runtime, while a failed reload clears the previous package and its diagnostics instead of leaving stale symbols visible. Configuration changes are also handled through workspace/didChangeConfiguration.
 
-See the [VS Code extension README](https://github.com/dmji/jenkins-knowledge/blob/master/editors/vscode/README.md) for the full smoke test and the [LSP implementation](https://github.com/dmji/jenkins-knowledge/blob/master/crates/jenkins-lsp/src/main.rs) for the protocol contract.
+For another LSP-compatible editor, launch jenkins-lsp with no arguments and send the package selection in initialize.initializationOptions:
+
+~~~json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "rootUri": "file:///workspace",
+    "initializationOptions": {
+      "packagePath": "/srv/jenkins-knowledge/production-pipelines",
+      "profile": "production-pipelines",
+      "workspaceRoot": "/workspace"
+    }
+  }
+}
+~~~
+
+Use LSP Content-Length framing rather than the newline-delimited MCP transport. The extension README provides the full smoke test; the [LSP implementation](https://github.com/dmji/jenkins-knowledge/blob/master/crates/jenkins-lsp/src/main.rs) defines the exact request contract.
 
 ### LSP custom requests
 
@@ -243,6 +261,12 @@ curl -fLO $BASE/$ARCHIVE.sha256
 sha256sum -c $ARCHIVE.sha256
 mkdir -p runtime && tar -xzf $ARCHIVE -C runtime
 MCP=$PWD/runtime/bin/jenkins-mcp
+PACKAGE_ARCHIVE=jenkins-knowledge-$TAG-jenkins-2.356-java17-deep.tar.gz
+curl -fLO $BASE/$PACKAGE_ARCHIVE
+curl -fLO $BASE/$PACKAGE_ARCHIVE.sha256
+sha256sum -c $PACKAGE_ARCHIVE.sha256
+mkdir -p reference && tar -xzf $PACKAGE_ARCHIVE -C reference
+PACKAGE=$PWD/reference/prebuilt-package
 ~~~
 
 Use PLATFORM=macos-aarch64 or macos-x86_64 on macOS and replace the checksum command with shasum -a 256 -c. The Windows archive contains jenkins-mcp.exe. In PowerShell:
@@ -278,7 +302,7 @@ The Builder is the administrative collection tool. It may contact only the confi
 
 ### Configure OpenCode
 
-Create or edit opencode.jsonc in the project where OpenCode will use Jenkins Knowledge. Use absolute paths; replace the executable and package paths with the actual locations on the machine:
+Create or edit opencode.jsonc in the project where OpenCode will use Jenkins Knowledge. Use absolute paths; replace the executable and package paths with the actual locations on the machine. If those paths are specific to one workstation, put the entry in the user's global OpenCode configuration instead of committing machine-specific paths to the project. OpenCode reads project configuration from opencode.json(c) and global user configuration from ~/.config/opencode/opencode.json(c):
 
 ~~~json
 {
