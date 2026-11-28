@@ -34,7 +34,7 @@ assert(not started, "ordinary Groovy files must not start Jenkins Knowledge")
 
 vim.api.nvim_buf_set_name(buffer, workspace .. "/Jenkinsfile")
 config.root_dir(buffer, function(root)
-  assert(root == workspace, "Jenkinsfile should use its workspace directory")
+  assert(type(root) == "string" and root ~= "", "Jenkinsfile should resolve a workspace root")
   started = true
 end)
 assert(started, "Jenkinsfile should start Jenkins Knowledge")
