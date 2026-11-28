@@ -80,7 +80,7 @@ The `compatibility` command without a target reports the environment recorded by
 Launch the downloaded MCP stdio server with the same package. It reads JSON-RPC over standard input/output and does not expose a network listener:
 
 ```sh
-"$PWD/runtime/bin/jenkins-mcp" --package "$PWD/prebuilt-package"
+"$MCP" --package "$PWD/prebuilt-package"
 ```
 
 For OpenCode, use the current `mcp.servers` configuration with a local command array:
@@ -123,7 +123,7 @@ The bundle includes the `jenkins-lsp` executable. Configure the VS Code extensio
 
 The configured profile must match the package manifest. The LSP custom requests `jenkinsKnowledge/collection` and `jenkinsKnowledge/coverage` expose collection outcomes and API-surface coverage separately. The LSP does not infer compatibility with a local Jenkins installation.
 
-Runtime, MCP, and LSP do not download releases, contact Jenkins or Git, or update the package in the background. Selecting a different package is an explicit user action. The Runtime release version is independent of the Knowledge Package version; opening a package performs embedded manifest/catalog schema, metadata, and checksum validation. This establishes package-format compatibility only, not compatibility with a different Jenkins controller or plugin environment.
+Runtime, MCP, LSP, and groovy-stubs do not download releases, contact Jenkins or Git, or update the package in the background. Builder is the only executable in the bundle that collects from the configured Jenkins/Shared Library sources. Selecting a different package is an explicit user action. The Runtime release version is independent of the Knowledge Package version; opening a package performs embedded manifest/catalog schema, metadata, and checksum validation. This establishes package-format compatibility only, not compatibility with a different Jenkins controller or plugin environment.
 
 ## 2. Build a custom package from your Jenkins
 
@@ -133,7 +133,7 @@ Use this path when the package must reflect your own controller, its actual Java
 2. Inspect the plan without network access:
 
    ```sh
-   cargo run --locked --manifest-path crates/knowledge-builder/Cargo.toml -- plan profiles/production-pipelines.yml
+   "$BUILDER" plan profiles/production-pipelines.yml
    ```
 
 3. Supply credentials through the process environment or a secret manager; do not put tokens in profile URLs or commit them to the repository. For a controller requiring authentication, Builder expects both `JENKINS_USERNAME` and `JENKINS_API_TOKEN`:
@@ -141,16 +141,17 @@ Use this path when the package must reflect your own controller, its actual Java
    ```sh
    export JENKINS_USERNAME="your-jenkins-user"
    export JENKINS_API_TOKEN="your-jenkins-api-token"
-   cargo run --locked --manifest-path crates/knowledge-builder/Cargo.toml -- build profiles/production-pipelines.yml ./target/custom-package
+   "$BUILDER" build profiles/production-pipelines.yml ./target/custom-package
    unset JENKINS_USERNAME JENKINS_API_TOKEN
    ```
 
 4. Inspect the generated `manifest.json`, `catalog.json`, source outcomes, and plugin inventory. Use Runtime to query the package exactly as you would query a prebuilt package:
 
    ```sh
-   cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml -- --package ./target/custom-package plugins
-   cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml -- --package ./target/custom-package steps
-   cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml -- --package ./target/custom-package compatibility
+   "$RUNTIME" --package ./target/custom-package plugins
+   "$RUNTIME" --package ./target/custom-package steps
+   "$RUNTIME" --package ./target/custom-package compatibility
+   "$STUBS" --package ./target/custom-package --output ./jenkins-knowledge-stubs.groovy
    ```
 
 The profile's `collectionProfile` controls depth. `quick` and `standard` avoid the Deep Script Console probe; Java version/vendor may therefore be recorded as `not-collected-by-profile`. `deep` runs the fixed read-only Script Console probe and is needed when those JVM properties and deeper API metadata are required. See the [Builder collection profile and credential reference](https://github.com/dmji/jenkins-knowledge/blob/master/crates/knowledge-builder/README.md) before choosing.
