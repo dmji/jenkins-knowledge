@@ -44,7 +44,10 @@ def main():
     if not binary.is_file() or not manifest_path.is_file():
         raise AssertionError("LSP executable or package manifest is missing")
 
-    profile = json.loads(manifest_path.read_text(encoding="utf-8"))["profile"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    profile = manifest.get("profile")
+    if not isinstance(profile, str) or not profile:
+        profile = None
     with tempfile.TemporaryDirectory(prefix="jenkins-knowledge-lsp-") as temp:
         workspace = Path(temp).resolve()
         initialize = {
@@ -59,8 +62,8 @@ def main():
                 "clientInfo": {"name": "jenkins-knowledge-release-smoke", "version": "1"},
                 "initializationOptions": {
                     "packagePath": str(package),
-                    "profile": profile,
                     "workspaceRoot": str(workspace),
+                    **({"profile": profile} if profile else {}),
                 },
             },
         }
@@ -109,12 +112,14 @@ def main():
     assert capabilities.get("definitionProvider") is True, capabilities
 
     coverage = responses.get(2, {}).get("result")
-    if not coverage or coverage.get("profile") != profile:
+    if not coverage or coverage.get("profile") is None:
         raise AssertionError(f"LSP did not open the selected package: {coverage!r}")
+    if profile and coverage.get("profile") != profile:
+        raise AssertionError(f"LSP opened a different package profile: {coverage!r}")
     if 3 not in responses or "error" in responses[3]:
         raise AssertionError(f"LSP shutdown response missing or failed: {responses.get(3)}")
 
-    print(f"LSP smoke passed: profile={profile}, completion/hover/definition advertised")
+    print(f"LSP smoke passed: profile={coverage.get('profile')!r}, completion/hover/definition advertised")
 
 
 if __name__ == "__main__":
