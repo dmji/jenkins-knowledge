@@ -7,5 +7,6 @@ markdown: kramdown
 header_pages:
   - reference-deployment/guide.md
   - reference-deployment/index.md
+  - interfaces.md
   - architecture.md
   - catalog-contract.md

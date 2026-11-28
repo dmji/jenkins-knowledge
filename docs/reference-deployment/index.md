@@ -13,6 +13,8 @@ The [end-to-end custom deployment guide]({{ '/reference-deployment/guide.html' |
 
 ## Collection and consumers
 
+For a feature-oriented explanation of editor assistance and AI-agent access, see the [LSP and MCP interface guide]({{ '/interfaces.html' | relative_url }}), including the OpenCode integration.
+
 - [Collection profiles and commands]({{ '/reference-deployment/integration/collection.html' | relative_url }})
 - [Package structure and completeness]({{ '/reference-deployment/integration/package.html' | relative_url }})
 - [Runtime CLI]({{ '/reference-deployment/integration/runtime.html' | relative_url }})
