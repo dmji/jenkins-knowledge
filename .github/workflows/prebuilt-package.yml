@@ -93,6 +93,12 @@ jobs:
         with:
           name: jenkins-2356-prebuilt-knowledge-package
           path: target/prebuilt-package
+      - name: Checkout release smoke helper from master
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: master
+          path: smoke-helpers
       - name: Build all user-facing executables
         run: |
           cargo build --locked --release --manifest-path crates/knowledge-builder/Cargo.toml
@@ -115,12 +121,20 @@ jobs:
             LSP="target/release/jenkins-lsp"
             STUBS="target/release/groovy-stubs"
           fi
-          "$BUILDER" --version
-          "$BUILDER" --help
+          set +e
+          "$BUILDER" --help > target/builder-help.txt 2>&1
+          BUILDER_HELP_STATUS=$?
+          set -e
+          if [[ "$BUILDER_HELP_STATUS" -ne 0 && "$BUILDER_HELP_STATUS" -ne 2 ]]; then
+            cat target/builder-help.txt
+            exit "$BUILDER_HELP_STATUS"
+          fi
+          grep -q 'knowledge-builder build' target/builder-help.txt
           "$BUILDER" plan profiles/prebuilt-jenkins-2.356.yml > target/builder-plan.json
           python3 -c 'import json; p=json.load(open("target/builder-plan.json")); assert p'
           "$CLI" --help
           "$CLI" --package target/prebuilt-package plugins > target/runtime-plugins.json
+          "$STUBS" --help
           "$STUBS" --package target/prebuilt-package --output target/groovy-stubs.groovy
           test -s target/groovy-stubs.groovy
           printf '%s\\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"release-smoke-test","version":"1"}}}' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' '{"jsonrpc":"2.0","id":3,"method":"resources/list","params":{}}' |
@@ -128,7 +142,13 @@ jobs:
           grep -q '"protocolVersion":"2025-06-18"' target/mcp-smoke.jsonl
           grep -q '"name":"search_api"' target/mcp-smoke.jsonl
           grep -q '"uri":"jenkins://catalog/manifest"' target/mcp-smoke.jsonl
-          python3 tests/jenkins-2.356/smoke-lsp.py "$LSP" target/prebuilt-package
+          if [[ "$RUNNER_OS" == "Windows" ]]; then PYTHON=python; else PYTHON=python3; fi
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            LSP_SMOKE="smoke-helpers/tests/jenkins-2.356/smoke-lsp.py"
+          else
+            LSP_SMOKE="tests/jenkins-2.356/smoke-lsp.py"
+          fi
+          "$PYTHON" "$LSP_SMOKE" "$LSP" target/prebuilt-package
       - name: Package platform binaries and verify checksum
         shell: bash
         env:
@@ -184,8 +204,8 @@ EOF
         with:
           name: tools-${{ matrix.platform }}
           path: |
-            target/jenkins-runtime-*.tar.gz
-            target/jenkins-runtime-*.tar.gz.sha256
+            target/jenkins-knowledge-tools-*.tar.gz
+            target/jenkins-knowledge-tools-*.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -225,7 +245,7 @@ EOF
           git merge-base --is-ancestor "$GITHUB_SHA" origin/master
       - name: Package, checksum, and verify Knowledge Package archive
         run: bash tests/jenkins-2.356/package-prebuilt-release.sh "$GITHUB_REF_NAME" target/prebuilt-package target/release "$GITHUB_SHA"
-      - name: Verify complete Runtime asset matrix
+      - name: Verify complete platform tool bundle matrix
         run: |
           set -euo pipefail
           for platform in linux-x86_64 macos-aarch64 macos-x86_64 windows-x86_64; do
