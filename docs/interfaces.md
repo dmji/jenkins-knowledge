@@ -228,8 +228,38 @@ OpenCode connects to local MCP servers over stdio. Its current configuration for
 
 1. Install OpenCode using its [official installation instructions](https://opencode.ai/docs/).
 2. Download the Runtime archive for your operating system and CPU architecture from the [Jenkins Knowledge Releases](https://github.com/dmji/jenkins-knowledge/releases) page. Each archive contains both jenkins-runtime and jenkins-mcp under bin/.
-3. Verify the archive's adjacent .sha256 file before extracting it. On Linux use sha256sum -c; on macOS use shasum -a 256 -c. On Windows PowerShell, compare the first field in the checksum file with (Get-FileHash <archive> -Algorithm SHA256).Hash.
-4. Select a Knowledge Package directory containing manifest.json. For a quick demonstration, use the release's reference package. For useful controller-specific answers, an administrator must first build a package from the user's own Jenkins instance and configured Shared Libraries.
+3. Verify the archive's adjacent .sha256 file before extracting it. On Linux use sha256sum -c; on macOS use shasum -a 256 -c. On Windows use Get-FileHash as shown below.
+4. Select a Knowledge Package directory containing manifest.json. For a quick demonstration, download the separate reference-package archive from the same release and verify its adjacent checksum. For useful controller-specific answers, an administrator must first build a package from the user's own Jenkins instance and configured Shared Libraries.
+
+For Linux x86_64, the download and verification sequence is:
+
+~~~sh
+TAG=v0.0.1
+PLATFORM=linux-x86_64
+ARCHIVE=jenkins-runtime-$TAG-$PLATFORM.tar.gz
+BASE=https://github.com/dmji/jenkins-knowledge/releases/download/$TAG
+curl -fLO $BASE/$ARCHIVE
+curl -fLO $BASE/$ARCHIVE.sha256
+sha256sum -c $ARCHIVE.sha256
+mkdir -p runtime && tar -xzf $ARCHIVE -C runtime
+MCP=$PWD/runtime/bin/jenkins-mcp
+~~~
+
+Use PLATFORM=macos-aarch64 or macos-x86_64 on macOS and replace the checksum command with shasum -a 256 -c. The Windows archive contains jenkins-mcp.exe. In PowerShell:
+
+~~~powershell
+$tag = "v0.0.1"
+$archive = "jenkins-runtime-$tag-windows-x86_64.tar.gz"
+$base = "https://github.com/dmji/jenkins-knowledge/releases/download/$tag"
+Invoke-WebRequest "$base/$archive" -OutFile $archive
+Invoke-WebRequest "$base/$archive.sha256" -OutFile "$archive.sha256"
+$expected = (Get-Content "$archive.sha256" -Raw).Trim().Split(' ')[0]
+$actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw "Runtime archive checksum mismatch" }
+New-Item -ItemType Directory -Force runtime | Out-Null
+tar -xzf $archive -C runtime
+$MCP = (Resolve-Path "runtime/bin/jenkins-mcp.exe").Path
+~~~
 
 The project-provided reference package is a fixed Jenkins 2.356 / Java 17 demonstration snapshot. It is not a current inventory of your controller. If the matching release archive is not yet published, build the MCP executable from the source checkout:
 
@@ -237,7 +267,7 @@ The project-provided reference package is a fixed Jenkins 2.356 / Java 17 demons
 cargo build --locked --release --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp
 ~~~
 
-Use target/release/jenkins-mcp as the command path in the OpenCode configuration. To collect your own package, configure a Builder profile and run the Builder from the repository with JENKINS_USERNAME and JENKINS_API_TOKEN supplied to the process:
+Use target/release/jenkins-mcp as the command path on Linux/macOS, or target/release/jenkins-mcp.exe on Windows. To collect your own package, configure a Builder profile and run the Builder from the repository with JENKINS_USERNAME and JENKINS_API_TOKEN supplied to the process:
 
 ~~~sh
 cargo run --locked --manifest-path crates/knowledge-builder/Cargo.toml -- \
@@ -270,7 +300,7 @@ Create or edit opencode.jsonc in the project where OpenCode will use Jenkins Kno
 }
 ~~~
 
-The server name jenkins_knowledge is intentionally simple: with codemode disabled, OpenCode exposes tools using the server prefix, for example jenkins_knowledge_search_api and jenkins_knowledge_get_pipeline_step. The explicit legacy protocol setting uses the initialize handshake supported by this server; do not force the newer 2026-07-28 protocol.
+The server name jenkins_knowledge is intentionally simple: with codemode disabled, OpenCode exposes tools using the server prefix, for example jenkins_knowledge_search_api and jenkins_knowledge_get_pipeline_step. The explicit legacy protocol setting uses the initialize handshake supported by this server; do not force the newer 2026-07-28 protocol. If you use the opencode mcp add shortcut instead of the JSONC example, Code Mode remains enabled by default; edit the generated server entry and set codemode to false to expose the direct tool names used here.
 
 On Windows, use the extracted .exe path and Windows package path, for example C:/Tools/jenkins-knowledge/bin/jenkins-mcp.exe and C:/JenkinsKnowledge/production. Forward slashes are accepted by Windows path handling and avoid JSON backslash escaping.
 
