@@ -2,7 +2,7 @@
 
 **Build or consume a versioned Jenkins Knowledge Package — with or without administering Jenkins.**
 
-Jenkins Knowledge separates administrator-controlled collection from developer queries. Builder reads the configured Jenkins controller and optional Shared Libraries, then produces an immutable Knowledge Package. Runtime, MCP, and VS Code use that package locally — without Jenkins credentials, Git access, or background collection.
+Jenkins Knowledge separates administrator-controlled collection from developer queries. Builder reads the configured Jenkins controller and optional Shared Libraries, then produces an immutable Knowledge Package. Runtime, MCP, and LSP-compatible editors use that package locally — without Jenkins credentials, Git access, or background collection.
 
 <div class="guide-summary">
   <div><strong>For administrators</strong><span>Collect and publish an evidence-backed package from an existing controller</span></div>
@@ -33,6 +33,7 @@ Both paths produce the same package contract and use the same offline Runtime. T
 - [Builder source and commands](https://github.com/dmji/jenkins-knowledge/tree/master/crates/knowledge-builder)
 - [Runtime and MCP](https://github.com/dmji/jenkins-knowledge/tree/master/crates/jenkins-runtime)
 - [VS Code extension](https://github.com/dmji/jenkins-knowledge/tree/master/editors/vscode)
+- [Neovim integration](https://github.com/dmji/jenkins-knowledge/tree/master/lua/jenkins_knowledge)
 
 ## Publishing
 
