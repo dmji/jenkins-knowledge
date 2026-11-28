@@ -231,7 +231,13 @@ OpenCode connects to local MCP servers over stdio. Its current configuration for
 3. Verify the archive's adjacent .sha256 file before extracting it. On Linux use sha256sum -c; on macOS use shasum -a 256 -c. On Windows PowerShell, compare the first field in the checksum file with (Get-FileHash <archive> -Algorithm SHA256).Hash.
 4. Select a Knowledge Package directory containing manifest.json. For a quick demonstration, use the release's reference package. For useful controller-specific answers, an administrator must first build a package from the user's own Jenkins instance and configured Shared Libraries.
 
-The project-provided reference package is a fixed Jenkins 2.356 / Java 17 demonstration snapshot. It is not a current inventory of your controller. To collect your own package, configure a Builder profile and run the Builder from the repository with JENKINS_USERNAME and JENKINS_API_TOKEN supplied to the process:
+The project-provided reference package is a fixed Jenkins 2.356 / Java 17 demonstration snapshot. It is not a current inventory of your controller. If the matching release archive is not yet published, build the MCP executable from the source checkout:
+
+~~~sh
+cargo build --locked --release --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp
+~~~
+
+Use target/release/jenkins-mcp as the command path in the OpenCode configuration. To collect your own package, configure a Builder profile and run the Builder from the repository with JENKINS_USERNAME and JENKINS_API_TOKEN supplied to the process:
 
 ~~~sh
 cargo run --locked --manifest-path crates/knowledge-builder/Cargo.toml -- \
@@ -283,7 +289,8 @@ Add --global before the separator if the server should be available to all OpenC
 1. From the project directory, run opencode mcp list. The jenkins_knowledge entry should report connected.
 2. Start OpenCode and run /mcps. Confirm the server is connected and its tools are listed.
 3. With codemode disabled, the tool names use the jenkins_knowledge_ prefix. Confirm search_api, get_api_details, list_api, get_usage_examples, get_pipeline_step, get_controller_inventory, and get_package_compatibility are available.
-4. Ask the agent to call search_api for a known Pipeline step from the selected package, then get_pipeline_step for the exact result. Confirm the response includes the package profile and source/confidence metadata.
+4. Ask the agent to list resources for jenkins_knowledge and read jenkins://catalog/manifest using OpenCode's built-in opencode_list_mcp_resources and opencode_read_mcp_resource tools.
+5. Ask the agent to call search_api for a known Pipeline step from the selected package, then get_pipeline_step for the exact result. Confirm the response includes the package profile and source/confidence metadata.
 
 If the server does not appear as connected, OpenCode could not complete the local process start or MCP initialize handshake. Follow the troubleshooting section below before asking the agent to use the tools.
 
