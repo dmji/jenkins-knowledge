@@ -63,10 +63,9 @@ Unknown, missing, inferred, or not-inspected evidence does not become an error. 
 
 ### VS Code setup
 
-Build the LSP executable and the repository's thin VS Code extension from the source checkout. The extension README contains the build and extension-host acceptance procedure.
+Use jenkins-lsp from the platform tool bundle and build the repository's thin VS Code extension from the source checkout. The extension README contains the build and extension-host acceptance procedure.
 
 ~~~sh
-cargo build --locked --release --manifest-path crates/jenkins-lsp/Cargo.toml
 cd editors/vscode
 npm ci
 npm run compile
@@ -76,7 +75,7 @@ Configure the extension in the workspace settings:
 
 ~~~json
 {
-  "jenkinsKnowledge.serverPath": "/opt/jenkins-knowledge/bin/jenkins-lsp",
+  "jenkinsKnowledge.serverPath": "/opt/jenkins-knowledge/tools/bin/jenkins-lsp",
   "jenkinsKnowledge.packagePath": "/srv/jenkins-knowledge/production-pipelines",
   "jenkinsKnowledge.profile": "production-pipelines",
   "files.associations": {
@@ -249,7 +248,7 @@ OpenCode connects to local MCP servers over stdio. Its current configuration for
 ~~~sh
 npm install -g @opencode/cli
 ~~~
-2. Download the Runtime archive for your operating system and CPU architecture from the [Jenkins Knowledge Releases](https://github.com/dmji/jenkins-knowledge/releases) page. Each archive contains both jenkins-runtime and jenkins-mcp under bin/.
+2. Download the platform tool bundle for your operating system and CPU architecture from the [Jenkins Knowledge Releases](https://github.com/dmji/jenkins-knowledge/releases) page. Each bundle contains knowledge-builder, jenkins-runtime, jenkins-mcp, jenkins-lsp, and groovy-stubs under bin/.
 3. Verify the archive's adjacent .sha256 file before extracting it. On Linux use sha256sum -c; on macOS use shasum -a 256 -c. On Windows use Get-FileHash as shown below.
 4. Select a Knowledge Package directory containing manifest.json. For a quick demonstration, download the separate reference-package archive from the same release and verify its adjacent checksum. For useful controller-specific answers, an administrator must first build a package from the user's own Jenkins instance and configured Shared Libraries.
 
@@ -258,13 +257,13 @@ For Linux x86_64, the download and verification sequence is:
 ~~~sh
 TAG=v0.0.1
 PLATFORM=linux-x86_64
-ARCHIVE=jenkins-runtime-$TAG-$PLATFORM.tar.gz
+ARCHIVE=jenkins-knowledge-tools-$TAG-$PLATFORM.tar.gz
 BASE=https://github.com/dmji/jenkins-knowledge/releases/download/$TAG
 curl -fLO $BASE/$ARCHIVE
 curl -fLO $BASE/$ARCHIVE.sha256
 sha256sum -c $ARCHIVE.sha256
-mkdir -p runtime && tar -xzf $ARCHIVE -C runtime
-MCP=$PWD/runtime/bin/jenkins-mcp
+mkdir -p tools && tar -xzf $ARCHIVE -C tools
+MCP=$PWD/tools/bin/jenkins-mcp
 PACKAGE_ARCHIVE=jenkins-knowledge-$TAG-jenkins-2.356-java17-deep.tar.gz
 curl -fLO $BASE/$PACKAGE_ARCHIVE
 curl -fLO $BASE/$PACKAGE_ARCHIVE.sha256
@@ -277,16 +276,16 @@ Use PLATFORM=macos-aarch64 or macos-x86_64 on macOS and replace the checksum com
 
 ~~~powershell
 $tag = "v0.0.1"
-$archive = "jenkins-runtime-$tag-windows-x86_64.tar.gz"
+$archive = "jenkins-knowledge-tools-$tag-windows-x86_64.tar.gz"
 $base = "https://github.com/dmji/jenkins-knowledge/releases/download/$tag"
 Invoke-WebRequest "$base/$archive" -OutFile $archive
 Invoke-WebRequest "$base/$archive.sha256" -OutFile "$archive.sha256"
 $expected = (Get-Content "$archive.sha256" -Raw).Trim().Split(' ')[0]
 $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw "Runtime archive checksum mismatch" }
-New-Item -ItemType Directory -Force runtime | Out-Null
-tar -xzf $archive -C runtime
-$MCP = (Resolve-Path "runtime/bin/jenkins-mcp.exe").Path
+New-Item -ItemType Directory -Force tools | Out-Null
+tar -xzf $archive -C tools
+$MCP = (Resolve-Path "tools/bin/jenkins-mcp.exe").Path
 ~~~
 
 The project-provided reference package is a fixed Jenkins 2.356 / Java 17 demonstration snapshot. It is not a current inventory of your controller. If the matching release archive is not yet published, build the MCP executable from the source checkout:
@@ -295,10 +294,10 @@ The project-provided reference package is a fixed Jenkins 2.356 / Java 17 demons
 cargo build --locked --release --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp
 ~~~
 
-Use target/release/jenkins-mcp as the command path on Linux/macOS, or target/release/jenkins-mcp.exe on Windows. To collect your own package, configure a Builder profile and run the Builder from the repository with JENKINS_USERNAME and JENKINS_API_TOKEN supplied to the process:
+Use bin/jenkins-mcp from the extracted tool bundle as the command path (bin/jenkins-mcp.exe on Windows). To collect your own package, configure a Builder profile and run the Builder from the repository with JENKINS_USERNAME and JENKINS_API_TOKEN supplied to the process:
 
 ~~~sh
-cargo run --locked --manifest-path crates/knowledge-builder/Cargo.toml -- \
+/opt/jenkins-knowledge/tools/bin/knowledge-builder \
   build profiles/your-controller.yml /srv/jenkins-knowledge/your-controller
 ~~~
 

@@ -88,7 +88,7 @@ read -r -s -p "Jenkins API token: " JENKINS_API_TOKEN
 printf '\\n'
 export JENKINS_API_TOKEN
 
-knowledge-builder build profiles/production-pipelines.yml ./out/production-pipelines-2026-11
+/opt/jenkins-knowledge/tools/bin/knowledge-builder build profiles/production-pipelines.yml ./out/production-pipelines-2026-11
 
 unset JENKINS_USERNAME JENKINS_API_TOKEN
 ```
@@ -147,19 +147,17 @@ Do not distribute Builder credentials or local snapshot-cache contents. Mount th
 
 ## 5. Configure local consumers
 
-Consumers need the package and their executable, not access to Jenkins or Git. Build the tools from the repository using the pinned toolchain, or deploy the corresponding release binaries. Use the [LSP and MCP interface guide]({{ '/interfaces.html' | relative_url }}) for the complete feature reference, copyable VS Code settings, MCP tool/resource schemas, and OpenCode setup.
+Consumers need the package and their executable, not access to Jenkins or Git. The platform tool bundle provides knowledge-builder, jenkins-runtime, jenkins-mcp, jenkins-lsp, and groovy-stubs for Linux x86_64, macOS Apple Silicon/Intel, and Windows x86_64. Download and verify the bundle as described in [prebuilt packages]({{ '/prebuilt-packages.html' | relative_url }}). The commands below use the extracted tools/bin directory. Use the [LSP and MCP interface guide]({{ '/interfaces.html' | relative_url }}) for the complete feature reference, editor setup, MCP schemas, and OpenCode configuration.
 
 ### Runtime CLI
 
 Runtime provides local search, listing, exact symbol lookup, examples, and Pipeline-step inspection:
 
 ```sh
-cargo build --release --locked --manifest-path crates/jenkins-runtime/Cargo.toml
-
-jenkins-runtime --package /srv/jenkins-knowledge/production-pipelines search deploy
-jenkins-runtime --package /srv/jenkins-knowledge/production-pipelines list --kind step
-jenkins-runtime --package /srv/jenkins-knowledge/production-pipelines get deployApp
-jenkins-runtime --package /srv/jenkins-knowledge/production-pipelines examples deployApp
+/opt/jenkins-knowledge/tools/bin/jenkins-runtime --package /srv/jenkins-knowledge/production-pipelines search deploy
+/opt/jenkins-knowledge/tools/bin/jenkins-runtime --package /srv/jenkins-knowledge/production-pipelines list --kind step
+/opt/jenkins-knowledge/tools/bin/jenkins-runtime --package /srv/jenkins-knowledge/production-pipelines get deployApp
+/opt/jenkins-knowledge/tools/bin/jenkins-runtime --package /srv/jenkins-knowledge/production-pipelines examples deployApp
 ```
 
 Use the release executable in production rather than invoking Cargo for each query. The package is required unless `JENKINS_KNOWLEDGE_PACKAGE` is set. If you specify `--profile`, it must match the manifest.
@@ -168,18 +166,19 @@ Use the release executable in production rather than invoking Cargo for each que
 
 The MCP server exposes one validated package over stdio. One process serves exactly one package/profile:
 
-```sh
-cargo build --release --locked --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp
-```
-
-Example client configuration (adjust absolute paths):
+Example OpenCode configuration (adjust absolute paths):
 
 ```json
 {
-  "mcpServers": {
-    "jenkins-knowledge": {
-      "command": "/opt/jenkins-knowledge/bin/jenkins-mcp",
-      "args": ["--package", "/srv/jenkins-knowledge/production-pipelines"]
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "jenkins_knowledge": {
+        "type": "local",
+        "command": ["/opt/jenkins-knowledge/tools/bin/jenkins-mcp", "--package", "/srv/jenkins-knowledge/production-pipelines"],
+        "protocol": "legacy",
+        "codemode": false
+      }
     }
   }
 }
@@ -189,10 +188,9 @@ The server exposes read-only search/list, symbol details, examples, Pipeline ste
 
 ### VS Code extension
 
-Build the LSP and extension, then point the workspace settings at the local executable and package:
+Use jenkins-lsp from the tool bundle and build the repository's VS Code extension, then point the workspace settings at the local executable and package:
 
 ```sh
-cargo build --release --locked --manifest-path crates/jenkins-lsp/Cargo.toml
 cd editors/vscode
 npm ci
 npm run compile
@@ -200,7 +198,7 @@ npm run compile
 
 ```json
 {
-  "jenkinsKnowledge.serverPath": "/opt/jenkins-knowledge/bin/jenkins-lsp",
+  "jenkinsKnowledge.serverPath": "/opt/jenkins-knowledge/tools/bin/jenkins-lsp",
   "jenkinsKnowledge.packagePath": "/srv/jenkins-knowledge/production-pipelines",
   "jenkinsKnowledge.profile": "production-pipelines",
   "files.associations": {
@@ -216,7 +214,7 @@ At this point, validate the workflow from the consumer side: Runtime returns exp
 
 ## 6. Keep the deployment current
 
-Knowledge refresh is an explicit Builder operation. Runtime, MCP, and LSP do not poll Jenkins, contact Git, or refresh in the background.
+Knowledge refresh is an explicit Builder operation. Runtime, MCP, LSP, and groovy-stubs do not poll Jenkins, contact Git, or refresh in the background.
 
 For every update, repeat the collection and publication stages into a **new output directory**:
 

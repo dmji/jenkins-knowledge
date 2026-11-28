@@ -2,15 +2,7 @@
 
 The **jenkins-mcp** executable exposes one validated Knowledge Package over local MCP stdio. It is not an HTTP endpoint: the client starts the process and exchanges newline-delimited JSON-RPC over stdin/stdout. One process serves one package/profile and reads it once at startup.
 
-Build and run from a source checkout:
-
-~~~sh
-cargo build --locked --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp
-cargo run --locked --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-mcp -- \
-  --package /srv/jenkins-knowledge/production-pipelines
-~~~
-
-In production, use the **jenkins-mcp** executable from the platform Runtime archive rather than invoking Cargo. Select the package with **--package** or **JENKINS_KNOWLEDGE_PACKAGE**. The process does not contact Jenkins/Git, execute Pipeline steps, refresh a package, or mutate package contents.
+In production, use the **jenkins-mcp** executable from the platform tool bundle. It is located under bin/jenkins-mcp in the extracted archive. Select the package with **--package** or **JENKINS_KNOWLEDGE_PACKAGE**. The process does not contact Jenkins/Git, execute Pipeline steps, refresh a package, or mutate package contents.
 
 ## OpenCode
 
@@ -24,7 +16,7 @@ OpenCode is the first fully documented AI-agent integration. Its current configu
       "jenkins_knowledge": {
         "type": "local",
         "command": [
-          "/opt/jenkins-knowledge/bin/jenkins-mcp",
+          "/opt/jenkins-knowledge/tools/bin/jenkins-mcp",
           "--package",
           "/srv/jenkins-knowledge/production-pipelines"
         ],

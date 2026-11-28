@@ -2,10 +2,9 @@
 
 The repository's VS Code extension is a thin client for the Rust **jenkins-lsp** executable. It uses the Language Server Protocol over stdio and reads a selected local Knowledge Package through Runtime. It does not start Builder or connect to Jenkins/Git.
 
-Build the LSP and extension from the repository root:
+Use jenkins-lsp from the extracted platform tool bundle and build the VS Code extension from the repository root:
 
 ~~~sh
-cargo build --release --locked --manifest-path crates/jenkins-lsp/Cargo.toml
 cd editors/vscode
 npm ci
 npm run compile
@@ -15,7 +14,7 @@ Configure the workspace:
 
 ~~~json
 {
-  "jenkinsKnowledge.serverPath": "/opt/jenkins-knowledge/bin/jenkins-lsp",
+  "jenkinsKnowledge.serverPath": "/opt/jenkins-knowledge/tools/bin/jenkins-lsp",
   "jenkinsKnowledge.packagePath": "/srv/jenkins-knowledge/production-pipelines",
   "jenkinsKnowledge.profile": "production-pipelines",
   "files.associations": {

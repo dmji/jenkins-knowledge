@@ -29,8 +29,10 @@ package:
 Replace the illustrative SHA or omit `commit`. YAML is strict; unknown keys are errors. One controller per package is supported.
 
 ```sh
-cargo run --manifest-path crates/knowledge-builder/Cargo.toml -- plan profiles/production-pipelines.yml
-cargo run --manifest-path crates/knowledge-builder/Cargo.toml -- build profiles/production-pipelines.yml ./out/production-pipelines-2026-11
+/opt/jenkins-knowledge/tools/bin/knowledge-builder plan profiles/production-pipelines.yml
+/opt/jenkins-knowledge/tools/bin/knowledge-builder build profiles/production-pipelines.yml ./out/production-pipelines-2026-11
 ```
+
+The platform tool bundle supplies knowledge-builder. The Builder requires Jenkins credentials through the process environment and Git on PATH when the profile includes Shared Library repositories; see the [prebuilt tool bundle guide]({{ '/prebuilt-packages.html' | relative_url }}).
 
 The output path must not exist. Retries are explicit. Only fully successful controller snapshots are cached locally; cache data is not part of the package.

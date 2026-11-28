@@ -11,6 +11,7 @@ on:
       - "crates/shared-library-scanner/**"
       - "crates/catalog-validator/**"
       - "crates/jenkins-runtime/**"
+      - "crates/jenkins-lsp/**"
       - "schemas/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -27,6 +28,7 @@ on:
       - "crates/shared-library-scanner/**"
       - "crates/catalog-validator/**"
       - "crates/jenkins-runtime/**"
+      - "crates/jenkins-lsp/**"
       - "schemas/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -63,7 +65,7 @@ jobs:
           retention-days: 30
 
   build-runtime-binaries:
-    name: Runtime binaries (${{ matrix.platform }})
+    name: Tool bundle (${{ matrix.platform }})
     if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
     needs: build-prebuilt-package
     strategy:
@@ -91,24 +93,17 @@ jobs:
         with:
           name: jenkins-2356-prebuilt-knowledge-package
           path: target/prebuilt-package
-      - name: Build Runtime CLI and MCP server
-        run: cargo build --locked --release --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime --bin jenkins-mcp
-      - name: Smoke-test packaged executables against the reference package
-        shell: bash
+      - name: Checkout release smoke helper from master
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: master
+          path: smoke-helpers
+      - name: Build all user-facing executables
         run: |
-          set -euo pipefail
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            CLI="target/release/jenkins-runtime.exe"
-            MCP="target/release/jenkins-mcp.exe"
-          else
-            CLI="target/release/jenkins-runtime"
-            MCP="target/release/jenkins-mcp"
-          fi
-          "$CLI" --help
-          "$CLI" --package target/prebuilt-package plugins > target/runtime-plugins.json
-          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"release-smoke-test","version":"1"}}}' |
-            "$MCP" --package target/prebuilt-package > target/mcp-initialize.json
-          grep -q '"protocolVersion":"2025-06-18"' target/mcp-initialize.json
+          cargo build --locked --release --manifest-path crates/knowledge-builder/Cargo.toml
+          cargo build --locked --release --manifest-path crates/jenkins-runtime/Cargo.toml --bin jenkins-runtime --bin jenkins-mcp --bin groovy-stubs
+          cargo build --locked --release --manifest-path crates/jenkins-lsp/Cargo.toml --bin jenkins-lsp
       - name: Package platform binaries and verify checksum
         shell: bash
         env:
@@ -116,31 +111,116 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
-          STAGING="target/runtime-${PLATFORM}"
+          STAGING="target/tools-${PLATFORM}"
           mkdir -p "$STAGING/bin"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp target/release/knowledge-builder.exe "$STAGING/bin/"
             cp target/release/jenkins-runtime.exe "$STAGING/bin/"
             cp target/release/jenkins-mcp.exe "$STAGING/bin/"
+            cp target/release/jenkins-lsp.exe "$STAGING/bin/"
+            cp target/release/groovy-stubs.exe "$STAGING/bin/"
           else
+            cp target/release/knowledge-builder "$STAGING/bin/"
             cp target/release/jenkins-runtime "$STAGING/bin/"
             cp target/release/jenkins-mcp "$STAGING/bin/"
-            chmod 755 "$STAGING/bin/jenkins-runtime" "$STAGING/bin/jenkins-mcp"
+            cp target/release/jenkins-lsp "$STAGING/bin/"
+            cp target/release/groovy-stubs "$STAGING/bin/"
+            chmod 755 "$STAGING/bin/knowledge-builder" "$STAGING/bin/jenkins-runtime" "$STAGING/bin/jenkins-mcp" "$STAGING/bin/jenkins-lsp" "$STAGING/bin/groovy-stubs"
           fi
-          printf '%s\n' 'Jenkins Knowledge Runtime: jenkins-runtime CLI and jenkins-mcp stdio server.' 'Download and verify the separate Knowledge Package archive. Both programs are offline and read-only.' > "$STAGING/README.txt"
-          ARCHIVE="jenkins-runtime-${RELEASE_TAG}-${PLATFORM}.tar.gz"
+          cat > "$STAGING/README.txt" <<'EOF'
+          Jenkins Knowledge platform tool bundle
+
+          bin/knowledge-builder  Build/refresh a Knowledge Package from a configured Jenkins controller.
+          bin/jenkins-runtime    Offline CLI for searching and inspecting a selected package.
+          bin/jenkins-mcp        Local MCP stdio server for AI-agent clients.
+          bin/jenkins-lsp        Local LSP stdio server for editor integrations.
+          bin/groovy-stubs       Offline Groovy stub generator for a selected package.
+
+          Builder collection requires Git, network access to the configured Jenkins/Shared Library sources,
+          and credentials supplied through JENKINS_USERNAME and JENKINS_API_TOKEN. Runtime, MCP, LSP,
+          and groovy-stubs only read a local package and do not contact Jenkins/Git.
+
+          Builder usage: knowledge-builder plan <profile.yml> and knowledge-builder build <profile.yml> <package-dir>.
+          Runtime usage: jenkins-runtime --package <package-dir> search <query>.
+          Stub generation: groovy-stubs --package <package-dir> --output <stubs.groovy>.
+          The MCP server receives --package <directory> (or JENKINS_KNOWLEDGE_PACKAGE).
+          The LSP server receives packagePath/profile in the LSP initialize.initializationOptions.
+          See https://github.com/dmji/jenkins-knowledge for profiles and integration configuration.
+          EOF
+          ARCHIVE="jenkins-knowledge-tools-${RELEASE_TAG}-${PLATFORM}.tar.gz"
           tar -czf "target/$ARCHIVE" -C "$STAGING" .
           (cd target && sha256sum "$ARCHIVE" > "$ARCHIVE.sha256")
           (cd target && sha256sum --check "$ARCHIVE.sha256")
           tar -tzf "target/$ARCHIVE" > "target/$ARCHIVE.contents"
+          grep -q 'bin/knowledge-builder' "target/$ARCHIVE.contents"
           grep -q 'bin/jenkins-runtime' "target/$ARCHIVE.contents"
           grep -q 'bin/jenkins-mcp' "target/$ARCHIVE.contents"
+          grep -q 'bin/jenkins-lsp' "target/$ARCHIVE.contents"
+          grep -q 'bin/groovy-stubs' "target/$ARCHIVE.contents"
+      - name: Smoke-test extracted platform tool bundle
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          EXTRACTED="target/extracted-tools"
+          ARCHIVE="target/jenkins-knowledge-tools-${RELEASE_TAG}-${PLATFORM}.tar.gz"
+          mkdir -p "$EXTRACTED"
+          tar -xzf "$ARCHIVE" -C "$EXTRACTED"
+          BIN="$EXTRACTED/bin"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then PYTHON=python; else PYTHON=python3; fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            BUILDER="$BIN/knowledge-builder.exe"
+            CLI="$BIN/jenkins-runtime.exe"
+            MCP="$BIN/jenkins-mcp.exe"
+            LSP="$BIN/jenkins-lsp.exe"
+            STUBS="$BIN/groovy-stubs.exe"
+          else
+            BUILDER="$BIN/knowledge-builder"
+            CLI="$BIN/jenkins-runtime"
+            MCP="$BIN/jenkins-mcp"
+            LSP="$BIN/jenkins-lsp"
+            STUBS="$BIN/groovy-stubs"
+          fi
+          set +e
+          "$BUILDER" --help > target/builder-help.txt 2>&1
+          BUILDER_HELP_STATUS=$?
+          set -e
+          if [[ "$BUILDER_HELP_STATUS" -ne 0 && "$BUILDER_HELP_STATUS" -ne 2 ]]; then
+            cat target/builder-help.txt
+            exit "$BUILDER_HELP_STATUS"
+          fi
+          grep -q 'knowledge-builder build' target/builder-help.txt
+          "$BUILDER" plan profiles/prebuilt-jenkins-2.356.yml > target/builder-plan.json
+          "$PYTHON" -c 'import json; p=json.load(open("target/builder-plan.json")); assert p'
+          "$CLI" --help
+          "$CLI" --package target/prebuilt-package plugins > target/runtime-plugins.json
+          "$STUBS" --help
+          "$STUBS" --package target/prebuilt-package --output target/groovy-stubs.groovy
+          test -s target/groovy-stubs.groovy
+          cat <<'JSONL' | "$MCP" --package target/prebuilt-package > target/mcp-smoke.jsonl
+          {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"release-smoke-test","version":"1"}}}
+          {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+          {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+          {"jsonrpc":"2.0","id":3,"method":"resources/list","params":{}}
+          JSONL
+          grep -q '"protocolVersion":"2025-06-18"' target/mcp-smoke.jsonl
+          grep -q '"name":"search_api"' target/mcp-smoke.jsonl
+          grep -q '"uri":"jenkins://catalog/manifest"' target/mcp-smoke.jsonl
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            LSP_SMOKE="smoke-helpers/tests/jenkins-2.356/smoke-lsp.py"
+          else
+            LSP_SMOKE="tests/jenkins-2.356/smoke-lsp.py"
+          fi
+          "$PYTHON" "$LSP_SMOKE" "$LSP" target/prebuilt-package
       - name: Upload verified platform archive
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: runtime-${{ matrix.platform }}
+          name: tools-${{ matrix.platform }}
           path: |
-            target/jenkins-runtime-*.tar.gz
-            target/jenkins-runtime-*.tar.gz.sha256
+            target/jenkins-knowledge-tools-*.tar.gz
+            target/jenkins-knowledge-tools-*.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -168,10 +248,10 @@ jobs:
         with:
           name: jenkins-2356-prebuilt-knowledge-package
           path: target/prebuilt-package
-      - name: Download all verified Runtime platform archives
+      - name: Download all verified platform tool bundles
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          pattern: runtime-*
+          pattern: tools-*
           path: target/runtime-assets
           merge-multiple: true
       - name: Require a version tag pointing to master
@@ -180,30 +260,36 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" origin/master
       - name: Package, checksum, and verify Knowledge Package archive
         run: bash tests/jenkins-2.356/package-prebuilt-release.sh "$GITHUB_REF_NAME" target/prebuilt-package target/release "$GITHUB_SHA"
-      - name: Verify complete Runtime asset matrix
+      - name: Verify complete platform tool bundle matrix
         run: |
           set -euo pipefail
           for platform in linux-x86_64 macos-aarch64 macos-x86_64 windows-x86_64; do
-            archive="target/runtime-assets/jenkins-runtime-${GITHUB_REF_NAME}-${platform}.tar.gz"
+            archive="target/runtime-assets/jenkins-knowledge-tools-${GITHUB_REF_NAME}-${platform}.tar.gz"
             test -s "$archive"
             test -s "$archive.sha256"
             (cd target/runtime-assets && sha256sum --check "$(basename "$archive").sha256")
             tar -tzf "$archive" > "$archive.contents"
+            grep -q 'bin/knowledge-builder' "$archive.contents"
             grep -q 'bin/jenkins-runtime' "$archive.contents"
             grep -q 'bin/jenkins-mcp' "$archive.contents"
+            grep -q 'bin/jenkins-lsp' "$archive.contents"
+            grep -q 'bin/groovy-stubs' "$archive.contents"
           done
       - name: Add platform support and quick-start notes
         run: |
           cat >> target/release/RELEASE-NOTES.md <<'EOF'
 
-          ## Runtime downloads
+          ## Platform tool bundles
 
-          Download the Runtime archive matching your host platform and the separate
+          Download the tool bundle matching your host platform and the separate
           Knowledge Package archive. Verify each checksum before extraction.
-          Each Runtime archive contains the jenkins-runtime CLI and jenkins-mcp server.
-          Supported hosts: Linux x86_64, macOS Apple Silicon (aarch64), macOS Intel
-          (x86_64), and Windows x86_64. No Rust toolchain or source checkout is required.
+          Each bundle contains knowledge-builder, jenkins-runtime, jenkins-mcp,
+          jenkins-lsp, and groovy-stubs. Supported hosts: Linux x86_64, macOS Apple
+          Silicon (aarch64), macOS Intel (x86_64), and Windows x86_64. No Rust
+          toolchain or source checkout is required to run the bundled executables.
 
+          Builder collection requires network access and Jenkins/Git credentials.
+          Runtime, MCP, LSP, and groovy-stubs are offline package consumers.
           Runtime validates the package manifest, embedded manifest/catalog schemas,
           package metadata, and declared SHA-256 checksums when opening a package.
           This is a format/schema compatibility check, not a guarantee that a

@@ -2,7 +2,7 @@
 
 **Build or consume a versioned Jenkins Knowledge Package — with or without administering Jenkins.**
 
-Jenkins Knowledge separates administrator-controlled collection from developer queries. Builder reads the configured Jenkins controller and optional Shared Libraries, then produces an immutable Knowledge Package. Runtime, MCP, and VS Code use that package locally — without Jenkins credentials, Git access, or background collection.
+Jenkins Knowledge separates administrator-controlled collection from developer queries. Builder reads the configured Jenkins controller and optional Shared Libraries, then produces an immutable Knowledge Package. Runtime, MCP, and LSP-compatible editors use that package locally — without Jenkins credentials, Git access, or background collection.
 
 <div class="guide-summary">
   <div><strong>For administrators</strong><span>Collect and publish an evidence-backed package from an existing controller</span></div>
@@ -12,7 +12,7 @@ Jenkins Knowledge separates administrator-controlled collection from developer q
 
 ## Choose your starting point
 
-- **No Jenkins controller to collect from?** Start with a [published prebuilt package]({{ '/prebuilt-packages.html' | relative_url }}). Releases include the package plus ready-to-run CLI/MCP archives for Linux, macOS, and Windows; no Rust toolchain or source checkout is required. Browse the [GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases).
+- **No Jenkins controller to collect from?** Start with a [published prebuilt package]({{ '/prebuilt-packages.html' | relative_url }}). Releases include the package plus ready-to-run Builder/Runtime/MCP/LSP/Groovy-stub tool bundles for Linux, macOS, and Windows; no Rust toolchain or source checkout is required. Browse the [GitHub Releases page](https://github.com/dmji/jenkins-knowledge/releases).
 - **Need knowledge from your own Jenkins?** Follow the [custom deployment guide]({{ '/reference-deployment/guide.html' | relative_url }}). An administrator configures Builder for the real controller, Java runtime, plugin inventory, and Shared Libraries; developers consume the resulting package locally.
 
 Both paths produce the same package contract and use the same offline Runtime. The [optional local demo]({{ '/reference-deployment/demo-environment/walkthrough.html' | relative_url }}) is a disposable Builder example, not a prerequisite for the prebuilt path.
@@ -31,6 +31,7 @@ Both paths produce the same package contract and use the same offline Runtime. T
 
 - [Builder source and commands](https://github.com/dmji/jenkins-knowledge/tree/master/crates/knowledge-builder)
 - [Runtime and MCP](https://github.com/dmji/jenkins-knowledge/tree/master/crates/jenkins-runtime)
+- [LSP server](https://github.com/dmji/jenkins-knowledge/tree/master/crates/jenkins-lsp)
 - [VS Code extension](https://github.com/dmji/jenkins-knowledge/tree/master/editors/vscode)
 
 ## Publishing
