@@ -18,6 +18,14 @@ function M.setup(opts)
   assert(type(opts.package_path) == "string" and opts.package_path ~= "",
     "jenkins_knowledge.setup: package_path is required")
 
+  vim.filetype.add({
+    filename = { Jenkinsfile = "groovy" },
+    pattern = {
+      ["Jenkinsfile%..+"] = "groovy",
+      [".*%.jenkinsfile"] = "groovy",
+    },
+  })
+
   local package_path = vim.fn.fnamemodify(opts.package_path, ":p")
   local server_path = opts.server_path or "jenkins-lsp"
 
