@@ -45,7 +45,7 @@ Create `lua/plugins/jenkins-knowledge.lua` in your LazyVim configuration:
 return {
   {
     "dmji/jenkins-knowledge",
-    ft = "groovy",
+    lazy = false,
     config = function()
       require("jenkins_knowledge").setup({
         server_path = "/opt/jenkins-knowledge/bin/jenkins-lsp",
