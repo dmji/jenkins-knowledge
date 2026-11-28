@@ -185,10 +185,13 @@ bin/jenkins-mcp        Local MCP stdio server for AI-agent clients.
 bin/jenkins-lsp        Local LSP stdio server for editor integrations.
 bin/groovy-stubs       Offline Groovy stub generator for a selected package.
 
-Builder collection requires network access to the configured Jenkins/Shared Library sources
+Builder collection requires Git, network access to the configured Jenkins/Shared Library sources,
 and credentials supplied through JENKINS_USERNAME and JENKINS_API_TOKEN. Runtime, MCP, LSP,
 and groovy-stubs only read a local package and do not contact Jenkins/Git.
 
+Builder usage: knowledge-builder plan <profile.yml> and knowledge-builder build <profile.yml> <package-dir>.
+Runtime usage: jenkins-runtime --package <package-dir> search <query>.
+Stub generation: groovy-stubs --package <package-dir> --output <stubs.groovy>.
 The MCP server receives --package <directory> (or JENKINS_KNOWLEDGE_PACKAGE).
 The LSP server receives packagePath/profile in the LSP initialize.initializationOptions.
 See https://github.com/dmji/jenkins-knowledge for profiles and integration configuration.
