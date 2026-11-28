@@ -61,6 +61,14 @@ Both installation paths call the same `setup()` function and use the same Rust L
 
 ## Verify the integration
 
+Run the headless configuration smoke test from the repository root with Neovim 0.12.6:
+
+```sh
+nvim --headless -u NONE -l tests/neovim/config-smoke.lua
+```
+
+Then perform an end-to-end check against a real package:
+
 1. Start Neovim 0.12.6 and open a Jenkinsfile.
 2. Run `:set filetype?`; it should report `filetype=groovy`.
 3. Run `:checkhealth vim.lsp` and confirm `jenkins_knowledge` is enabled.
