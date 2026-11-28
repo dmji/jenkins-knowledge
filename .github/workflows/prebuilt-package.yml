@@ -108,6 +108,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$RUNNER_OS" == "Windows" ]]; then PYTHON=python; else PYTHON=python3; fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             BUILDER="target/release/knowledge-builder.exe"
             CLI="target/release/jenkins-runtime.exe"
@@ -145,7 +146,6 @@ jobs:
           grep -q '"protocolVersion":"2025-06-18"' target/mcp-smoke.jsonl
           grep -q '"name":"search_api"' target/mcp-smoke.jsonl
           grep -q '"uri":"jenkins://catalog/manifest"' target/mcp-smoke.jsonl
-          if [[ "$RUNNER_OS" == "Windows" ]]; then PYTHON=python; else PYTHON=python3; fi
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             LSP_SMOKE="smoke-helpers/tests/jenkins-2.356/smoke-lsp.py"
           else
