@@ -131,14 +131,17 @@ jobs:
           fi
           grep -q 'knowledge-builder build' target/builder-help.txt
           "$BUILDER" plan profiles/prebuilt-jenkins-2.356.yml > target/builder-plan.json
-          python3 -c 'import json; p=json.load(open("target/builder-plan.json")); assert p'
+          "$PYTHON" -c 'import json; p=json.load(open("target/builder-plan.json")); assert p'
           "$CLI" --help
           "$CLI" --package target/prebuilt-package plugins > target/runtime-plugins.json
           "$STUBS" --help
           "$STUBS" --package target/prebuilt-package --output target/groovy-stubs.groovy
           test -s target/groovy-stubs.groovy
-          printf '%s\\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"release-smoke-test","version":"1"}}}' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' '{"jsonrpc":"2.0","id":3,"method":"resources/list","params":{}}' |
-            "$MCP" --package target/prebuilt-package > target/mcp-smoke.jsonl
+          cat <<'JSONL' | "$MCP" --package target/prebuilt-package > target/mcp-smoke.jsonl
+          {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"release-smoke-test","version":"1"}}}
+          {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+          {"jsonrpc":"2.0","id":3,"method":"resources/list","params":{}}
+          JSONL
           grep -q '"protocolVersion":"2025-06-18"' target/mcp-smoke.jsonl
           grep -q '"name":"search_api"' target/mcp-smoke.jsonl
           grep -q '"uri":"jenkins://catalog/manifest"' target/mcp-smoke.jsonl
