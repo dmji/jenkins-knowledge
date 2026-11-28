@@ -61,6 +61,10 @@ The server publishes diagnostics only when the relevant catalog evidence is expl
 
 Unknown, missing, inferred, or not-inspected evidence does not become an error. Diagnostics include symbol/source identifiers, revision, provenance, confidence, and package profile.
 
+### Neovim setup
+
+For stock Neovim 0.12.6 and LazyVim, use the built-in vim.pack manager and native LSP APIs. See the [Neovim integration guide]({{ '/neovim.html' | relative_url }}) for installation, package selection, filetype boundaries, and a real completion/hover smoke test.
+
 ### VS Code setup
 
 Build the LSP executable and the repository's thin VS Code extension from the source checkout. The extension README contains the build and extension-host acceptance procedure.
