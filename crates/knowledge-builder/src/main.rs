@@ -5,6 +5,14 @@ use std::{env, fs, path::Path, process::ExitCode};
 fn main() -> ExitCode {
     let args: Vec<_> = env::args().skip(1).collect();
     match args.as_slice() {
+        [flag] if flag == "-h" || flag == "--help" => {
+            println!("usage:\n  knowledge-builder plan <profile.yml>\n  knowledge-builder build <profile.yml> <output-package-directory>\n  knowledge-builder refresh <profile.yml> <output-package-directory>\n  knowledge-builder invalidate <profile.yml>\n\noptions:\n  -h, --help       Print this help\n  -V, --version    Print version");
+            ExitCode::SUCCESS
+        }
+        [flag] if flag == "-V" || flag == "--version" => {
+            println!("knowledge-builder {}", env!("CARGO_PKG_VERSION"));
+            ExitCode::SUCCESS
+        }
         [command, profile, output] if command == "build" || command == "refresh" => {
             match build_package_with_options(
                 Path::new(profile),
