@@ -39,7 +39,7 @@ editors/vscode/ Thin VS Code extension host
 
 Rust is the primary implementation language. Builder, Runtime, MCP server, CLI, catalog validation, scanners, and package tooling are implemented in Rust. Groovy is limited to Jenkins/Groovy compatibility, generated stubs, and fixtures. The VS Code extension host is a thin TypeScript layer required by the VS Code API.
 
-The root Cargo workspace includes all seven Rust crates. The pinned stable toolchain installs `rustfmt` and `clippy`. No Gradle/JVM build system is used.
+The root Cargo workspace includes all eight Rust crates. The pinned stable toolchain installs `rustfmt` and `clippy`. No Gradle/JVM build system is used.
 
 ## Development environment
 
